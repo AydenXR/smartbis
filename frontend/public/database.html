@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBis | Data Explorer</title>
+    <link rel="icon" href="/img/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard.css?v=6.0">
+    <script>
+        if (sessionStorage.getItem('sb_session') !== 'active') {
+            window.location.href = '/';
+        }
+    </script>
+    <style>
+        .db-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .file-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-light);
+            border-radius: 18px;
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+            position: relative;
+        }
+        .file-card:hover { border-color: var(--accent-primary); background: rgba(16, 185, 129, 0.05); transform: translateY(-5px); }
+        .file-icon { width: 48px; height: 48px; background: rgba(16, 185, 129, 0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--accent-primary); }
+        .file-info .name { font-weight: 700; font-size: 14px; color: white; margin-bottom: 2px; }
+        .file-info .meta { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 800; }
+        .delete-btn { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: #f87171; border: none; display: flex; align-items: center; justify-content: center; font-size: 12px; opacity: 0; transition: 0.3s; }
+        .file-card:hover .delete-btn { opacity: 1; }
+        .delete-btn:hover { background: #ef4444; color: white; }
+        .result-item { background: rgba(255,255,255,0.02); border: 1px solid var(--border-light); border-radius: 16px; padding: 20px; margin-bottom: 12px; }
+        .editor-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(20px); z-index: 2000; display: none; align-items: center; justify-content: center; }
+        .editor-modal.active { display: flex; }
+        .editor-pane { width: 90%; max-width: 1100px; height: 85vh; background: var(--bg-deep); border: 1px solid var(--border-light); border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; }
+        .editor-textarea { flex: 1; background: transparent; border: none; padding: 40px; color: var(--text-main); font-family: 'Fira Code', monospace; font-size: 15px; line-height: 1.8; resize: none; outline: none; }
+        .app-viewport { grid-template-columns: 1fr 380px; }
+        /* Sync Status Pill */
+        .app-status.syncing::before { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; }
+        .app-status.syncing { color: #f59e0b; background: rgba(245, 158, 11, 0.05); border-color: rgba(245, 158, 11, 0.1); }
+    </style>
+</head>
+<body class="metrics-body dashboard-view">
+    <header class="app-header">
+        <div class="logo-area" style="display: flex; align-items: center; gap: 12px;">
+            <div class="logo-box"><img src="/img/logo.png" alt="Logo" class="app-logo-img"></div>
+            <div class="title-box">
+                <h1 class="glow-text" style="font-size: 26px; margin: 0; background: linear-gradient(to right, #10b981, #ffffff); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; letter-spacing: -1px;">SmartBis</h1>
+            </div>
+        </div>
+        <nav class="app-nav" style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+            <button class="nav-btn" onclick="window.location.href='/dashboard.html'">💬 CHATS</button>
+            <button class="nav-btn" onclick="window.location.href='/whatsapp.html'">📱 WHATSAPP</button>
+            <button class="nav-btn active">📁 DATA & FILES</button>
+            <button class="nav-btn" onclick="window.location.href='/calendario.html'">📅 CALENDARIO</button>
+        </nav>
+        <div class="header-actions" style="display: flex; align-items: center; gap: 20px;">
+            <div id="sync-pill" class="app-status">Sincronizado</div>
+            <button onclick="sessionStorage.clear(); window.location.href='/';" class="logout-btn">Salir</button>
+        </div>
+    </header>
+
+    <main class="app-viewport">
+        <section class="app-panel">
+            <div class="panel-header" style="justify-content: space-between;">
+                <h2>Base de Conocimiento</h2>
+                <button onclick="createNewFile()" class="primary-btn" style="padding: 10px 20px; font-size: 12px; width: auto !important; flex: none !important;">+ ARCHIVO</button>
+            </div>
+            <div class="scroll-area">
+                <div id="files-grid" class="db-grid"></div>
+            </div>
+        </section>
+
+        <div class="right-columns-group">
+            <aside class="app-panel" style="flex: none; min-height: 250px;">
+                <div class="panel-header"><h2>IA Engine</h2></div>
+                <div class="scroll-area">
+                    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 20px;">Actualiza el cerebro del bot si has realizado cambios en los archivos.</p>
+                    <button id="ingestBtn" onclick="ingestData()" class="primary-btn" style="width: 100%; letter-spacing: 1px; margin-bottom: 20px;">⚡ INGESTAR CONOCIMIENTO</button>
+                    <div class="form-group">
+                        <label>Simulador de Consulta</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="dbSearch" class="app-input" placeholder="¿Qué sabe el bot...?" style="flex: 1;">
+                            <button onclick="performSearch()" class="user-profile-btn" style="width: 44px; height: 44px;">🔍</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+            <aside class="app-panel">
+                <div class="panel-header"><h2>Resultados RAG</h2></div>
+                <div id="results-area" class="scroll-area">
+                    <div class="empty-state">Realiza una consulta para ver cómo fragmenta el bot la información.</div>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <div id="editorModal" class="editor-modal">
+        <div class="editor-pane">
+            <div class="panel-header" style="justify-content: space-between;">
+                <h2 id="editorTitle">Editor Brain</h2>
+                <input type="text" id="editorFilename" class="app-input" style="width: 300px;" placeholder="nombre.md">
+            </div>
+            <textarea id="editorTextarea" class="editor-textarea"></textarea>
+            <div class="modal-footer" style="padding: 20px 40px; border-top: 1px solid var(--border-light);">
+                <button onclick="closeEditor()" class="ghost-btn">CANCELAR</button>
+                <button id="saveFileBtn" onclick="saveFile()" class="primary-btn">GUARDAR CAMBIOS</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function api(path, options = {}) {
+            const r = await fetch(path, options);
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || 'Err');
+            return d;
+        }
+
+        async function updateSyncStatus() {
+            try {
+                const data = await api('/api/notebook/status');
+                const pill = document.getElementById('sync-pill');
+                if (data.pending) {
+                    pill.textContent = 'Cambios Pendientes';
+                    pill.className = 'app-status syncing';
+                } else {
+                    pill.textContent = 'Sincronizado';
+                    pill.className = 'app-status online';
+                }
+            } catch (e) {}
+        }
+
+        async function loadFiles() {
+            try {
+                const data = await api('/api/notebook/files');
+                document.getElementById('files-grid').innerHTML = data.items.map(file => `
+                    <div class="file-card" onclick="editFile('${file.name}')">
+                        <button class="delete-btn" onclick="deleteFile(event, '${file.name}')">×</button>
+                        <div class="file-icon">📄</div>
+                        <div class="file-info"><div class="name">${file.name}</div><div class="meta">${file.sections} secciones</div></div>
+                    </div>
+                `).join('');
+            } catch (e) { console.error(e); }
+        }
+
+        async function editFile(name) {
+            try {
+                document.getElementById('editorTitle').textContent = `Editando: ${name}`;
+                document.getElementById('editorFilename').value = name;
+                document.getElementById('editorFilename').readOnly = true;
+                const data = await api(`/api/notebook/file?name=${encodeURIComponent(name)}`);
+                document.getElementById('editorTextarea').value = data.content;
+                document.getElementById('editorModal').classList.add('active');
+            } catch (e) { alert(e.message); }
+        }
+
+        function createNewFile() {
+            document.getElementById('editorTitle').textContent = "Nuevo Archivo Brain";
+            document.getElementById('editorFilename').value = "";
+            document.getElementById('editorFilename').readOnly = false;
+            document.getElementById('editorTextarea').value = "";
+            document.getElementById('editorModal').classList.add('active');
+        }
+
+        function closeEditor() { document.getElementById('editorModal').classList.remove('active'); }
+
+        async function saveFile() {
+            const name = document.getElementById('editorFilename').value.trim();
+            const content = document.getElementById('editorTextarea').value;
+            try {
+                await api('/api/notebook/file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, content }) });
+                closeEditor(); loadFiles(); updateSyncStatus();
+            } catch (e) { alert(e.message); }
+        }
+
+        async function deleteFile(event, name) {
+            event.stopPropagation();
+            if(!confirm(`¿Eliminar ${name}?`)) return;
+            try {
+                await api(`/api/notebook/file?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+                loadFiles(); updateSyncStatus();
+            } catch (e) { alert(e.message); }
+        }
+
+        async function ingestData() {
+            const btn = document.getElementById('ingestBtn');
+            try {
+                btn.disabled = true; btn.textContent = '⚡ PROCESANDO...';
+                await api('/api/notebook/ingest', { method: 'POST' });
+                alert("Conocimiento actualizado."); loadFiles(); updateSyncStatus();
+            } catch (e) { alert(e.message); }
+            finally { btn.disabled = false; btn.textContent = '⚡ INGESTAR CONOCIMIENTO'; }
+        }
+
+        async function performSearch() {
+            const q = document.getElementById('dbSearch').value.trim();
+            if(!q) return;
+            const resArea = document.getElementById('results-area');
+            resArea.innerHTML = '<div class="empty-state">Escaneando cerebro vectorial...</div>';
+            try {
+                const data = await api(`/api/notebook/search?q=${encodeURIComponent(q)}`);
+                if(!data.items?.length) { resArea.innerHTML = '<div class="empty-state">No se encontró información.</div>'; return; }
+                resArea.innerHTML = data.items.map(it => `<div class="result-item"><div style="display:flex; justify-content:space-between; margin-bottom:10px;"><span style="font-size:10px; font-weight:800; color:var(--accent-primary);">${it.section.fileName}</span><span style="font-size:10px; color:var(--text-dim);">${Math.round(it.score)}%</span></div><div style="font-size:13px; color:var(--text-main); line-height:1.5;">${it.section.text}</div></div>`).join('');
+            } catch (e) { resArea.innerHTML = `Error: ${e.message}`; }
+        }
+
+        setInterval(updateSyncStatus, 5000);
+        updateSyncStatus();
+        loadFiles();
+    </script>
+</body>
+</html>

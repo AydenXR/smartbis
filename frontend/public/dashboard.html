@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBis | Panel de Control</title>
+    <link rel="icon" href="/img/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard.css?v=6.0">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/metrics-config.js"></script>
+    <script>
+        if (sessionStorage.getItem('sb_session') !== 'active') {
+            window.location.href = '/';
+        }
+    </script>
+</head>
+<body class="metrics-body dashboard-view">
+    <header class="app-header">
+        <div class="logo-area" style="display: flex; align-items: center; gap: 12px;">
+            <div class="logo-box">
+                <img src="/img/logo.png" alt="Logo" class="app-logo-img">
+            </div>
+            <div class="title-box">
+                <h1 class="glow-text" style="font-size: 26px; margin: 0; background: linear-gradient(to right, #008BCF, #ffffff); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; letter-spacing: -1px;">SmartBis</h1>
+            </div>
+        </div>
+
+        <nav class="app-nav" style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+            <button class="nav-btn active" onclick="window.location.href='/dashboard.html'">
+                <span class="icon">💬</span> CHATS
+            </button>
+            <button class="nav-btn" onclick="window.location.href='/whatsapp.html'">
+                <span class="icon">📱</span> WHATSAPP
+            </button>
+            <button class="nav-btn" onclick="window.location.href='/calendario.html'">
+                <span class="icon">📅</span> CALENDARIO
+            </button>
+        </nav>
+
+        <div class="header-actions" style="display: flex; align-items: center; gap: 20px;">
+            <div class="bot-switches" style="display: flex; align-items: center; gap: 15px; background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);">
+                <!-- Messenger Switch -->
+                <div class="switch-group" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 10px; font-weight: 800; color: #3b82f6;">MESSENGER</span>
+                    <label class="sb-switch">
+                        <input type="checkbox" id="messengerStatus" onchange="toggleBotStatus('messenger', this.checked)">
+                        <span class="sb-slider messenger"></span>
+                    </label>
+                </div>
+                <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1);"></div>
+                <!-- WhatsApp Switch -->
+                <div class="switch-group" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 10px; font-weight: 800; color: #10b981;">WHATSAPP</span>
+                    <label class="sb-switch">
+                        <input type="checkbox" id="whatsappStatus" onchange="toggleBotStatus('whatsapp', this.checked)">
+                        <span class="sb-slider whatsapp"></span>
+                    </label>
+                </div>
+            </div>
+
+            <button id="profileBtn" class="user-profile-btn" style="width: 28px; height: 28px; border: none; background: transparent; padding: 0; cursor: pointer;">
+                <img src="/img/user.png" alt="Perfil" style="width: 100%; height: 100%; object-fit: contain;">
+            </button>
+            <button onclick="sessionStorage.clear(); window.location.href='/';" class="logout-btn">Salir</button>
+        </div>
+    </header>
+
+    <main class="app-viewport">
+        <!-- Dashboard Content Container (Cleaned for Chats) -->
+        <div id="dashboard-content" style="display: contents;">
+            
+            <!-- LISTA DE CHATS -->
+            <aside class="app-panel">
+                <div class="panel-header" style="justify-content: space-between;">
+                    <h2>Conversaciones</h2>
+                    <span id="chat-count" class="badge">0</span>
+                </div>
+                <div class="filter-tabs" style="display:flex; gap:4px; padding:8px; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <button class="filter-btn active" onclick="filterByPlatform('all', this)" style="flex:1; font-size:10px; padding:6px; border-radius:8px; border:none; background:rgba(255,255,255,0.05); color:white; cursor:pointer;">Todos</button>
+                    <button class="filter-btn" onclick="filterByPlatform('whatsapp', this)" style="flex:1; font-size:10px; padding:6px; border-radius:8px; border:none; background:transparent; color:var(--text-dim); cursor:pointer;">WhatsApp</button>
+                    <button class="filter-btn" onclick="filterByPlatform('messenger', this)" style="flex:1; font-size:10px; padding:6px; border-radius:8px; border:none; background:transparent; color:var(--text-dim); cursor:pointer;">Messenger</button>
+                </div>
+                <div class="scroll-area no-padding">
+                    <div id="chat-list-container" class="chat-list">
+                        <!-- Perfiles de chat dinámicos -->
+                        <div class="empty-state">No hay chats activos</div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- CHAT ACTIVO -->
+            <section class="app-panel">
+                <div class="panel-header" style="justify-content: space-between;">
+                    <h2 id="current-chat-name">Selecciona un chat</h2>
+                    <div class="header-actions">
+                        <!-- Botones de acción para el chat si se necesitan -->
+                    </div>
+                </div>
+                <div class="scroll-area conversation-container" style="flex: 1;">
+                    <div id="chat-messages" class="messages-grid">
+                        <div class="empty-state">Esperando interacción...</div>
+                    </div>
+                </div>
+
+                <!-- REPLY BOX -->
+                <div class="reply-box">
+                    <textarea id="replyTextarea" class="reply-textarea" placeholder="Escribe un mensaje..."></textarea>
+                    <button id="sendReplyBtn" class="send-reply-btn">
+                        <span>▲</span>
+                    </button>
+                </div>
+            </section>
+
+        <div class="right-columns-group" style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- PANEL SUPERIOR: DETALLES -->
+            <aside class="app-panel" style="flex: 1;">
+                <div class="panel-header">
+                    <h2>Detalles del Usuario</h2>
+                </div>
+                <div class="scroll-area">
+                    <div id="user-info-detail" class="user-card-detail">
+                        <p class="text-dim">Selecciona una conversación para ver los metadatos del usuario.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- PANEL INFERIOR: FILTRO Y GRÁFICA -->
+            <aside class="app-panel" style="flex: 1;">
+                <div class="panel-header">
+                    <h2>Tráfico y Filtros</h2>
+                </div>
+                <div class="scroll-area" style="padding: 20px; overflow: hidden;">
+                    <div class="calendar-container" style="margin-bottom: 15px;">
+                        <label class="form-group label" style="display:block; margin-bottom:8px; font-size:11px; color:var(--text-dim); text-transform:uppercase;">Filtrar por Fecha</label>
+                        <input type="date" id="dateFilter" class="app-input" style="width:100%; padding: 10px;">
+                    </div>
+                    
+                    <div style="height: 160px; margin-top:10px;">
+                        <canvas id="messagesChart"></canvas>
+                    </div>
+                </div>
+            </aside>
+        </div>
+        </div>
+    </main>
+
+    <!-- Modal Cambio de Contraseña (Obligatorio) -->
+    <div id="passModal" class="modal hidden">
+        <div class="modal-card">
+            <h2 id="passModalTitle">Cambiar Contraseña</h2>
+            <p id="passModalDesc">Ingresa los datos para actualizar tu acceso.</p>
+            
+            <div class="form-group" style="margin-top:24px; text-align:left;">
+                <label>Contraseña Actual</label>
+                <input type="password" id="oldPassInput" class="app-input" placeholder="Tu contraseña hoy">
+            </div>
+
+            <div class="form-group" style="margin-top:15px; text-align:left;">
+                <label>Nueva Contraseña</label>
+                <input type="password" id="newPassInput" class="app-input" placeholder="Mínimo 4 caracteres">
+            </div>
+
+            <div class="form-group" style="margin-top:15px; text-align:left;">
+                <label>Confirmar Nueva Contraseña</label>
+                <input type="password" id="confirmPassInput" class="app-input" placeholder="Repite la nueva">
+            </div>
+
+            <div id="passError" class="error-text"></div>
+            
+            <div class="modal-footer">
+                <button id="savePassBtn" class="primary-btn">ACTUALIZAR SEGURIDAD</button>
+                <button id="cancelPassBtn" class="ghost-btn">CANCELAR</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js?v=6.0"></script>
+</body>
+</html>

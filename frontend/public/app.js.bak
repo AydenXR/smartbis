@@ -1,0 +1,263 @@
+const statusEl = document.getElementById("status");
+const collectionSelect = document.getElementById("collectionSelect");
+const fileFilter = document.getElementById("fileFilter");
+const queryFilter = document.getElementById("queryFilter");
+const refreshBtn = document.getElementById("refreshBtn");
+const loadAllBtn = document.getElementById("loadAllBtn");
+const ingestBtn = document.getElementById("ingestBtn");
+const statsGrid = document.getElementById("statsGrid");
+const pointsTableBody = document.querySelector("#pointsTable tbody");
+const detailView = document.getElementById("detailView");
+const countInfo = document.getElementById("countInfo");
+const ingestModal = document.getElementById("ingestModal");
+const ingestCancelBtn = document.getElementById("ingestCancelBtn");
+const ingestSlider = document.getElementById("ingestSlider");
+const ingestSliderHandle = document.getElementById("ingestSliderHandle");
+const ingestSliderFill = document.getElementById("ingestSliderFill");
+const ingestSliderLabel = document.getElementById("ingestSliderLabel");
+
+let allPoints = [];
+let filteredPoints = [];
+let dragActive = false;
+let sliderHoldTimer = null;
+let sliderHoldInterval = null;
+let sliderConfirmed = false;
+let sliderHoldRemaining = 5;
+let sliderMax = 0;
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || "api_error");
+  return data;
+}
+
+function resetIngestSlider() {
+  sliderConfirmed = false;
+  sliderHoldRemaining = 5;
+  ingestSliderHandle.style.transform = "translateX(0px)";
+  ingestSliderFill.style.width = "0px";
+  ingestSliderLabel.textContent = "Desliza para confirmar";
+  if (sliderHoldTimer) clearTimeout(sliderHoldTimer);
+  if (sliderHoldInterval) clearInterval(sliderHoldInterval);
+  sliderHoldTimer = null;
+  sliderHoldInterval = null;
+}
+
+function openIngestModal() {
+  resetIngestSlider();
+  ingestModal.classList.remove("hidden");
+}
+
+function closeIngestModal() {
+  ingestModal.classList.add("hidden");
+}
+
+function setSliderPosition(x) {
+  const trackRect = ingestSlider.getBoundingClientRect();
+  const handleWidth = ingestSliderHandle.offsetWidth;
+  sliderMax = Math.max(0, trackRect.width - handleWidth);
+  const clamped = Math.min(sliderMax, Math.max(0, x));
+  ingestSliderHandle.style.transform = `translateX(${clamped}px)`;
+  ingestSliderFill.style.width = `${clamped + handleWidth}px`;
+  if (clamped >= sliderMax - 2 && !sliderConfirmed) {
+    startHoldTimer();
+  }
+}
+
+function startHoldTimer() {
+  if (sliderHoldTimer || sliderConfirmed) return;
+  sliderHoldRemaining = 5;
+  ingestSliderLabel.textContent = `Mantén ${sliderHoldRemaining}s`;
+  sliderHoldInterval = setInterval(() => {
+    sliderHoldRemaining -= 1;
+    if (sliderHoldRemaining > 0) {
+      ingestSliderLabel.textContent = `Mantén ${sliderHoldRemaining}s`;
+    }
+  }, 1000);
+  sliderHoldTimer = setTimeout(async () => {
+    sliderConfirmed = true;
+    ingestSliderLabel.textContent = "Confirmado";
+    if (sliderHoldInterval) clearInterval(sliderHoldInterval);
+    sliderHoldInterval = null;
+    try {
+      statusEl.textContent = "Iniciando ingesta...";
+      ingestBtn.disabled = true;
+      await api("/api/ingest", { method: "POST", headers: { "Content-Type": "application/json" } });
+      statusEl.textContent = "Ingesta iniciada";
+    } catch (e) {
+      statusEl.textContent = `Error ingesta: ${e.message}`;
+    } finally {
+      ingestBtn.disabled = false;
+      closeIngestModal();
+    }
+  }, 5000);
+}
+
+function renderStats(stats) {
+  const items = [
+    { label: "Total puntos", value: stats.totalPoints ?? 0 },
+    { label: "Total vectores", value: stats.vectorsCount ?? 0 },
+    { label: "Segmentos", value: stats.segmentsCount ?? 0 },
+    { label: "Dimensión", value: stats.vectorSize ?? 0 },
+  ];
+  statsGrid.innerHTML = items
+    .map(
+      (item) => `<div class="stat"><div class="label">${item.label}</div><div class="value">${item.value}</div></div>`
+    )
+    .join("");
+}
+
+function short(text, max = 120) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+function renderTable() {
+  pointsTableBody.innerHTML = "";
+  const top = filteredPoints.slice(0, 800);
+  for (const point of top) {
+    const payload = point.payload || {};
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="mono">${short(point.id, 28)}</td>
+      <td>${short(payload.fileName, 30)}</td>
+      <td>${short(payload.title, 60)}</td>
+      <td>${short(payload.cleanCourseTitle || payload.courseTitle, 60)}</td>
+      <td>${short(payload.text, 120)}</td>
+    `;
+    tr.addEventListener("click", () => {
+      detailView.textContent = JSON.stringify(point, null, 2);
+    });
+    pointsTableBody.appendChild(tr);
+  }
+  countInfo.textContent = `Mostrando ${top.length} de ${filteredPoints.length} resultados`;
+}
+
+function applyFilters() {
+  const file = fileFilter.value.trim().toLowerCase();
+  const q = queryFilter.value.trim().toLowerCase();
+  filteredPoints = allPoints.filter((point) => {
+    const payload = point.payload || {};
+    const sameFile = !file || String(payload.fileName || "").toLowerCase() === file;
+    if (!sameFile) return false;
+    if (!q) return true;
+    const haystack = `${payload.fileName || ""} ${payload.title || ""} ${payload.courseTitle || ""} ${payload.cleanCourseTitle || ""} ${payload.text || ""}`.toLowerCase();
+    return haystack.includes(q);
+  });
+  renderTable();
+}
+
+function fillFileOptions(points) {
+  const files = [...new Set(points.map((p) => p?.payload?.fileName).filter(Boolean))].sort();
+  fileFilter.innerHTML = `<option value="">Todos</option>${files
+    .map((file) => `<option value="${file}">${file}</option>`)
+    .join("")}`;
+}
+
+async function loadCollections() {
+  statusEl.textContent = "Cargando colecciones...";
+  const data = await api("/api/collections");
+  const collections = data.collections || [];
+  collectionSelect.innerHTML = collections
+    .map((c) => `<option value="${c.name}">${c.name}</option>`)
+    .join("");
+  if (!collections.length) statusEl.textContent = "Sin colecciones";
+}
+
+async function loadStats() {
+  const name = collectionSelect.value;
+  if (!name) return;
+  const data = await api(`/api/collection/${encodeURIComponent(name)}/stats`);
+  const vectors = data.collection?.config?.params?.vectors || {};
+  const vectorDef = vectors[""] || vectors;
+  const pointsCount = Number(data.collection?.points_count ?? data.count ?? 0);
+  const vectorsCount = Number(
+    data.collection?.vectors_count ??
+      data.collection?.vectors_count_total ??
+      pointsCount
+  );
+  renderStats({
+    totalPoints: pointsCount,
+    vectorsCount,
+    segmentsCount: data.collection?.segments_count || 0,
+    vectorSize: vectorDef?.size || 0,
+  });
+}
+
+async function loadAllPoints() {
+  const name = collectionSelect.value;
+  if (!name) return;
+  statusEl.textContent = "Cargando puntos...";
+  const fileName = fileFilter.value || "";
+  const query = fileName ? `?fileName=${encodeURIComponent(fileName)}` : "";
+  const data = await api(`/api/collection/${encodeURIComponent(name)}/all${query}`);
+  allPoints = data.points || [];
+  fillFileOptions(allPoints);
+  applyFilters();
+  statusEl.textContent = `Carga completa: ${allPoints.length} puntos`;
+}
+
+async function boot() {
+  try {
+    await api("/api/health");
+    await loadCollections();
+    await loadStats();
+    await loadAllPoints();
+    statusEl.textContent = "Conectado";
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+  }
+}
+
+refreshBtn.addEventListener("click", async () => {
+  await loadStats();
+  await loadAllPoints();
+});
+
+loadAllBtn.addEventListener("click", async () => {
+  await loadAllPoints();
+});
+
+collectionSelect.addEventListener("change", async () => {
+  await loadStats();
+  await loadAllPoints();
+});
+
+fileFilter.addEventListener("change", applyFilters);
+queryFilter.addEventListener("input", applyFilters);
+
+ingestBtn.addEventListener("click", openIngestModal);
+ingestCancelBtn.addEventListener("click", closeIngestModal);
+ingestModal.addEventListener("click", (event) => {
+  if (event.target === ingestModal) closeIngestModal();
+});
+
+function handlePointerMove(event) {
+  if (!dragActive || sliderConfirmed) return;
+  const trackRect = ingestSlider.getBoundingClientRect();
+  const handleWidth = ingestSliderHandle.offsetWidth;
+  const x = event.clientX - trackRect.left - handleWidth / 2;
+  setSliderPosition(x);
+}
+
+function handlePointerUp() {
+  if (!dragActive) return;
+  dragActive = false;
+  if (!sliderConfirmed) resetIngestSlider();
+  document.removeEventListener("pointermove", handlePointerMove);
+  document.removeEventListener("pointerup", handlePointerUp);
+}
+
+function handlePointerDown(event) {
+  if (sliderConfirmed) return;
+  dragActive = true;
+  handlePointerMove(event);
+  document.addEventListener("pointermove", handlePointerMove);
+  document.addEventListener("pointerup", handlePointerUp);
+}
+
+ingestSliderHandle.addEventListener("pointerdown", handlePointerDown);
+ingestSlider.addEventListener("pointerdown", handlePointerDown);
+
+boot();

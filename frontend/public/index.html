@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBis | AI Intelligence</title>
+    <link rel="icon" href="/img/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/index.css?v=6.0">
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <div class="login-card">
+        <div class="logo-container">
+            <img src="/img/logo.png" alt="SmartBis Logo">
+        </div>
+        <h1>SmartBis AI</h1>
+        <p>Sistema de Gestión Inteligente.<br>Introduce tus credenciales para continuar.</p>
+
+        <form id="auth-form">
+            <div class="input-group">
+                <label>Master Password</label>
+                <div class="input-wrapper">
+                    <input type="password" id="pass" placeholder="••••••••" required autofocus>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-access">ENTRAR AL SISTEMA</button>
+            <div id="error-msg"></div>
+        </form>
+
+        <div class="footer-note">
+            &copy; 2026 Development by Villcode Network. Todos los derechos reservados.
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        const form = document.getElementById('auth-form');
+        const error = document.getElementById('error-msg');
+        const card = document.querySelector('.login-card');
+
+        async function loadBranding() {
+            try {
+                const res = await fetch('/api/branding');
+                const data = await res.json();
+                document.querySelector('.logo-container img').src = data.appLogo;
+                document.querySelector('.login-card h1').textContent = data.appName + " AI";
+                document.title = `${data.appName} | AI Intelligence`;
+            } catch (e) { console.error(e); }
+        }
+        loadBranding();
+
+        let width, height, rows, cols;
+        const cellSize = 14;
+        const gap = 8;
+        const mouse = { x: -1000, y: -1000 };
+        const pixels = [];
+        let isOverCard = false;
+        let cardRect = { top: 0, left: 0, right: 0, bottom: 0 };
+
+        function init() {
+            if (!canvas) return;
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            cols = Math.ceil(width / (cellSize + gap));
+            rows = Math.ceil(height / (cellSize + gap));
+            
+            const rect = card.getBoundingClientRect();
+            cardRect = {
+                top: rect.top - 20,
+                left: rect.left - 20,
+                right: rect.right + 20,
+                bottom: rect.bottom + 20
+            };
+
+            pixels.length = 0;
+            for (let i = 0; i < cols; i++) {
+                for (let j = 0; j < rows; j++) {
+                    pixels.push({
+                        baseX: i * (cellSize + gap),
+                        baseY: j * (cellSize + gap),
+                        x: i * (cellSize + gap),
+                        y: j * (cellSize + gap),
+                        vx: 0,
+                        vy: 0,
+                        life: Math.random() * 100,
+                        blinkSpeed: 0.02 + Math.random() * 0.08,
+                        isBursting: false,
+                        burstFactor: 0
+                    });
+                }
+            }
+        }
+
+        window.addEventListener('resize', init);
+        document.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            isOverCard = (
+                mouse.x > cardRect.left && 
+                mouse.x < cardRect.right && 
+                mouse.y > cardRect.top && 
+                mouse.y < cardRect.bottom
+            );
+        });
+
+        let interactionFactor = 1;
+
+        function draw() {
+            if (!ctx) return;
+            ctx.clearRect(0, 0, width, height);
+            interactionFactor += (isOverCard ? -interactionFactor : (1 - interactionFactor)) * 0.1;
+            const atmosphere = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width);
+            atmosphere.addColorStop(0, 'rgba(15, 23, 42, 0)');
+            atmosphere.addColorStop(1, 'rgba(2, 6, 23, 0.8)');
+            ctx.fillStyle = atmosphere;
+            ctx.fillRect(0, 0, width, height);
+
+            pixels.forEach(p => {
+                const dx = mouse.x - p.x;
+                const dy = mouse.y - p.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 180) {
+                    const force = ((180 - dist) / 180) * interactionFactor;
+                    const angle = Math.atan2(dy, dx);
+                    p.vx -= Math.cos(angle) * force * 12;
+                    p.vy -= Math.sin(angle) * force * 12;
+                }
+                p.vx += (p.baseX - p.x) * 0.15;
+                p.vy += (p.baseY - p.y) * 0.15;
+                p.vx *= 0.82; 
+                p.vy *= 0.82;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life += p.blinkSpeed;
+                if (Math.random() < 0.0001) p.isBursting = true;
+                if (p.isBursting) {
+                    p.burstFactor += 0.1;
+                    if (p.burstFactor >= 1) {
+                        p.isBursting = false;
+                        p.burstFactor = 0;
+                    }
+                }
+                const distFromMouse = Math.sqrt((mouse.x - p.x)**2 + (mouse.y - p.y)**2);
+                let flicker = Math.pow(Math.sin(p.life), 10);
+                let opacity = 0.02 + flicker * 0.12; 
+                let finalSize = cellSize;
+                if (distFromMouse < 200) {
+                    const factor = (1 - distFromMouse / 200) * interactionFactor;
+                    opacity += factor * 0.75;
+                    finalSize = cellSize + factor * 6;
+                }
+                if (p.isBursting) opacity += Math.sin(p.burstFactor * Math.PI) * 0.8;
+                ctx.fillStyle = `rgba(0, 139, 207, ${opacity})`;
+                const r = 3;
+                ctx.beginPath();
+                ctx.moveTo(p.x + r, p.y);
+                ctx.lineTo(p.x + finalSize - r, p.y);
+                ctx.quadraticCurveTo(p.x + finalSize, p.y, p.x + finalSize, p.y + r);
+                ctx.lineTo(p.x + finalSize, p.y + finalSize - r);
+                ctx.quadraticCurveTo(p.x + finalSize, p.y + finalSize, p.x + finalSize - r, p.y + finalSize);
+                ctx.lineTo(p.x + r, p.y + finalSize);
+                ctx.quadraticCurveTo(p.x, p.y + finalSize, p.x, p.y + finalSize - r);
+                ctx.lineTo(p.x, p.y + r);
+                ctx.quadraticCurveTo(p.x, p.y, p.x + r, p.y);
+                ctx.fill();
+            });
+            requestAnimationFrame(draw);
+        }
+
+        init();
+        draw();
+        
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const pass = document.getElementById('pass').value;
+            error.textContent = 'Verificando...';
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pass })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    sessionStorage.setItem('sb_session', 'active');
+                    if (data.is_default) sessionStorage.setItem('sb_must_change', 'true');
+                    window.location.href = '/dashboard.html';
+                } else {
+                    error.textContent = data.error || 'Acceso denegado.';
+                    document.getElementById('pass').value = '';
+                }
+            } catch (err) {
+                error.textContent = 'Error de conexión con el servidor.';
+            }
+        };
+    </script>
+</body>
+</html>

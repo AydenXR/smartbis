@@ -1,0 +1,9 @@
+tunnel: acd3f659-dd29-4364-a060-e1317927f5ae
+credentials-file: /etc/cloudflared/credentials.json
+protocol: http2
+ingress:
+  - hostname: webhook.salubel.online
+    service: http://bot:3000
+  - hostname: panel.salubel.online
+    service: http://frontend:4173
+  - service: http_status:404

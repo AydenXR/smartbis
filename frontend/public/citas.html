@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBis | Citas</title>
+    <link rel="icon" href="/img/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard.css?v=6.0">
+    <script>
+        if (sessionStorage.getItem('sb_session') !== 'active') {
+            window.location.href = '/';
+        }
+    </script>
+</head>
+<body class="metrics-body config-view">
+    <header class="app-header">
+        <div class="logo-area" style="display: flex; align-items: center; gap: 12px;">
+            <div class="logo-box">
+                <img src="/img/logo.png" alt="Logo" class="app-logo-img">
+            </div>
+            <div class="title-box">
+                <h1 class="glow-text" style="font-size: 26px; margin: 0; background: linear-gradient(to right, #10b981, #ffffff); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; letter-spacing: -1px;">SmartBis</h1>
+            </div>
+        </div>
+
+        <nav class="app-nav" style="display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+            <button class="nav-btn" onclick="window.location.href='/dashboard.html'">💬 CHATS</button>
+            <button class="nav-btn" onclick="window.location.href='/whatsapp.html'">📱 WHATSAPP</button>
+            <button class="nav-btn" onclick="window.location.href='/database.html'">📁 DATA & FILES</button>
+            <button class="nav-btn active">📅 CITAS</button>
+        </nav>
+
+        <div class="header-actions">
+            <button onclick="sessionStorage.clear(); window.location.href='/';" class="logout-btn">Salir</button>
+        </div>
+    </header>
+
+    <main class="app-viewport" style="grid-template-columns: 400px 1fr; gap: 24px; padding: 24px;">
+        <!-- Configuración -->
+        <aside class="app-panel">
+            <div class="panel-header">
+                <h2>Configuración de Ventana</h2>
+            </div>
+            <div class="scroll-area" style="padding: 24px;">
+                <form id="config-form" class="config-form">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Hora de Inicio</label>
+                        <input type="time" id="startTime" class="app-input" required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Hora de Fin</label>
+                        <input type="time" id="endTime" class="app-input" required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Horario Especial Sábados (Fin)</label>
+                        <input type="time" id="saturdayEndTime" class="app-input" placeholder="Opcional">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Días de Descanso (0=Dom, 6=Sáb)</label>
+                        <input type="text" id="skipDays" class="app-input" placeholder="Ej: 0,6">
+                        <small style="font-size: 10px; color: var(--text-dim);">Escribe los números separados por comas.</small>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Duración de Cita (minutos)</label>
+                        <input type="number" id="durationMinutes" class="app-input" value="120" required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>Espacio entre Citas (minutos)</label>
+                        <input type="number" id="gapMinutes" class="app-input" value="20" required>
+                    </div>
+                    <button type="submit" class="primary-btn" style="width: 100%;">GUARDAR CONFIGURACIÓN</button>
+                </form>
+                <div id="config-status" style="margin-top: 15px; font-size: 14px; text-align: center;"></div>
+            </div>
+        </aside>
+
+        <!-- Visualización de Citas -->
+        <section class="app-panel">
+            <div class="panel-header" style="justify-content: space-between;">
+                <h2>Disponibilidad y Citas</h2>
+                <input type="date" id="view-date" class="app-input" style="width: 200px;">
+            </div>
+            <div class="scroll-area" style="padding: 24px;">
+                <div id="slots-container" class="slots-grid">
+                    <div class="empty-state">Selecciona una fecha para ver la disponibilidad</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script type="module" src="/citas.js"></script>
+</body>
+</html>

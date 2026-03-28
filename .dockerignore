@@ -1,0 +1,10 @@
+.git
+node_modules
+qdrant_data
+postgres_data
+data
+cloudflared
+.env
+frontend/node_modules
+.wwebjs_auth
+data/baileys_auth
