@@ -1,6 +1,6 @@
 #!/bin/bash
 # SmartBis Universal Deployment Wizard v3.0 - "Multi-Business Turnkey"
-# Creado por SmartBis para despliegues dinámicos (Pizzerías, Mecánicos, Clínicas, etc.)
+# Creado por SmartBis para despliegues dinámicos.
 
 # --- CONFIGURACIÓN DE COLORES ---
 RED='\033[0;31m'
@@ -36,7 +36,7 @@ check_system() {
     echo -e "✅ Sistema listo para despegar."
 }
 
-# Función para encontrar un puerto libre a partir de uno base
+# Función para encontrar un puerto libre
 find_free_port() {
     local port=$1
     while lsof -Pi :$port -sTCP:LISTEN -t >/dev/null ; do
@@ -55,17 +55,19 @@ echo "  ____) | | | | | | (_| | |  | |_| |_) | \__ \""
 echo " |_____/|_| |_| |_|\__,_|_|   \__|____/|_|___/"
 echo -e "${NC}"
 
+echo -e "${CYAN}====================================================${NC}"
+type_text "¡Bienvenido al Asistente de Configuración de SmartBis!"
+type_text "Este script te guiará paso a paso para dejar tu empresa lista."
+echo -e "${CYAN}====================================================${NC}"
+echo ""
+
 check_system
 sleep 1
 
-echo -en "${CYAN}SmartBis:${NC} "
-type_text "¡Hola! Estoy listo para configurar una nueva instancia personalizada."
-echo -en "${CYAN}SmartBis:${NC} "
-type_text "Este sistema ahora es capaz de adaptarse a cualquier negocio: Pizzería, Mecánico, Clínica, etc."
-echo -e ""
-
 # --- PASO 1: IDENTIFICADOR DE INSTANCIA ---
-echo -e "${YELLOW}[ PASO 1: MI IDENTIDAD ]${NC}"
+echo -e ""
+echo -e "${YELLOW}[ PASO 1: IDENTIDAD DEL PROYECTO ]${NC}"
+echo -e "Este ID se usará para nombrar tus contenedores y base de datos."
 INSTANCE_DEFAULT=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
 echo -en "${CYAN}SmartBis:${NC} ¿Qué ID le daremos a esta instancia? [Default: $INSTANCE_DEFAULT]: "
 read INSTANCE_ID
@@ -74,63 +76,72 @@ COMPOSE_PROJECT_NAME=$(echo "$INSTANCE_ID" | tr '[:upper:]' '[:lower:]' | tr -d 
 
 # --- PASO 2: REDES ---
 echo -e ""
-echo -e "${YELLOW}[ PASO 2: REDES ]${NC}"
-echo -en "${CYAN}SmartBis:${NC} Escaneando puertos libres..."
+echo -e "${YELLOW}[ PASO 2: CONFIGURACIÓN DE RED ]${NC}"
+echo -en "${CYAN}SmartBis:${NC} Escaneando puertos disponibles..."
 
 FREE_BOT=$(find_free_port 3000)
 FREE_FRONT=$(find_free_port 4173)
 FREE_DB=$(find_free_port 6333)
 
 echo -e ""
-echo -e "✅ Puertos seleccionados:"
-echo -e "   - Bot & API:   ${GREEN}$FREE_BOT${NC}"
-echo -e "   - Panel Admin: ${GREEN}$FREE_FRONT${NC}"
-echo -e "   - Database:    ${GREEN}$FREE_DB${NC}"
+echo -e "✅ Puertos asignados automáticamente:"
+echo -e "   - Bot (Puerto API): ${GREEN}$FREE_BOT${NC}"
+echo -e "   - Panel de Control: ${GREEN}$FREE_FRONT${NC}"
+echo -e "   - Base de Datos:    ${GREEN}$FREE_DB${NC}"
 
-# --- PASO 3: CONFIGURACIÓN DEL NEGOCIO ---
+# --- PASO 3: DATOS DEL NEGOCIO ---
 echo -e ""
-echo -e "${YELLOW}[ PASO 3: CORAZÓN DEL NEGOCIO ]${NC}"
+echo -e "${YELLOW}[ PASO 3: CORAZÓN DE TU NEGOCIO ]${NC}"
+echo -e "Estos datos son los que el Bot usará para presentarse ante tus clientes."
 
-# Cargar valores previos si existen
 if [ -f .env ]; then
     source .env
     echo -e "📝 He detectado una configuración previa para: ${CYAN}$APP_NAME${NC}"
     echo -en "   ¿Deseas mantener estos datos? (S/n): "
     read KEEP_OLD
     if [[ "$KEEP_OLD" == "n" || "$KEEP_OLD" == "N" ]]; then
-        read -p "📌 Nombre del Negocio (ej: Pizza Real): " APP_NAME
-        read -p "📌 ¿Qué vendes/ofreces? (ej: Pizzas, Reparación de autos): " ITEM_NAME
-        read -p "📌 Prefijo de Tickets (ej: PZ-): " TICKET_PREFIX
-        read -p "📌 Dirección Física: " BUSINESS_ADDRESS
-        read -p "📌 Teléfono Público: " BUSINESS_PHONE
-        read -p "📌 Tipo de Negocio (ej: restaurante, taller, clinica): " BUSINESS_TYPE
+        read -p "📌 Nombre de la Empresa (ej: Clínica Dental): " APP_NAME
+        read -p "📌 ¿Qué ofreces? (ej: Consultas dentales, Limpiezas): " ITEM_NAME
+        read -p "📌 Prefijo para Tickets (ej: DENT-): " TICKET_PREFIX
+        read -p "📌 Dirección Física compelta: " BUSINESS_ADDRESS
+        read -p "📌 Teléfono de Atención: " BUSINESS_PHONE
+        read -p "📌 Categoría (ej: Salud, Restaurante, Taller): " BUSINESS_TYPE
     fi
 else
-    read -p "📌 Nombre del Negocio: " APP_NAME
-    read -p "📌 ¿Qué vendes/ofreces? (ej: Pizzas, Reparación de autos): " ITEM_NAME
-    read -p "📌 Prefijo de Tickets (ej: Ticket-): " TICKET_PREFIX
-    read -p "📌 Dirección Física: " BUSINESS_ADDRESS
-    read -p "📌 Teléfono Público: " BUSINESS_PHONE
-    read -p "📌 Tipo de Negocio (restaurante/taller/clinica): " BUSINESS_TYPE
+    read -p "📌 Nombre de la Empresa: " APP_NAME
+    read -p "📌 ¿Qué ofreces? (ej: Pizzas, Reparaciones): " ITEM_NAME
+    read -p "📌 Prefijo para Tickets (ej: SB-): " TICKET_PREFIX
+    read -p "📌 Dirección Física completa: " BUSINESS_ADDRESS
+    read -p "📌 Teléfono de Atención: " BUSINESS_PHONE
+    read -p "📌 Categoría de Negocio: " BUSINESS_TYPE
 fi
 
-# --- PASO 4: LLAVES MAESTRAS ---
+# --- PASO 4: SEGURIDAD Y LLAVES ---
 echo -e ""
-echo -e "${YELLOW}[ PASO 4: LLAVES Y SEGURIDAD ]${NC}"
+echo -e "${YELLOW}[ PASO 4: CONEXIONES Y SEGURIDAD ]${NC}"
+echo -e "Para que el Bot funcione, necesitamos conectar las APIs externas."
 
-read -p "🔑 XAI_API_KEY [$XAI_API_KEY]: " NEW_XAI_KEY
+# XAI_API_KEY
+echo -e "\n1. ${CYAN}XAI API KEY${NC}: Necesaria para la inteligencia del Bot."
+read -p "   Ingresa tu KEY [$XAI_API_KEY]: " NEW_XAI_KEY
 XAI_KEY=${NEW_XAI_KEY:-$XAI_API_KEY}
 
-read -p "📱 FB_PAGE_ACCESS_TOKEN [$FB_PAGE_ACCESS_TOKEN]: " NEW_FB_TOKEN
+# FB_TOKENS
+echo -e "\n2. ${CYAN}FACEBOOK/MESSENGER${NC}: Si usarás Messenger."
+read -p "   Page Access Token [$FB_PAGE_ACCESS_TOKEN]: " NEW_FB_TOKEN
 FB_TOKEN=${NEW_FB_TOKEN:-$FB_PAGE_ACCESS_TOKEN}
 
-read -p "🛡️ FB_VERIFY_TOKEN [$FB_VERIFY_TOKEN]: " NEW_FB_VERIFY
+read -p "   Verify Token [$FB_VERIFY_TOKEN]: " NEW_FB_VERIFY
 FB_VERIFY=${NEW_FB_VERIFY:-$FB_VERIFY_TOKEN}
 
-read -p "🔐 Password Admin [$ADMIN_PASSWORD]: " NEW_ADMIN_PASS
+# ADMIN PASSWORD
+echo -e "\n3. ${CYAN}ADMIN PANEL${NC}: Contraseña para entrar al dashboard."
+read -p "   Nueva contraseña [$ADMIN_PASSWORD]: " NEW_ADMIN_PASS
 ADMIN_PASS=${NEW_ADMIN_PASS:-$ADMIN_PASSWORD}
 
-read -p "☁️ Cloudflare Tunnel Token [$CLOUDFLARE_TUNNEL_TOKEN]: " NEW_TUNNEL_TOKEN
+# CLOUDFLARE
+echo -e "\n4. ${CYAN}CLOUDFLARE TUNNEL${NC}: (Opcional) Para salir a internet sin abrir puertos."
+read -p "   Tunnel Token [$CLOUDFLARE_TUNNEL_TOKEN]: " NEW_TUNNEL_TOKEN
 TUNNEL_TOKEN=${NEW_TUNNEL_TOKEN:-$CLOUDFLARE_TUNNEL_TOKEN}
 
 # --- GUARDAR EN .ENV ---
@@ -157,11 +168,23 @@ TIMEZONE=America/Hermosillo
 SINGLE_TENANT_MODE=1
 EOF
 
-# --- PRESERVAR O CREAR ARCHIVOS DE CONTENIDO ---
+# --- CONFIGURACIÓN DEL PROMPT (SOUL) ---
+echo -e ""
+echo -e "${YELLOW}[ PASO 5: PERSONALIZANDO LA IA ]${NC}"
 mkdir -p soul notebook data/baileys_auth data/temp_media
 
-# Generación de Prompt Inteligente
-if [ ! -f soul/prompt.md ]; then
+# Usar promptex.md como base si existe, si no, crear uno desde cero
+if [ -f soul/promptex.md ]; then
+    echo -e "   ✨ Usando plantilla promptex.md para generar el prompt real..."
+    # Sustitución básica de variables en el prompt
+    cp soul/promptex.md soul/prompt.md
+    sed -i "s/\[NOMBRE_DEL_NEGOCIO\]/$APP_NAME/g" soul/prompt.md
+    sed -i "s/\[UBICACION_FISICA\]/$BUSINESS_ADDRESS/g" soul/prompt.md
+    sed -i "s/\[TELEFONO_PUBLICO\]/$BUSINESS_PHONE/g" soul/prompt.md
+    sed -i "s/\[TIPO_DE_NEGOCIO\]/$BUSINESS_TYPE/g" soul/prompt.md
+    sed -i "s/\[PRODUCTOS_O_SERVICIOS\]/$ITEM_NAME/g" soul/prompt.md
+else
+    echo -e "   📝 Generando prompt básico orientado a $BUSINESS_TYPE..."
 cat <<EOF > soul/prompt.md
 # EL ROL
 Eres el Asesor Especializado de **$APP_NAME**. Tu misión es ayudar con información sobre **$ITEM_NAME** y gestionar solicitudes (tickets/citas) de forma profesional.
@@ -178,16 +201,23 @@ Eres el Asesor Especializado de **$APP_NAME**. Tu misión es ayudar con informac
 EOF
 fi
 
-if [ ! -f notebook/index.md ]; then
+# --- PREPARANDO LA BASE DE CONOCIMIENTO (NOTEBOOK) ---
+echo -e ""
+echo -e "${YELLOW}[ PASO 6: BASE DE CONOCIMIENTO ]${NC}"
+if [ ! -f notebook/index.md ] && [ ! -f notebook/ejemplo.md ]; then
+    echo -e "   📁 Creando archivos iniciales en /notebook..."
     echo "# BIENVENIDOS A $APP_NAME" > notebook/index.md
     echo "Ofrecemos lo mejor en $ITEM_NAME." >> notebook/index.md
     echo "Ubicación: $BUSINESS_ADDRESS" >> notebook/index.md
     echo "Contacto: $BUSINESS_PHONE" >> notebook/index.md
+    
+    echo "Faq 1: ¿Cuáles son sus horarios?" > notebook/faqs.md
+    echo "Respuesta: Atendemos de Lunes a Viernes de 9am a 6pm." >> notebook/faqs.md
 fi
 
 if [ ! -f data/tickets.json ]; then echo "[]" > data/tickets.json; fi
 
-# --- ACTUALIZAR DOCKER COMPOSE ---
+# --- GENERACIÓN DE DOCKER COMPOSE ---
 cat <<EOF > docker-compose.yml
 services:
   qdrant:
@@ -242,10 +272,12 @@ services:
     restart: always
 EOF
 
-# --- PASO FINAL: LANZAMIENTO ---
+# --- LANZAMIENTO FINAL ---
 echo -e ""
-echo -en "${CYAN}SmartBis:${NC} "
-type_text "¡Todo listo! Configurando contenedores para: $APP_NAME ($BUSINESS_TYPE)..."
+echo -e "${CYAN}====================================================${NC}"
+type_text "¡Configuración completada con éxito!"
+echo -e "Iniciando servicios con Docker Compose..."
+echo -e "${CYAN}====================================================${NC}"
 
 docker-compose down --remove-orphans 2>/dev/null
 docker-compose up -d --build
@@ -253,12 +285,17 @@ docker-compose up -d --build
 IP_ADDR=$(hostname -I | awk '{print $1}')
 echo -e ""
 echo -e "${BLUE}====================================================${NC}"
-echo -e "🚀 ¡DESPLIEGUE COMPLETADO CON ÉXITO!"
-echo -e "   - Negocio:        $APP_NAME ($BUSINESS_TYPE)"
-echo -e "   - Dashboard:      ${GREEN}http://$IP_ADDR:$FREE_FRONT${NC}"
-echo -e "   - Bot API Port:   $FREE_BOT"
+echo -e "🚀 ¡Felicidades! $APP_NAME está en línea."
+echo -e ""
+echo -e "📍 Acceso Local:"
+echo -e "   - Panel de Admin: ${GREEN}http://$IP_ADDR:$FREE_FRONT${NC}"
+echo -e "   - Puerto del Bot: $FREE_BOT"
+echo -e ""
+echo -e "📚 Próximos pasos recomendados:"
+echo -e "   1. Entra al Panel de Admin con tu contraseña."
+echo -e "   2. Edita los archivos en la carpeta /notebook para darle más datos al Bot."
+echo -e "   3. ¡Prueba a escribirle por WhatsApp o Messenger!"
 echo -e "${BLUE}====================================================${NC}"
 echo -en "${CYAN}SmartBis:${NC} "
-type_text "Si configuraste el TUNNEL_TOKEN, ya estoy en internet. ¡Éxito!"
+type_text "Si necesitas más ayuda, ¡aquí estaré! Suerte con tu negocio."
 echo -e "${BLUE}====================================================${NC}"
-
