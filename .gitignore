@@ -38,4 +38,7 @@ soul.old/
 *.sh.bak
 tokens.json
 credentials.json
-EOF
+# Archivos de la instancia
+notebook/*.md
+!notebook/ejemplo.md
+soul/prompt.md
