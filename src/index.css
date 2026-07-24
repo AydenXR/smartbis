@@ -1,15 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 :root {
   font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #18181b;
-  background: #d9d8d4;
+  color: #e5eefb;
+  background: #030712;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -19,23 +19,52 @@
 
 @layer base {
   * {
-    @apply box-border;
+    box-sizing: border-box;
   }
 
   html,
   body,
   #root {
-    @apply m-0 min-h-screen;
+    margin: 0;
+    min-height: 100vh;
   }
 
   body {
-    @apply min-h-screen;
+    min-height: 100vh;
+    background: #020617;
+    color: #f1f5f9;
   }
 
   button,
   textarea,
   input {
     font: inherit;
+  }
+
+  ::selection {
+    background: rgba(34, 211, 238, 0.3);
+    color: #ffffff;
+  }
+}
+
+@layer components {
+  .tech-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(103, 232, 249, 0.35) rgba(15, 23, 42, 0.6);
+  }
+
+  .tech-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .tech-scrollbar::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.6);
+  }
+
+  .tech-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(103, 232, 249, 0.35);
+    border-radius: 999px;
   }
 }
 
