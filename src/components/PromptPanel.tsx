@@ -1,35 +1,58 @@
 import { RotateCcw, Save } from 'lucide-react'
-import type { ContextFileStatus } from '@/types/chat'
-import { getSourceLabel } from '@/utils/context'
 
 type PromptPanelProps = {
   prompt: string
-  files: ContextFileStatus[]
+  baseUrl: string
+  model: string
+  apiKey: string
+  apiKeyPreview: string
+  hasApiKey: boolean
+  isSavingPrompt: boolean
+  isSavingConfig: boolean
+  hasPromptChanges: boolean
+  hasConfigChanges: boolean
   onChange: (value: string) => void
+  onChangeBaseUrl: (value: string) => void
+  onChangeModel: (value: string) => void
+  onChangeApiKey: (value: string) => void
   onReset: () => void
   onSave: () => void
+  onResetConfig: () => void
+  onSaveConfig: () => void
 }
 
 export default function PromptPanel({
   prompt,
-  files,
+  baseUrl,
+  model,
+  apiKey,
+  apiKeyPreview,
+  hasApiKey,
+  isSavingPrompt,
+  isSavingConfig,
+  hasPromptChanges,
+  hasConfigChanges,
   onChange,
+  onChangeBaseUrl,
+  onChangeModel,
+  onChangeApiKey,
   onReset,
   onSave,
+  onResetConfig,
+  onSaveConfig,
 }: PromptPanelProps) {
   return (
-    <section className="flex h-full flex-col gap-6">
-      <header className="flex items-start justify-between gap-4 border-b border-zinc-900/10 pb-5">
-        <div className="space-y-2">
-          <p className="font-display text-xs uppercase tracking-[0.35em] text-zinc-500">
-            Prompt base
+    <section className="flex h-full flex-col gap-5">
+      <header className="flex flex-wrap items-start justify-between gap-4 rounded-3xl border border-white/10 bg-slate-950/80 p-6">
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
+            Prompt
           </p>
-          <h2 className="font-display text-3xl font-semibold text-zinc-950">
-            Reglas del agente
+          <h2 className="font-display text-3xl font-semibold text-white">
+            Comportamiento del agente
           </h2>
-          <p className="max-w-2xl text-sm text-zinc-600">
-            Este texto define el comportamiento conversacional. El backend siempre agrega
-            reglas duras para usar solo los markdown como fuente de verdad.
+          <p className="max-w-2xl text-sm text-slate-300">
+            Edita el prompt principal y guardalo directo en la base de datos.
           </p>
         </div>
 
@@ -37,7 +60,7 @@ export default function PromptPanel({
           <button
             type="button"
             onClick={onReset}
-            className="inline-flex items-center gap-2 border border-zinc-900 bg-white px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-zinc-900 transition hover:bg-zinc-100"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40"
           >
             <RotateCcw className="h-4 w-4" />
             Restaurar
@@ -45,56 +68,127 @@ export default function PromptPanel({
           <button
             type="button"
             onClick={onSave}
-            className="inline-flex items-center gap-2 border border-zinc-950 bg-zinc-950 px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white transition hover:bg-zinc-800"
+            disabled={isSavingPrompt || !hasPromptChanges}
+            className="inline-flex items-center gap-2 rounded-2xl border border-cyan-300/40 bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-800 disabled:text-slate-500"
           >
             <Save className="h-4 w-4" />
-            Guardar
+            {isSavingPrompt ? 'Guardando...' : 'Guardar prompt'}
           </button>
         </div>
       </header>
 
-      <div className="grid h-full gap-5 xl:grid-cols-[minmax(0,1.4fr)_320px]">
-        <div className="flex min-h-[520px] flex-col border border-zinc-900/10 bg-white shadow-[12px_12px_0_rgba(24,24,27,0.06)]">
-          <div className="border-b border-zinc-900/10 px-5 py-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-500">
+      <div className="grid h-full gap-5 xl:grid-cols-[minmax(0,1.5fr)_320px]">
+        <div className="flex min-h-[560px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-950/85">
+          <div className="border-b border-white/10 px-5 py-4">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
               Editor
             </p>
           </div>
           <textarea
             value={prompt}
             onChange={(event) => onChange(event.target.value)}
-            className="min-h-[460px] flex-1 resize-none bg-transparent px-5 py-5 font-mono text-sm leading-7 text-zinc-800 outline-none"
+            className="min-h-[460px] flex-1 resize-none bg-transparent px-5 py-5 font-mono text-sm leading-7 text-slate-100 outline-none"
             spellCheck={false}
           />
         </div>
 
         <div className="space-y-5">
-          <div className="border border-zinc-900/10 bg-[#f7f5f1] p-5">
-            <p className="font-display text-xs uppercase tracking-[0.35em] text-zinc-500">
-              Reglas fijas
+          <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
+                  Modelo y API key
+                </p>
+                <p className="mt-2 text-sm text-slate-300">
+                  Cambia el modelo usado y define tu propia API key.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
+                  Endpoint
+                </label>
+                <input
+                  value={baseUrl}
+                  onChange={(event) => onChangeBaseUrl(event.target.value)}
+                  placeholder="https://api.x.ai/v1/chat/completions"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/40"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
+                  Modelo
+                </label>
+                <input
+                  value={model}
+                  onChange={(event) => onChangeModel(event.target.value)}
+                  placeholder="grok-4.3"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/40"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
+                  API key
+                </label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => onChangeApiKey(event.target.value)}
+                  placeholder={hasApiKey ? `Actual: ${apiKeyPreview}` : 'Pega aqui tu API key'}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/40"
+                />
+                <p className="text-xs text-slate-500">
+                  Si no escribes una nueva key, se conserva la actual.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={onResetConfig}
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Restaurar
+              </button>
+              <button
+                type="button"
+                onClick={onSaveConfig}
+                disabled={isSavingConfig || !hasConfigChanges}
+                className="inline-flex items-center gap-2 rounded-2xl border border-cyan-300/40 bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-800 disabled:text-slate-500"
+              >
+                <Save className="h-4 w-4" />
+                {isSavingConfig ? 'Guardando...' : 'Guardar config'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
+              Uso
             </p>
-            <ul className="mt-4 space-y-3 text-sm text-zinc-700">
-              <li>No inventar precios, fechas o servicios.</li>
-              <li>Responder solo con `content/cursos.md`, `content/empresa.md`, `content/productos.md` y `content/tratamiendos.md`.</li>
-              <li>Redirigir preguntas fuera de Salubel Institute.</li>
-              <li>Indicar cuando una respuesta no este disponible en las fuentes.</li>
+            <ul className="mt-4 space-y-3 text-sm text-slate-300">
+              <li>Define tono, limites y estilo del agente.</li>
+              <li>La base de conocimiento viene de los documentos activos.</li>
+              <li>Guardado directo en `crm_configs`.</li>
+              <li>La configuracion del proveedor usa endpoint, modelo y API key.</li>
             </ul>
           </div>
 
-          <div className="border border-zinc-900/10 bg-white p-5">
-            <p className="font-display text-xs uppercase tracking-[0.35em] text-zinc-500">
-              Estado de fuentes
+          <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
+              Estado
             </p>
-            <div className="mt-4 space-y-3">
-              {files.map((file) => (
-                <div key={file.file} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate text-zinc-700">{getSourceLabel(file.file)}</span>
-                  <span className={file.hasContent ? 'text-emerald-700' : 'text-amber-700'}>
-                    {file.hasContent ? 'Con contenido' : 'Sin contenido'}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <p className="mt-4 text-sm text-slate-300">
+              {hasPromptChanges || hasConfigChanges
+                ? 'Tienes cambios sin guardar.'
+                : 'Prompt, modelo y API key estan sincronizados.'}
+            </p>
           </div>
         </div>
       </div>
