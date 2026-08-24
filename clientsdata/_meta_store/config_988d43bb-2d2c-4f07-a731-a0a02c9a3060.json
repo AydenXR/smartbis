@@ -1,0 +1,17 @@
+{
+  "tenantId": "988d43bb-2d2c-4f07-a731-a0a02c9a3060",
+  "appId": "1435396631510590",
+  "verifyToken": "smartbisfacebook_verify_token",
+  "graphVersion": "v22.0",
+  "state": "START",
+  "testMode": true,
+  "webhookSubscribed": true,
+  "updatedAt": "2026-08-14T20:47:00.467Z",
+  "userLongLivedToken": "EAAUZAfFJVPj4BSJleqDRkdOPwGV2Tbh47SwZBh4qprMOG8ZBZADVnJm5aUZCxZA8a4W31PpZApBAIpmk9R7fcc7MXX1JtNlXIakTJLg93flw4EV8E1SWXtfRWa64rL0fZBTZBIu3hDrFmvCxSXP0lTKUyHBMnfZBFDMfAkO8jK7qEEq7Tr34Thk9rHuj4rEf20ripb2k0DZB6XDyCiEm8l8",
+  "userLLExtendsAt": "2026-10-13T01:51:26.168Z",
+  "pageId": "100856635809673",
+  "pageName": "Dra. Lydia Coronado",
+  "pageAccessToken": "EAAUZAfFJVPj4BSIn39dISZAFN9awIxPlYcgDZA3cfsrkLuRIXs1gM1ozRvJBPNnA8l52wixgKInQEoPrTI7N4z90YNdRVJkJAUY1RcZAgczC1zMdiCQJYgFCfjy3QoTJLNaFQef9UUHNZAVVt8CQImrAIHiqlcjzmwAOZAVH7sZCUoaO4dxdACBq6TZBHgZAdZCv98DzsfTLH7mbhTaejA7Mn8Uo8ZD",
+  "pageTokenExpiresAt": "2026-10-13T01:51:30.062Z",
+  "linkedAt": "2026-08-14T01:51:30.069Z"
+}

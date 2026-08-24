@@ -1,0 +1,31 @@
+appId: com.smartbis.desktop
+productName: Smartbis POS
+copyright: Smartbis
+artifactName: Smartbis-POS-${version}-win-x64.${ext}
+files:
+  - dist/**
+  - electron/**
+  - package.json
+  - node_modules/**
+  - '!**/*.map'
+directories:
+  output: dist-electron
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  uninstallDisplayName: Smartbis POS
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: assets/icon.ico
+  shortcutName: Smartbis POS
+afterSign: null
+publish:
+  provider: generic
+  url: https://62.169.16.115/updates

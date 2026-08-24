@@ -51,17 +51,6 @@ function getConfiguredFallbackModel() {
 function buildSystemPrompt(prompt: string, contextBlock: string) {
   return `${prompt}
 
-Reglas obligatorias:
-- Usa unicamente la informacion de los documentos proporcionados como fuente de verdad.
-- No inventes precios, fechas, promociones, productos, cursos, tratamientos, horarios o servicios que no esten en los documentos.
-- Si la informacion no aparece en las fuentes, responde claramente que no lo sabes o que no esta disponible en la informacion actual.
-- Si preguntan por sedes, ubicaciones, sucursales o presencia en otra ciudad o pais, responde usando las ubicaciones disponibles en los documentos y aclara cuando no haya evidencia de presencia en ese lugar.
-- Si la pregunta no se relaciona con Salubel Institute, redirige amablemente la conversacion a temas de la empresa.
-- No respondas como si pudieras agendar, vender, cobrar o confirmar disponibilidad en tiempo real.
-- Si una categoria esta vacia, no supongas contenido.
-- Si debes listar opciones, prioriza una lista breve y completa antes de entrar en detalles.
-- No dejes frases a medias. Si debes resumir, cierra la idea con una ultima oracion completa.
-
 Fuentes de verdad:
 ${contextBlock}`
 }
@@ -159,8 +148,8 @@ export async function generateAgentAnswer(input: ChatInput) {
   }
 
   const { documents, contextBlock } = await buildDocumentsContextBlock(input.message)
-  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock)
   const trimmedHistory = input.history.slice(-6)
+  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock)
   const baseMessages = [
     {
       role: 'system',

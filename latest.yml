@@ -1,0 +1,7 @@
+version: 0.0.0
+files:
+  - url: Smartbis-POS-0.0.0-win-x64.exe
+    sha512: <HASH_DEL_EXE>
+path: Smartbis-POS-0.0.0-win-x64.exe
+sha512: <HASH_DEL_EXE>
+releaseDate: 2026-08-24T00:00:00.000Z
