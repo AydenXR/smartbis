@@ -1,0 +1,36 @@
+FROM node:22-bookworm-slim
+
+ENV TZ=America/Hermosillo
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+ && npm config set fund false \
+ && npm install -g tsx@4.20.3 \
+ && (getent group smartbis >/dev/null 2>&1 || (getent group 1000 >/dev/null 2>&1 && groupmod -n smartbis $(getent group 1000 | cut -d: -f1)) || groupadd --gid 1000 smartbis) \
+ && (getent passwd smartbis >/dev/null 2>&1 || (getent passwd 1000 >/dev/null 2>&1 && usermod -l smartbis -d /home/smartbis -m -g smartbis $(getent passwd 1000 | cut -d: -f1)) || useradd --create-home --uid 1000 --gid smartbis --shell /bin/bash smartbis) \
+ && mkdir -p /home/smartbis && chown -R smartbis:smartbis /home/smartbis
+
+COPY package.json package-lock.json* ./
+
+RUN npm install --omit=dev --no-audit --no-fund || npm install --no-audit --no-fund
+
+COPY .env.local* ./
+COPY api/ ./api/
+COPY scripts/_salubel_v2_prompt.txt ./scripts/_salubel_v2_prompt.txt
+COPY src/ ./src/
+
+RUN mkdir -p /app/clientsdata && chown -R smartbis:smartbis /app
+
+USER smartbis
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=20s --timeout=5s --start-period=20s --retries=5 \
+  CMD curl -fsS http://127.0.0.1:3001/api/health || exit 1
+
+CMD ["tsx", "api/server.ts"]

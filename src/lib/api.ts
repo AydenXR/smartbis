@@ -1,0 +1,728 @@
+import type {
+  AuthPayload,
+  AuthUser,
+  ChatMessage,
+  ChatResponse,
+  WorkspaceDocument,
+  WorkspacePayload,
+} from '@/types/app'
+
+const TOKEN_KEY = 'smartbis.auth.token'
+
+function getApiBaseUrl() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  const value = (window as Window & { __API_BASE__?: string }).__API_BASE__
+  return value ? value.replace(/\/$/, '') : ''
+}
+
+function resolveApiUrl(path: string) {
+  const base = getApiBaseUrl()
+  if (!base) {
+    return path
+  }
+
+  return `${base}${path}`
+}
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  body?: unknown
+  skipAuth?: boolean
+}
+
+function getStoredToken() {
+  return window.localStorage.getItem(TOKEN_KEY) || ''
+}
+
+export function saveStoredToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearStoredToken() {
+  window.localStorage.removeItem(TOKEN_KEY)
+}
+
+async function requestJson<T>(path: string, options: RequestOptions = {}) {
+  const headers: Record<string, string> = {}
+
+  if (!options.skipAuth) {
+    const token = getStoredToken()
+
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+  }
+
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  const response = await fetch(resolveApiUrl(path), {
+    method: options.method || 'GET',
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  })
+
+  const text = await response.text()
+  const payload = text ? (JSON.parse(text) as T & { error?: string }) : null
+  const errorMessage = payload?.error || 'No se pudo completar la solicitud'
+
+  if (!response.ok) {
+    if (
+      response.status === 401 ||
+      /jwt|token|sesion|session|expired|unauthorized|auth/i.test(errorMessage)
+    ) {
+      clearStoredToken()
+      throw new Error('Tu sesion vencio. Inicia sesion nuevamente.')
+    }
+
+    if (response.status === 404 && path === '/api/chat') {
+      throw new Error('El endpoint /api/chat no esta disponible en este momento.')
+    }
+
+    throw new Error(errorMessage)
+  }
+
+  return payload as T
+}
+
+export async function registerAccount(input: { email: string; password: string }) {
+  const payload = await requestJson<AuthPayload>('/api/auth/register', {
+    method: 'POST',
+    body: input,
+    skipAuth: true,
+  })
+
+  saveStoredToken(payload.token)
+  return payload
+}
+
+export async function loginAccount(input: { email: string; password: string }) {
+  const payload = await requestJson<AuthPayload>('/api/auth/login', {
+    method: 'POST',
+    body: input,
+    skipAuth: true,
+  })
+
+  saveStoredToken(payload.token)
+  return payload
+}
+
+export async function getCurrentUser() {
+  return requestJson<{ user: AuthUser }>('/api/auth/me')
+}
+
+export async function logoutAccount() {
+  try {
+    await requestJson<{ success: boolean }>('/api/auth/logout', {
+      method: 'POST',
+    })
+  } finally {
+    clearStoredToken()
+  }
+}
+
+export async function getWorkspace() {
+  return requestJson<WorkspacePayload>('/api/workspace')
+}
+
+export async function savePrompt(prompt: string) {
+  return requestJson<{ prompt: string }>('/api/prompt', {
+    method: 'PUT',
+    body: {
+      prompt,
+    },
+  })
+}
+
+export async function createDocument(input: { fileName: string; content: string }) {
+  return requestJson<{ document: WorkspaceDocument }>('/api/documents', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function updateDocument(
+  currentFileName: string,
+  input: { fileName: string; content: string },
+) {
+  return requestJson<{ document: WorkspaceDocument }>(
+    `/api/documents/${encodeURIComponent(currentFileName)}`,
+    {
+      method: 'PUT',
+      body: input,
+    },
+  )
+}
+
+export async function deleteDocument(currentFileName: string) {
+  return requestJson<null>(`/api/documents/${encodeURIComponent(currentFileName)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function sendChatMessage(input: {
+  prompt: string
+  message: string
+  history: Array<Pick<ChatMessage, 'role' | 'content'>>
+}) {
+  return requestJson<ChatResponse>('/api/chat', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+// ============================================
+// Meta Messenger (CRM Chats, Bot Estado, Envios Manuales, Login OAuth, Configuración)
+// ============================================
+export type MetaBotState = 'START' | 'PAUSE'
+
+export interface MetaStatusResponse {
+  appId?: string
+  graphVersion?: string
+  pageId?: string
+  pageName?: string
+  pageProfilePic?: string
+  state: MetaBotState
+  testMode: boolean
+  webhookSubscribed: boolean
+  linkedAt?: string
+  updatedAt?: string
+  linked: boolean
+  hasPageToken: boolean
+}
+
+export interface MetaChatItem {
+  psid: string
+  firstName?: string
+  lastName?: string
+  profilePic?: string
+  lastMessage?: string
+  lastActivityAt?: string
+  unreadCount: number
+  direction?: string
+}
+
+export interface MetaMessageRow {
+  id: string
+  psid: string
+  mid?: string
+  userFirstName?: string
+  userLastName?: string
+  userProfilePic?: string
+  direction: 'IN' | 'OUT_BOT' | 'OUT_HUMAN'
+  content: string
+  attachments?: any[]
+  sentToUser: boolean
+  readByUserAt?: string
+  deliveredAt?: string
+  createdAt: string
+  testMode?: boolean
+}
+
+export interface MetaChatDetailResponse {
+  psid: string
+  messages: MetaMessageRow[]
+}
+
+export interface MetaPageOption {
+  id: string
+  name: string
+  access_token?: string
+  category?: string
+  picture?: { data?: { url?: string } }
+}
+
+export async function getMetaStatus() {
+  return requestJson<MetaStatusResponse>('/api/meta/status')
+}
+
+export async function setMetaState(next: { state?: MetaBotState; testMode?: boolean }) {
+  return requestJson<{ success: boolean; state: MetaBotState; testMode: boolean }>('/api/meta/setState', {
+    method: 'POST',
+    body: next,
+  })
+}
+
+export async function getMetaOAuthLoginUrl() {
+  return requestJson<{ url: string }>('/api/meta/oauth/url')
+}
+
+export async function linkMetaPage(page: MetaPageOption) {
+  return requestJson<{ success: boolean; subscribed: boolean; config: any }>('/api/meta/linkPage', {
+    method: 'POST',
+    body: {
+      pageId: page.id,
+      pageName: page.name,
+      pageAccessToken: page.access_token,
+      pageProfilePic: page.picture?.data?.url || '',
+    },
+  })
+}
+
+export async function configureMetaManual(input: { pageId: string; pageName?: string; pageAccessToken: string }) {
+  return requestJson<{ success: boolean; subscribed: boolean; pageId: string; pageName: string }>(
+    '/api/meta/configureManual',
+    { method: 'POST', body: input },
+  )
+}
+
+export async function listMetaChats(limit = 100) {
+  return requestJson<{ chats: MetaChatItem[] }>(`/api/meta/chats?limit=${limit}`)
+}
+
+export async function getMetaChatDetail(psid: string) {
+  return requestJson<MetaChatDetailResponse>(`/api/meta/chats/${encodeURIComponent(psid)}`)
+}
+
+export async function sendMetaManual(psid: string, text: string) {
+  return requestJson<{ success: boolean; mid?: string; error?: string }>(
+    `/api/meta/send/${encodeURIComponent(psid)}`,
+    { method: 'POST', body: { text } },
+  )
+}
+
+export async function markMetaChatAsRead(psid: string) {
+  return requestJson<{ success: boolean }>(
+    `/api/meta/chats/${encodeURIComponent(psid)}/read`,
+    { method: 'POST' },
+  )
+}
+
+export async function deleteMetaChat(psid: string) {
+  return requestJson<null>(
+    `/api/meta/chats/${encodeURIComponent(psid)}`,
+    { method: 'DELETE' },
+  )
+}
+
+// ============================================
+// AUTO-EVALS · Auto-curado (auditoría Juez LLM)
+// ============================================
+
+export type AutoEvalCategory = 'correct' | 'error' | 'noinfo' | 'judge_failed'
+
+export interface AutoEvalMatchedBlockRef {
+  hash: string
+  title?: string
+  section?: string
+  snippet?: string
+}
+
+export interface AutoEval {
+  id: string
+  tenantId: string
+  psid?: string
+  triggerMessageId?: string
+  botMessageId?: string
+  triggerMessageText: string
+  botAnswerText: string
+  category: AutoEvalCategory
+  judgeReason: string
+  matchedBlocks: AutoEvalMatchedBlockRef[]
+  createdAt: string
+}
+
+export interface AutoEvalStats {
+  total: number
+  correct: number
+  error: number
+  noinfo: number
+  judge_failed: number
+}
+
+export interface AutoEvalListResponse {
+  items: AutoEval[]
+  total: number
+  stats: AutoEvalStats
+}
+
+export async function metaAutoEvalList(params?: {
+  category?: AutoEvalCategory | 'all'
+  psid?: string
+  search?: string
+  limit?: number
+  offset?: number
+}): Promise<AutoEvalListResponse> {
+  const qs = new URLSearchParams()
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+    }
+  }
+  const q = qs.toString()
+  return requestJson<AutoEvalListResponse>(`/api/meta/auto-evals${q ? `?${q}` : ''}`)
+}
+
+export async function metaAutoEvalGet(id: string): Promise<AutoEval> {
+  return requestJson<AutoEval>(`/api/meta/auto-evals/${encodeURIComponent(id)}`)
+}
+
+// ============================================
+// POS / Operaciones (Punto de Venta · Inventario · Sucursales · Compras · Turnos · Cuentas · Registros)
+// ============================================
+
+export type PosRole = 'admin' | 'cashier'
+export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
+export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
+export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
+
+export interface PosBranch {
+  id: string
+  name: string
+  address?: string
+  phone?: string
+  manager?: string
+  isMain: boolean
+  active: boolean
+  ivaEnabled: boolean
+  ivaRate: number
+  currency: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VolumePriceTier {
+  minQty: number
+  price: number
+}
+
+export interface PosCatalogItem {
+  id: string
+  kind: ItemKind
+  sku: string
+  name: string
+  family?: string
+  category?: string
+  description?: string
+  costPrice?: number
+  salePrice: number
+  volumePriceTiers?: VolumePriceTier[]
+  currency: string
+  stocks: Record<string, number>
+  location?: string
+  tags: string[]
+  active: boolean
+  attrs?: any
+  sourceDocId?: string
+  sourceBlockHash?: string
+  lastPurchaseCost?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PosSubuser {
+  id: string
+  email: string
+  name: string
+  role: PosRole
+  branchId: string
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PosShift {
+  id: string
+  branchId: string
+  userId: string
+  userEmail: string
+  openedAt: string
+  closedAt?: string
+  initialCash: number
+  cashWithdrawals: Array<{ id: string; amount: number; reason?: string; businessExpense: boolean; at: string; by: string }>
+  paymentsByMethod: Array<{ method: PaymentMethod; total: number }>
+  closingCash?: number
+  closingTotal?: number
+  status: 'open' | 'closed'
+  salesCount?: number
+  salesTotal?: number
+}
+
+export interface PosSaleLine {
+  itemId: string
+  sku?: string
+  name: string
+  qty: number
+  unitPrice: number
+  importe: number
+}
+
+export interface PosSale {
+  id: string
+  tenantId: string
+  branchId: string
+  shiftId?: string
+  userEmail: string
+  userId: string
+  createdAt: string
+  customerName?: string
+  requiresFactura: boolean
+  status: SaleStatus
+  subtotal: number
+  ivaAmount: number
+  discount: number
+  total: number
+  paidAmount: number
+  pendingAmount: number
+  lines: PosSaleLine[]
+  payments: Array<{ id: string; method: PaymentMethod; amount: number; at: string }>
+  currency: string
+  ivaRate: number
+}
+
+export interface PosAuditLog {
+  id: string
+  at: string
+  userId?: string
+  userEmail: string
+  role?: PosRole
+  branchId?: string
+  kind: string
+  message: string
+  details?: any
+}
+
+export async function posBranches() {
+  return requestJson<{ branches: PosBranch[] }>('/api/pos/branches')
+}
+
+export async function posBranchSave(input: Partial<PosBranch> & { name: string }) {
+  return requestJson<{ branch: PosBranch }>('/api/pos/branches', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posBranchDelete(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos/branches/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface PosCatalogOpts {
+  kinds?: ItemKind[]
+  search?: string
+  activeOnly?: boolean
+}
+
+export async function posCatalog(opts: PosCatalogOpts = {}) {
+  const qs = new URLSearchParams()
+  if (opts.kinds?.length) qs.set('kinds', opts.kinds.join(','))
+  if (opts.search) qs.set('search', opts.search)
+  if (opts.activeOnly === false) qs.set('activeOnly', '0')
+  return requestJson<{ items: PosCatalogItem[] }>(`/api/pos/catalog?${qs.toString()}`)
+}
+
+export async function posCatalogSave(input: Partial<PosCatalogItem> & {
+  name: string
+  salePrice: number
+  syncToMdDoc?: string | null
+  sourceDocId?: string
+}) {
+  return requestJson<{ item: PosCatalogItem }>('/api/pos/catalog', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posCatalogDelete(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos/catalog/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function posCatalogAdjustStock(id: string, branchId: string, delta: number, reason?: string) {
+  return requestJson<{ stock: number }>(`/api/pos/catalog/${encodeURIComponent(id)}/stock`, {
+    method: 'POST',
+    body: { branchId, delta, reason },
+  })
+}
+
+export async function posCatalogSyncFromDocs(onlyDoc?: string) {
+  const qs = onlyDoc ? `?doc=${encodeURIComponent(onlyDoc)}` : ''
+  return requestJson<{ created: string[]; updated: string[]; skipped: string[]; report: string; onlyDoc?: string }>(
+    '/api/pos/catalog/sync-from-documents' + qs,
+    { method: 'POST' },
+  )
+}
+
+export interface PosMdFileInfo {
+  fileName: string
+  sizeBytes: number
+  updatedAt: string
+  wordCount: number
+}
+export async function posDocsList() {
+  return requestJson<{ files: PosMdFileInfo[] }>('/api/pos/docs')
+}
+export async function posDocsRead(fileName: string) {
+  return requestJson<{ fileName: string; content: string; updatedAt: string } | null>(
+    `/api/pos/docs/${encodeURIComponent(fileName)}`,
+  )
+}
+export async function posDocsWrite(fileName: string, content: string) {
+  return requestJson<{ fileName: string; ok: boolean }>('/api/pos/docs', {
+    method: 'POST',
+    body: { fileName, content },
+  })
+}
+export async function posCatalogImport(params: {
+  fileName: string
+  fileBase64: string
+  targetDoc: string
+  writeBack?: boolean
+}) {
+  return requestJson<{
+    count: number
+    rawCount?: number
+    created: string[]
+    updated: string[]
+    skipped: string[]
+    targetDoc: string
+    warning?: string
+    fileName?: string
+  }>('/api/pos/catalog/import', {
+    method: 'POST',
+    body: params,
+  })
+}
+
+export async function posPurchases() {
+  return requestJson<{ purchases: any[] }>('/api/pos/purchases')
+}
+
+export async function posPurchaseCreate(input: {
+  branchId: string
+  date?: string
+  providerName: string
+  folio?: string
+  total: number
+  currency?: string
+  lines: Array<any>
+  notes?: string
+}) {
+  return requestJson<{ purchase: any }>('/api/pos/purchases', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posShiftMyOpen() {
+  return requestJson<{ open: PosShift | undefined }>('/api/pos/shifts/me')
+}
+
+export async function posShiftOpen(input: { branchId: string; initialCash: number }) {
+  return requestJson<{ shift: PosShift }>('/api/pos/shifts/open', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posShiftWithdraw(shiftId: string, input: { amount: number; reason?: string; businessExpense: boolean }) {
+  return requestJson<{ withdrawal: any }>(`/api/pos/shifts/${encodeURIComponent(shiftId)}/withdraw`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posShiftClose(shiftId: string) {
+  return requestJson<{ shift: PosShift }>(`/api/pos/shifts/${encodeURIComponent(shiftId)}/close`, {
+    method: 'POST',
+  })
+}
+
+export async function posSales(opts?: { branchId?: string; limit?: number; from?: string; to?: string; status?: string }) {
+  const qs = new URLSearchParams()
+  if (opts?.branchId) qs.set('branchId', opts.branchId)
+  if (opts?.limit) qs.set('limit', String(opts.limit))
+  if (opts?.from) qs.set('from', opts.from)
+  if (opts?.to) qs.set('to', opts.to)
+  if (opts?.status) qs.set('status', opts.status)
+  const q = qs.toString()
+  return requestJson<{ sales: PosSale[] }>(`/api/pos/sales${q ? `?${q}` : ''}`)
+}
+
+export async function posSaleGet(id: string) {
+  return requestJson<{ sale: PosSale }>(`/api/pos/sales/${encodeURIComponent(id)}`)
+}
+
+export async function posFrequentProducts(branchId: string) {
+  return requestJson<{ items: Array<{ itemId: string; name: string; sku: string; qty: number; salePrice: number; stock: number }> }>(
+    `/api/pos/sales/frequent/${encodeURIComponent(branchId)}`,
+  )
+}
+
+export async function posSaleCreate(input: {
+  branchId: string
+  shiftId?: string
+  customerName?: string
+  requiresFactura: boolean
+  status?: SaleStatus
+  lines: PosSaleLine[]
+  payments: PosSale['payments']
+  discount: number
+}) {
+  return requestJson<{ sale: PosSale }>('/api/pos/sales', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posSaleCancel(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos/sales/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function posSubusers() {
+  return requestJson<{ users: PosSubuser[] }>('/api/pos/subusers')
+}
+
+export async function posSubuserCreate(input: {
+  name: string
+  email: string
+  password: string
+  role: PosRole
+  branchId: string
+}) {
+  return requestJson<{ user: PosSubuser }>('/api/pos/subusers', {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export async function posSubuserUpdate(
+  id: string,
+  input: {
+    name?: string
+    role?: PosRole
+    branchId?: string
+    active?: boolean
+    newPassword?: string
+  },
+) {
+  return requestJson<{ user: PosSubuser }>(`/api/pos/subusers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: input,
+  })
+}
+
+export async function posSubuserDelete(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos/subusers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export interface PosAuditOpts {
+  limit?: number
+  search?: string
+  from?: string
+  to?: string
+}
+
+export async function posAudit(opts: PosAuditOpts = {}) {
+  const qs = new URLSearchParams()
+  if (opts.limit) qs.set('limit', String(opts.limit))
+  if (opts.search) qs.set('search', opts.search)
+  if (opts.from) qs.set('from', opts.from)
+  if (opts.to) qs.set('to', opts.to)
+  return requestJson<{ logs: PosAuditLog[] }>(`/api/pos/audit?${qs.toString()}`)
+}

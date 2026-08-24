@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { LoaderCircle, SendHorizontal, Sparkles, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatMessage, WorkspaceDocument } from '@/types/chat'
@@ -24,7 +25,27 @@ export default function ChatPanel({
   onSend,
   onClear,
 }: ChatPanelProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const lastMessageIdRef = useRef<string | null>(null)
   const activeDocuments = documents.filter((document) => document.isActive)
+
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage && lastMessage.id !== lastMessageIdRef.current) {
+      lastMessageIdRef.current = lastMessage.id
+      requestAnimationFrame(() => {
+        scroller.scrollTop = scroller.scrollHeight
+      })
+      return
+    }
+  }, [messages, isLoading])
+
+  const scrollbarClasses =
+    'tech-scrollbar'
+
   const sectionCounts = {
     general: activeDocuments.filter((document) => document.section === 'general').length,
     cursos: activeDocuments.filter((document) => document.section === 'cursos').length,
@@ -74,7 +95,14 @@ export default function ChatPanel({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+            <div
+              ref={scrollRef}
+              className={cn(
+                'flex-1 space-y-4 overflow-y-auto px-5 py-5',
+                scrollbarClasses,
+                'overscroll-contain scroll-smooth',
+              )}
+            >
               {messages.length === 0 ? (
                 <div className="flex h-full min-h-[360px] flex-col items-center justify-center rounded-3xl border border-dashed border-cyan-400/20 bg-slate-900/70 px-8 text-center">
                   <Sparkles className="h-10 w-10 text-cyan-300" />
@@ -143,7 +171,7 @@ export default function ChatPanel({
           </div>
         </div>
 
-        <aside className="space-y-5">
+        <aside className={cn('min-h-0 flex-1 space-y-5 overflow-y-auto pr-1', scrollbarClasses)}>
           <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-300/80">
               Regla activa
