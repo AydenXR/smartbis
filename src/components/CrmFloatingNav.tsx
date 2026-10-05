@@ -16,6 +16,7 @@ import {
   ChevronUp,
   Sparkles,
   Bot,
+  Bell,
 } from 'lucide-react'
 import type { MetaStatusResponse } from '@/lib/api'
 import LogoSb from '../assets/logosb.png'
@@ -29,9 +30,18 @@ type Props = {
   onGoAccounts?: () => void
   onGoRecords?: () => void
   onGoProfile?: () => void
+  onGoNotifications?: () => void
   onOpenDocsWithTab?: (tab: 'prompt' | 'documents' | 'chat') => void
   activeDocsTab?: 'chat' | 'prompt' | 'documents'
   isCashier?: boolean
+  /** Admin PV: oculta Chats, Prompt, Documentos, Pruebas y Conectar (zona de Atención al cliente). */
+  hideCsSections?: boolean
+  /** Admin CS y Agente CS: oculta Ventas (Punto de Venta / Inventario). */
+  hidePosSections?: boolean
+  /** Caja y Agente CS: oculta Cuentas, Registros y Estado del Sistema (solo admins). */
+  hideAdminOnlySections?: boolean
+  /** Agente CS: mantiene Chats y Documentos visibles, pero oculta Prompt, Pruebas y Conectar. */
+  restrictCsToDocsOnly?: boolean
 }
 
 type WorkspaceTab = 'chat' | 'prompt' | 'documents'
@@ -72,9 +82,14 @@ export default function CrmFloatingNav(props: Props) {
     onGoAccounts,
     onGoRecords,
     onGoProfile,
+    onGoNotifications,
     onOpenDocsWithTab,
     activeDocsTab,
     isCashier,
+    hideCsSections,
+    hidePosSections,
+    hideAdminOnlySections,
+    restrictCsToDocsOnly,
   } = props
 
   const [open, setOpen] = useState(false)
@@ -184,7 +199,7 @@ export default function CrmFloatingNav(props: Props) {
         Icon: MessageCircle,
         isActive: () => active === 'chats',
         run: () => onChange('chats'),
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideCsSections,
       },
       {
         key: 'prompt',
@@ -196,7 +211,7 @@ export default function CrmFloatingNav(props: Props) {
           onOpenDocsWithTab?.('prompt')
           onChange('docs')
         },
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideCsSections || !!restrictCsToDocsOnly,
       },
       {
         key: 'documents',
@@ -208,7 +223,7 @@ export default function CrmFloatingNav(props: Props) {
           onOpenDocsWithTab?.('documents')
           onChange('docs')
         },
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideCsSections,
       },
       {
         key: 'pruebas',
@@ -220,7 +235,7 @@ export default function CrmFloatingNav(props: Props) {
           onOpenDocsWithTab?.('chat')
           onChange('docs')
         },
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideCsSections || !!restrictCsToDocsOnly,
       },
       {
         key: 'settings',
@@ -229,7 +244,7 @@ export default function CrmFloatingNav(props: Props) {
         Icon: MessageCircle,
         isActive: () => active === 'settings',
         run: () => onChange('settings'),
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideCsSections || !!restrictCsToDocsOnly,
       },
       {
         key: 'operations',
@@ -238,6 +253,7 @@ export default function CrmFloatingNav(props: Props) {
         Icon: ShoppingCart,
         isActive: () => active === 'operations',
         run: () => onChange('operations'),
+        hide: !!hidePosSections,
       },
       {
         key: 'accounts',
@@ -246,7 +262,7 @@ export default function CrmFloatingNav(props: Props) {
         Icon: Users,
         isActive: () => active === 'accounts',
         run: () => onGoAccounts?.(),
-        hide: !!isCashier,
+        hide: !!isCashier || !!hideAdminOnlySections,
       },
       {
         key: 'records',
@@ -255,6 +271,15 @@ export default function CrmFloatingNav(props: Props) {
         Icon: ScrollText,
         isActive: () => active === 'records',
         run: () => onGoRecords?.(),
+        hide: !!isCashier || !!hideAdminOnlySections,
+      },
+      {
+        key: 'notifications',
+        label: 'Estado del Sistema',
+        description: 'Supervisión y métricas',
+        Icon: Bell,
+        isActive: () => active === 'notifications',
+        run: () => onGoNotifications?.(),
         hide: !!isCashier,
       },
       {
@@ -284,7 +309,7 @@ export default function CrmFloatingNav(props: Props) {
     }
     if (pages.length === 0) pages.push([null, null, null, null, null, null])
     return pages
-  }, [active, onChange, onGoAccounts, onGoRecords, onGoProfile, onLogout, activeDocsTab, onOpenDocsWithTab, isCashier])
+  }, [active, onChange, onGoAccounts, onGoRecords, onGoProfile, onGoNotifications, onLogout, activeDocsTab, onOpenDocsWithTab, isCashier, hideCsSections, hidePosSections, hideAdminOnlySections, restrictCsToDocsOnly])
 
   const totalPages = navPages.length
 

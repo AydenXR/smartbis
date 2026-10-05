@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "api/dist",
+    "rootDir": "api",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "types": ["node", "express"],
+    "resolveJsonModule": true,
+    "noEmit": false
+  },
+  "include": ["api/**/*.ts"]
+}

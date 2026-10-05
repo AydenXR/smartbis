@@ -1,10 +1,11 @@
 import {
   RefreshCw,
   ShoppingCart,
+  ShoppingBasket,
   Package,
   ArrowRightLeft,
   MapPin,
-  Settings,
+  Download as DownloadIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
@@ -14,6 +15,7 @@ export type OperationsPage =
   | 'pos'
   | 'inventory'
   | 'purchases'
+  | 'sales'
   | 'branches'
   | 'dashboard'
   | 'settings'
@@ -30,9 +32,10 @@ const navItems: NavItem[] = [
   { id: 'refresh', num: 1, label: '', icon: RefreshCw, title: 'Refrescar' },
   { id: 'pos', num: 2, label: '#1 Punto de Venta', icon: ShoppingCart, title: '#1 Punto de Venta' },
   { id: 'inventory', num: 3, label: '#2 Inventario', icon: Package, title: '#2 Inventario' },
-  { id: 'purchases', num: 4, label: '#3 Ventas', icon: ArrowRightLeft, title: '#3 Ventas' },
-  { id: 'branches', num: 5, label: '#4 Sucursales', icon: MapPin, title: '#4 Sucursales' },
-  { id: 'settings', num: 6, label: '#5 Configuración', icon: Settings, title: '#5 Configuración' },
+  { id: 'purchases', num: 4, label: '#3 Compras', icon: ShoppingBasket, title: '#3 Compras' },
+  { id: 'sales', num: 5, label: '#4 Ventas', icon: ArrowRightLeft, title: '#4 Ventas' },
+  { id: 'branches', num: 6, label: '#5 Sucursales', icon: MapPin, title: '#5 Sucursales' },
+  { id: 'settings', num: 7, label: '#6 Actualizaciones', icon: DownloadIcon, title: '#6 Actualizaciones' },
 ]
 
 type CrmOperationsLayoutProps = {

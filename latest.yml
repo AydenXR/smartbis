@@ -1,7 +1,8 @@
-version: 0.0.0
+version: 0.63.0
 files:
-  - url: Smartbis-POS-0.0.0-win-x64.exe
-    sha512: <HASH_DEL_EXE>
-path: Smartbis-POS-0.0.0-win-x64.exe
-sha512: <HASH_DEL_EXE>
-releaseDate: 2026-08-24T00:00:00.000Z
+  - url: Smartbis-POS-0.63.0-Setup.exe
+    sha512: AhARXMWj1ycYUwEviMQoyEgGnKLcXmL4W5Y22suc95A6/gfNTZSIGKezKSBczVDuFPXLEhnWDauu9cSU8yAnAA==
+    size: 114184582
+path: Smartbis-POS-0.63.0-Setup.exe
+sha512: AhARXMWj1ycYUwEviMQoyEgGnKLcXmL4W5Y22suc95A6/gfNTZSIGKezKSBczVDuFPXLEhnWDauu9cSU8yAnAA==
+releaseDate: '2026-09-22T19:13:57.146Z'

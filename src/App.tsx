@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import AuthPanel from '@/components/AuthPanel'
 import Dashboard from '@/components/Dashboard'
 import LandingPage from '@/components/LandingPage'
 import DesktopPosShell from '@/components/DesktopPosShell'
 import {
+  clearStoredToken,
   createDocument,
   getCurrentUser,
   getWorkspace,
@@ -18,6 +19,8 @@ import {
 import type { AuthUser, ChatMessage, WorkspaceDocument, WorkspacePayload } from '@/types/app'
 
 type AuthMode = 'login' | 'register'
+
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000
 
 function sortDocuments(documents: WorkspaceDocument[]) {
   return [...documents].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -35,8 +38,17 @@ export default function App() {
   const [showAuthPanel, setShowAuthPanel] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null)
+  const inactivityTimerRef = useRef<number | null>(null)
+  const isDesktopRef = useRef(false)
 
-  const isDesktopShell = typeof window !== 'undefined' && Boolean((window as Window & { __SMARTBIS_DESKTOP__?: boolean }).__SMARTBIS_DESKTOP__)
+  const isDesktopShell = typeof window !== 'undefined' && Boolean(
+    (window as Window & {
+      __SMARTBIS_DESKTOP__?: boolean
+      smartbisDesktop?: unknown
+      __API_BASE__?: string
+    }).smartbisDesktop,
+  )
+
   const hasSession = useMemo(() => Boolean(user && workspace), [user, workspace])
 
   function resetToLogin(message = '') {
@@ -46,6 +58,32 @@ export default function App() {
     setAuthError(message)
     setShowAuthPanel(false)
   }
+
+  useEffect(() => {
+    const anyWindow = window as Window & {
+      __SMARTBIS_DESKTOP__?: boolean
+      __API_BASE__?: string
+      smartbisDesktop?: {
+        onRuntime?: (handler: (data: { apiBase?: string; isDesktop?: boolean; isDev?: boolean }) => void) => void
+      }
+    }
+
+    if (anyWindow.smartbisDesktop?.onRuntime) {
+      anyWindow.smartbisDesktop.onRuntime((data) => {
+        if (data?.apiBase) {
+          anyWindow.__API_BASE__ = data.apiBase
+        }
+
+        if (data?.isDesktop || data?.apiBase || data?.isDev !== undefined) {
+          anyWindow.__SMARTBIS_DESKTOP__ = true
+        }
+      })
+    }
+
+    if (anyWindow.smartbisDesktop) {
+      anyWindow.__SMARTBIS_DESKTOP__ = true
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -80,6 +118,76 @@ export default function App() {
       isMounted = false
     }
   }, [])
+
+  function clearInactivityTimer() {
+    if (inactivityTimerRef.current !== null) {
+      try { window.clearTimeout(inactivityTimerRef.current) } catch (_) {}
+      inactivityTimerRef.current = null
+    }
+  }
+
+  function resetInactivityTimer(onTimeout: () => void) {
+    clearInactivityTimer()
+    inactivityTimerRef.current = window.setTimeout(() => {
+      onTimeout()
+    }, INACTIVITY_TIMEOUT_MS) as unknown as number
+  }
+
+  useEffect(() => {
+    const anyWindow = window as Window & {
+      __SMARTBIS_DESKTOP__?: boolean
+      smartbisDesktop?: {
+        onCloseRequested?: (handler: () => void) => void
+        onRuntime?: (handler: (data: { isDesktop?: boolean }) => void) => void
+      }
+    }
+
+    const isDesktop = Boolean(anyWindow.smartbisDesktop)
+    isDesktopRef.current = isDesktop
+
+    if (!user || !workspace) {
+      clearInactivityTimer()
+      return
+    }
+
+    async function handleAutoLogout() {
+      clearInactivityTimer()
+      try {
+        await handleLogout()
+      } catch (_) {
+        clearStoredToken()
+        resetToLogin('Sesión cerrada por inactividad.')
+      }
+    }
+
+    if (!isDesktop) {
+      const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'] as const
+      const onActivity = () => resetInactivityTimer(handleAutoLogout)
+
+      for (const ev of activityEvents) {
+        window.addEventListener(ev, onActivity, { passive: true })
+      }
+
+      resetInactivityTimer(handleAutoLogout)
+
+      return () => {
+        clearInactivityTimer()
+        for (const ev of activityEvents) {
+          window.removeEventListener(ev, onActivity)
+        }
+      }
+    }
+
+    function handleBeforeUnload(_e: BeforeUnloadEvent) {
+      clearStoredToken()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      clearInactivityTimer()
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [user, workspace])
 
   async function refreshWorkspace() {
     const payload = await getWorkspace()
@@ -148,6 +256,11 @@ export default function App() {
 
     try {
       const payload = await createDocument(input)
+      if (payload.ingestion && !payload.ingestion.ok) {
+        const warning = `Documento guardado, pero no se pudo actualizar su índice: ${payload.ingestion.error || 'error desconocido'}. Se reintentará al siguiente mensaje o en la ingesta diaria.`
+        setWorkspaceError(warning)
+        console.error('[document-ingestion] save refresh failed', payload.ingestion.error)
+      }
 
       setWorkspace((current) =>
         current
@@ -176,6 +289,11 @@ export default function App() {
 
     try {
       const payload = await updateDocument(currentFileName, input)
+      if (payload.ingestion && !payload.ingestion.ok) {
+        const warning = `Documento guardado, pero no se pudo actualizar su índice: ${payload.ingestion.error || 'error desconocido'}. Se reintentará al siguiente mensaje o en la ingesta diaria.`
+        setWorkspaceError(warning)
+        console.error('[document-ingestion] save refresh failed', payload.ingestion.error)
+      }
 
       setWorkspace((current) =>
         current
@@ -206,7 +324,12 @@ export default function App() {
     setWorkspaceError('')
 
     try {
-      await deleteDocument(currentFileName)
+      const payload = await deleteDocument(currentFileName)
+      if (payload.ingestion && !payload.ingestion.ok) {
+        const warning = `Documento eliminado, pero no se pudo actualizar su índice: ${payload.ingestion.error || 'error desconocido'}. Se reintentará al siguiente mensaje o en la ingesta diaria.`
+        setWorkspaceError(warning)
+        console.error('[document-ingestion] delete refresh failed', payload.ingestion.error)
+      }
 
       setWorkspace((current) =>
         current
@@ -227,8 +350,15 @@ export default function App() {
   }
 
   async function handleLogout() {
-    await logoutAccount()
-    resetToLogin()
+    try {
+      await logoutAccount()
+    } catch {
+      // La sesión debe terminar limpiamente en la UI aunque el endpoint de logout falle
+      // o el token ya no esté presente. Eso evita quedar atrapado en la pantalla autenticada.
+    } finally {
+      clearStoredToken()
+      resetToLogin()
+    }
   }
 
   async function handleSendChatMessage(

@@ -1,3 +1,8 @@
+import {
+  createSearchIndex,
+  getSearchIndexSignature,
+  type SearchIndex,
+} from './searchIndex.js'
 import { loginSubuser, verifyLocalJwt } from './posStore.js'
 
 type TenantRow = {
@@ -39,7 +44,7 @@ export type DbAuthUser = {
   email: string
   clientId: string
   tenantId: string
-  posRole?: 'owner' | 'admin' | 'cashier'
+  posRole?: 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
   posBranchId?: string
   subuserId?: string
   displayName?: string
@@ -63,6 +68,17 @@ export type DbAgentDocument = {
   isActive: boolean
   updatedAt: string
 }
+
+export type DbIngestionStatus = {
+  ok: boolean
+  indexedAt?: string
+  documents?: number
+  activeDocuments?: number
+  blocks?: number
+  error?: string
+}
+
+const tenantSearchIndexCache = new Map<string, { signature: string; index: SearchIndex }>()
 
 const DEFAULT_PROMPT = `Eres el agente de este cliente. Responde solo con informacion respaldada por el prompt y los documentos disponibles en la base de datos.
 
@@ -542,7 +558,7 @@ export async function getDbUserFromToken(accessToken: string) {
       email: local.email,
       clientId: `tenant-${String(local.tenantId || '').replace(/[^A-Za-z0-9_\-]/g, '_')}`,
       tenantId: String(local.tenantId),
-      posRole: local.posRole as 'owner' | 'admin' | 'cashier' | undefined,
+      posRole: local.posRole as 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent' | undefined,
       posBranchId: typeof local.posBranchId === 'string' ? local.posBranchId : undefined,
       subuserId: local.subuserId,
       displayName: local.displayName,
@@ -598,6 +614,100 @@ export async function loadDbAgentDocuments(tenantId: string) {
   })
 
   return rows.map(mapAgentDocument)
+}
+
+export async function listDbTenantIds() {
+  const pageSize = 500
+  const tenantIds: string[] = []
+
+  for (let offset = 0; ; offset += pageSize) {
+    const rows = await restRequest<Array<{ id: string }>>('tenants', {
+      query: {
+        select: 'id',
+        order: 'id.asc',
+        limit: String(pageSize),
+        offset: String(offset),
+      },
+    })
+
+    tenantIds.push(...rows.map((row) => row.id))
+    if (rows.length < pageSize) {
+      return tenantIds
+    }
+  }
+}
+
+function buildDbTenantSearchIndex(tenantId: string, documents: DbAgentDocument[]) {
+  const index = createSearchIndex({ tenantId, documents })
+  tenantSearchIndexCache.set(tenantId, { signature: index.signature, index })
+  return index
+}
+
+export async function ingestDbTenantDocuments(tenantId: string): Promise<DbIngestionStatus> {
+  try {
+    const documents = await loadDbAgentDocuments(tenantId)
+    const index = buildDbTenantSearchIndex(tenantId, documents)
+
+    return {
+      ok: true,
+      indexedAt: new Date().toISOString(),
+      ...index.stats,
+    }
+  } catch (error) {
+    tenantSearchIndexCache.delete(tenantId)
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+export async function getDbTenantSearchIndex(tenantId: string) {
+  const documents = await loadDbAgentDocuments(tenantId)
+  const signature = getSearchIndexSignature(documents)
+  const cachedIndex = tenantSearchIndexCache.get(tenantId)
+
+  if (cachedIndex?.signature === signature) {
+    return cachedIndex.index
+  }
+
+  const nextIndex = createSearchIndex({ tenantId, documents })
+  tenantSearchIndexCache.set(tenantId, {
+    signature,
+    index: nextIndex,
+  })
+  return nextIndex
+}
+
+export async function ingestAllDbTenants() {
+  const tenantIds = await listDbTenantIds()
+  const failures: Array<{ tenantId: string; error: string }> = []
+  let successCount = 0
+
+  const batchSize = 5
+  for (let offset = 0; offset < tenantIds.length; offset += batchSize) {
+    const batch = tenantIds.slice(offset, offset + batchSize)
+    const results = await Promise.all(
+      batch.map(async (tenantId) => ({
+        tenantId,
+        result: await ingestDbTenantDocuments(tenantId),
+      })),
+    )
+
+    for (const { tenantId, result } of results) {
+      if (result.ok) {
+        successCount += 1
+      } else {
+        failures.push({ tenantId, error: result.error || 'No se pudo actualizar el índice' })
+      }
+    }
+  }
+
+  return {
+    tenantCount: tenantIds.length,
+    successCount,
+    failures,
+  }
 }
 
 export async function saveDbPrompt(tenantId: string, prompt: string) {

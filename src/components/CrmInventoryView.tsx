@@ -29,6 +29,7 @@ import {
   type PosBranch,
   type PosCatalogItem,
   type PosMdFileInfo,
+  type PromoGroup,
   posBranches,
   posCatalog,
   posCatalogSave,
@@ -39,9 +40,13 @@ import {
   posDocsWrite,
   posDocsRead,
   posCatalogImport,
+  posPromoGroups,
+  posPromoGroupSave,
+  posPromoGroupDelete,
+  resolveApiUrl,
 } from '@/lib/api'
 
-type TabKind = 'all' | ItemKind
+type TabKind = 'all' | ItemKind | 'promo_groups'
 
 const tabs: Array<{ id: TabKind; label: string; icon?: string }> = [
   { id: 'all', label: 'Todos' },
@@ -49,6 +54,7 @@ const tabs: Array<{ id: TabKind; label: string; icon?: string }> = [
   { id: 'service', label: '🔧 Servicios' },
   { id: 'course', label: '🎓 Cursos' },
   { id: 'menu_item', label: '🍕 Menú' },
+  { id: 'promo_groups', label: '🏷️ Grupos promoción' },
 ]
 
 function kindBadgeClass(k: ItemKind) {
@@ -126,6 +132,7 @@ export default function CrmInventoryView() {
   const [items, setItems] = useState<PosCatalogItem[]>([])
   const [branches, setBranches] = useState<PosBranch[]>([])
   const [mdFiles, setMdFiles] = useState<PosMdFileInfo[]>([])
+  const [promoGroups, setPromoGroups] = useState<PromoGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState<string>('')
@@ -141,6 +148,26 @@ export default function CrmInventoryView() {
   const [savingStock, setSavingStock] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [importing, setImporting] = useState(false)
+
+  // Promo group CRUD state
+  type GroupFormState = {
+    id?: string
+    name: string
+    productIds: string[]
+    volumePriceTiers: Array<{ minQty: string; price: string }>
+    active: boolean
+    productSearch: string
+  }
+  const [groupModalMode, setGroupModalMode] = useState<ModalMode>(null)
+  const [groupForm, setGroupForm] = useState<GroupFormState>({
+    name: '',
+    productIds: [],
+    volumePriceTiers: [],
+    active: true,
+    productSearch: '',
+  })
+  const [savingGroup, setSavingGroup] = useState(false)
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<PromoGroup | null>(null)
 
   // Import state
   const [importTargetDoc, setImportTargetDoc] = useState<string>('')
@@ -159,15 +186,18 @@ export default function CrmInventoryView() {
     setLoading(true)
     setError('')
     try {
-      const [cRes, bRes, docs] = await Promise.all([
+      const [cRes, bRes, docs, gRes] = await Promise.all([
         posCatalog({
-          kinds: tab !== 'all' ? [tab] : undefined,
+          kinds: tab !== 'all' && tab !== 'promo_groups' ? [tab as ItemKind] : undefined,
           search: search.trim() || undefined,
         }),
         posBranches(),
         posDocsList().catch(() => ({ files: [] })),
+        posPromoGroups().catch(() => ({ groups: [] as PromoGroup[] })),
       ])
       setItems(cRes.items)
+      // cRes.promoGroups also available but prefer dedicated endpoint result
+      setPromoGroups(Array.isArray((gRes as any)?.groups) ? (gRes as any).groups : Array.isArray((cRes as any).promoGroups) ? (cRes as any).promoGroups : [])
       setBranches(bRes.branches)
       setMdFiles(docs.files || [])
       if (importTargetDoc && docs.files?.length && !docs.files.find((f) => f.fileName === importTargetDoc)) {
@@ -313,6 +343,96 @@ export default function CrmInventoryView() {
       void loadAll()
     } catch (e: any) {
       setError(e?.message || 'No se pudo eliminar')
+    }
+  }
+
+  function openCreateGroup() {
+    setGroupForm({
+      name: '',
+      productIds: [],
+      volumePriceTiers: [],
+      active: true,
+      productSearch: '',
+    })
+    setGroupModalMode('create')
+  }
+
+  function openEditGroup(g: PromoGroup) {
+    setGroupForm({
+      id: g.id,
+      name: g.name,
+      productIds: [...(g.productIds || [])],
+      volumePriceTiers: (g.volumePriceTiers || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
+      active: g.active,
+      productSearch: '',
+    })
+    setGroupModalMode('edit')
+  }
+
+  function closeGroupModal() {
+    setGroupModalMode(null)
+    setGroupForm({
+      name: '',
+      productIds: [],
+      volumePriceTiers: [],
+      active: true,
+      productSearch: '',
+    })
+  }
+
+  async function handleSaveGroup() {
+    if (!groupForm.name.trim()) {
+      setError('Dale un nombre al grupo')
+      return
+    }
+    if (!groupForm.productIds.length) {
+      setError('Agrega al menos 1 producto al grupo')
+      return
+    }
+    const hasTiers = groupForm.volumePriceTiers.some(t => Number(t.minQty) >= 2 && Number(t.price) > 0)
+    if (!hasTiers) {
+      setError('Crea al menos 1 nivel de promoción (p. ej. 3 pzs × $240 c/u)')
+      return
+    }
+    setSavingGroup(true)
+    setError('')
+    try {
+      const volumePriceTiers = groupForm.volumePriceTiers
+        .map(t => ({
+          minQty: Math.max(2, Math.floor(Number(t.minQty) || 0)),
+          price: Number(t.price) || 0,
+        }))
+        .filter(t => t.minQty >= 2 && t.price > 0)
+        .sort((a, b) => a.minQty - b.minQty)
+        .filter((t, i, arr) => arr.findIndex(x => x.minQty === t.minQty) === i)
+      const productIds = Array.from(new Set(groupForm.productIds.filter(Boolean)))
+      const payload: any = {
+        id: groupForm.id,
+        name: groupForm.name.trim(),
+        productIds,
+        volumePriceTiers,
+        active: groupForm.active,
+      }
+      await posPromoGroupSave(payload)
+      closeGroupModal()
+      showToast(groupModalMode === 'edit' ? 'Grupo actualizado' : 'Grupo creado')
+      void loadAll()
+    } catch (e: any) {
+      setError(e?.message || 'No se pudo guardar el grupo')
+    } finally {
+      setSavingGroup(false)
+    }
+  }
+
+  async function handleDeleteGroup() {
+    if (!confirmDeleteGroup) return
+    try {
+      await posPromoGroupDelete(confirmDeleteGroup.id)
+      setConfirmDeleteGroup(null)
+      showToast('Grupo eliminado')
+      void loadAll()
+    } catch (e: any) {
+      setError(e?.message || 'No se pudo eliminar el grupo')
     }
   }
 
@@ -529,7 +649,7 @@ export default function CrmInventoryView() {
 
   const filteredItems = useMemo(() => {
     let list = items
-    if (tab !== 'all') list = list.filter((i) => i.kind === tab)
+    if (tab !== 'all' && tab !== 'promo_groups') list = list.filter((i) => i.kind === tab)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(
@@ -542,6 +662,22 @@ export default function CrmInventoryView() {
     }
     return list
   }, [items, tab, search])
+
+  const filteredPromoGroups = useMemo(() => {
+    let list = promoGroups
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter((g) => {
+        if (g.name.toLowerCase().includes(q)) return true
+        // buscar por nombre de producto incluido
+        return g.productIds.some((pid) => {
+          const it = items.find((i) => i.id === pid)
+          return it && (it.name.toLowerCase().includes(q) || it.sku.toLowerCase().includes(q))
+        })
+      })
+    }
+    return [...list].sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || a.name.localeCompare(b.name))
+  }, [promoGroups, search, items])
 
   function stockCellClass(stock: number, kind: ItemKind) {
     if (kind === 'service' || kind === 'course') return 'text-slate-400'
@@ -610,11 +746,14 @@ export default function CrmInventoryView() {
           </button>
           <button
             type="button"
-            onClick={openCreate}
+            onClick={() => {
+              if (tab === 'promo_groups') openCreateGroup()
+              else openCreate()
+            }}
             className="flex h-9 items-center gap-2 rounded-[14px] bg-[#1090D0] px-4 text-[12px] font-bold text-white transition hover:bg-[#0c79ae]"
           >
             <Plus className="h-4 w-4" />
-            Nuevo item
+            {tab === 'promo_groups' ? 'Nuevo grupo promoción' : 'Nuevo item'}
           </button>
         </div>
       </header>
@@ -653,161 +792,290 @@ export default function CrmInventoryView() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void loadAll()
               }}
-              placeholder="Buscar por nombre, SKU, familia, categoría..."
+              placeholder={tab === 'promo_groups' ? 'Buscar grupo por nombre o producto incluido...' : 'Buscar por nombre, SKU, familia, categoría...'}
               className="flex-1 bg-transparent text-[13.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
             />
           </div>
         </div>
 
         <div className="rounded-[12px] border border-[#1a3a5a] bg-[#0b2641]/60 px-3 py-1.5 text-[11.5px] text-slate-300">
-          {filteredItems.length} items
+          {tab === 'promo_groups'
+            ? `${filteredPromoGroups.length} grupo${filteredPromoGroups.length === 1 ? '' : 's'}`
+            : `${filteredItems.length} items`}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-[20px] border border-[#1a3a5a] bg-[#0f3151]">
-        {loading && filteredItems.length === 0 ? (
-          <div className="flex items-center justify-center py-12 text-[12.5px] text-slate-400">
-            <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[#1090D0]" />
-            Cargando catálogo...
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="py-16 text-center text-[12.5px] text-slate-400">
-            No hay artículos en el catálogo. Puedes <span className="font-semibold text-[#5bbfe5]">importar desde CSV/JSON</span> o crear uno nuevo.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[13px]">
-              <thead className="sticky top-0 z-10 border-b border-[#1a3a5a] bg-[#0b2641]/90 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 backdrop-blur">
-                <tr>
-                  <th className="px-4 py-3">SKU</th>
-                  <th className="px-4 py-3">Tipo</th>
-                  <th className="px-4 py-3">Nombre</th>
-                  <th className="px-4 py-3">Familia</th>
-                  <th className="px-4 py-3 whitespace-nowrap">Doc fuente</th>
-                  <th className="px-4 py-3 text-right">Costo</th>
-                  <th className="px-4 py-3 text-right">Precio Venta</th>
-                  {branches.map((b) => (
-                    <th key={b.id} className="px-4 py-3 text-right whitespace-nowrap">
-                      Stock {b.name.length > 14 ? `${b.name.slice(0, 14)}…` : b.name}
-                    </th>
-                  ))}
-                  <th className="px-4 py-3 text-center">Activo</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((it) => (
-                  <tr
-                    key={it.id}
-                    className="border-b border-[#1a3a5a]/40 last:border-0 hover:bg-[#11375a]/40"
-                  >
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#0b2641] px-2 py-1 font-mono text-[11.5px] text-slate-200">
-                        <Barcode className="h-3 w-3 text-slate-400" />
-                        {it.sku || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full border px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wider',
-                          kindBadgeClass(it.kind),
-                        )}
+        {tab === 'promo_groups' ? (
+          loading && filteredPromoGroups.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-[12.5px] text-slate-400">
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[#1090D0]" />
+              Cargando grupos de promoción...
+            </div>
+          ) : filteredPromoGroups.length === 0 ? (
+            <div className="py-16 text-center text-[12.5px] text-slate-400 px-6">
+              <div className="text-[#5bbfe5] font-semibold">Aún no hay grupos de promoción.</div>
+              <div className="mt-2">
+                Crea uno para aplicar descuentos por volumen entre productos diferentes.
+                <br />
+                <span className="text-slate-300 font-semibold">Ej:</span> grupo <span className="font-bold">"Pack Viales Stayve"</span> con los 3 viales, promoción: 3+ pzs = $240 c/u.
+              </div>
+              <button
+                type="button"
+                onClick={openCreateGroup}
+                className="mt-5 inline-flex items-center gap-1.5 rounded-[14px] bg-[#1090D0] px-4 py-2 text-[12px] font-bold text-white transition hover:bg-[#0c79ae]"
+              >
+                <Plus className="h-4 w-4" /> Crear primer grupo
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-[#1a3a5a] bg-[#0b2641]/90 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 backdrop-blur">
+                  <tr>
+                    <th className="px-4 py-3">Nombre</th>
+                    <th className="px-4 py-3">Productos</th>
+                    <th className="px-4 py-3">Tiers de promoción (desde qty × precio c/u)</th>
+                    <th className="px-4 py-3 text-center">Activo</th>
+                    <th className="px-4 py-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPromoGroups.map((g) => {
+                    const prodCount = g.productIds.length
+                    const linked = g.productIds
+                      .map((pid) => items.find((i) => i.id === pid))
+                      .filter(Boolean) as PosCatalogItem[]
+                    return (
+                      <tr
+                        key={g.id}
+                        className="border-b border-[#1a3a5a]/40 last:border-0 hover:bg-[#11375a]/40"
                       >
-                        {kindLabel(it.kind)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-100">{it.name}</div>
-                      {it.category ? (
-                        <div className="text-[11px] text-slate-400">{it.category}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">
-                      {it.family ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#0b2641]/60 px-2 py-1 text-[11.5px]">
-                          <Tag className="h-3 w-3 text-slate-400" />
-                          {it.family}
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-100 flex items-center gap-2 flex-wrap">
+                            <Tag className="h-3.5 w-3.5 text-cyan-300 shrink-0" />
+                            {g.name}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {prodCount} producto{prodCount === 1 ? '' : 's'} incluido{prodCount === 1 ? '' : 's'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {linked.length === 0 ? (
+                              <span className="text-slate-500 text-[11px] italic">(sin productos asociados)</span>
+                            ) : linked.slice(0, 5).map((it) => (
+                              <span
+                                key={it.id}
+                                className="inline-flex items-center gap-1 rounded-full border border-[#1a3a5a] bg-[#0b2641] px-2 py-0.5 text-[10.5px] font-bold text-slate-200"
+                              >
+                                {it.sku ? <span className="font-mono text-slate-400 mr-1">{it.sku}</span> : null}
+                                {it.name.length > 28 ? `${it.name.slice(0, 28)}…` : it.name}
+                              </span>
+                            ))}
+                            {linked.length > 5 ? (
+                              <span className="text-[10.5px] text-slate-400 font-bold self-center">+{linked.length - 5} más</span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            {Array.isArray(g.volumePriceTiers) && g.volumePriceTiers.length ? (
+                              [...g.volumePriceTiers]
+                                .sort((a, b) => a.minQty - b.minQty)
+                                .map((t, i) => (
+                                  <span
+                                    key={i}
+                                    className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-[10.5px] font-extrabold text-amber-100"
+                                  >
+                                    {t.minQty}+ pzs · <span className="font-mono text-amber-50">${Number(t.price).toFixed(2)}</span>
+                                  </span>
+                                ))
+                            ) : (
+                              <span className="text-rose-300/70 text-[11px] italic">sin tiers</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={cn(
+                              'inline-flex h-2.5 w-2.5 rounded-full',
+                              g.active ? 'bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]' : 'bg-slate-500',
+                            )}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openEditGroup(g)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-[#1090D0]/40 hover:text-[#5bbfe5]"
+                              title="Editar grupo"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteGroup(g)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
+                              title="Eliminar grupo"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          loading && filteredItems.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-[12.5px] text-slate-400">
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[#1090D0]" />
+              Cargando catálogo...
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="py-16 text-center text-[12.5px] text-slate-400">
+              No hay artículos en el catálogo. Puedes <span className="font-semibold text-[#5bbfe5]">importar desde CSV/JSON</span> o crear uno nuevo.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-[#1a3a5a] bg-[#0b2641]/90 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 backdrop-blur">
+                  <tr>
+                    <th className="px-4 py-3">SKU</th>
+                    <th className="px-4 py-3">Tipo</th>
+                    <th className="px-4 py-3">Nombre</th>
+                    <th className="px-4 py-3">Familia</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Doc fuente</th>
+                    <th className="px-4 py-3 text-right">Costo</th>
+                    <th className="px-4 py-3 text-right">Precio Venta</th>
+                    {branches.map((b) => (
+                      <th key={b.id} className="px-4 py-3 text-right whitespace-nowrap">
+                        Stock {b.name.length > 14 ? `${b.name.slice(0, 14)}…` : b.name}
+                      </th>
+                    ))}
+                    <th className="px-4 py-3 text-center">Activo</th>
+                    <th className="px-4 py-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map((it) => (
+                    <tr
+                      key={it.id}
+                      className="border-b border-[#1a3a5a]/40 last:border-0 hover:bg-[#11375a]/40"
+                    >
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#0b2641] px-2 py-1 font-mono text-[11.5px] text-slate-200">
+                          <Barcode className="h-3 w-3 text-slate-400" />
+                          {it.sku || '—'}
                         </span>
-                      ) : (
-                        <span className="text-slate-500">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {it.sourceDocId ? (
-                        <button
-                          type="button"
-                          onClick={() => handlePreviewDoc(it.sourceDocId!)}
-                          className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#1090D0]/30 bg-[#1090D0]/10 px-2 py-1 text-[11px] font-semibold text-[#5bbfe5] transition hover:bg-[#1090D0]/25"
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full border px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wider',
+                            kindBadgeClass(it.kind),
+                          )}
                         >
-                          <FileText className="h-3 w-3" />
-                          {it.sourceDocId}
-                        </button>
-                      ) : (
-                        <span className="text-slate-500 text-[11.5px]">Sin doc</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-300">
-                      {it.costPrice !== undefined && it.costPrice !== null
-                        ? `$${Number(it.costPrice).toFixed(2)}`
-                        : <span className="text-slate-500">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-mono font-semibold text-[#5bbfe5]">
-                        ${Number(it.salePrice).toFixed(2)}
-                      </span>
-                    </td>
-                    {branches.map((b) => {
-                      const stock = it.stocks?.[b.id] ?? 0
-                      return (
-                        <td key={b.id} className="px-4 py-3 text-right">
+                          {kindLabel(it.kind)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-100">{it.name}</div>
+                        {it.category ? (
+                          <div className="text-[11px] text-slate-400">{it.category}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">
+                        {it.family ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#0b2641]/60 px-2 py-1 text-[11.5px]">
+                            <Tag className="h-3 w-3 text-slate-400" />
+                            {it.family}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {it.sourceDocId ? (
                           <button
                             type="button"
-                            onClick={() => openStockAdjust(it, b.id)}
-                            className={cn(
-                              'inline-flex min-w-[56px] items-center justify-end gap-1 rounded-[10px] bg-[#0b2641]/60 px-2.5 py-1 font-mono text-[12.5px] transition hover:ring-1 hover:ring-[#1090D0]/50',
-                              stockCellClass(stock, it.kind),
-                            )}
-                            title="Clic para ajustar stock"
+                            onClick={() => handlePreviewDoc(it.sourceDocId!)}
+                            className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#1090D0]/30 bg-[#1090D0]/10 px-2 py-1 text-[11px] font-semibold text-[#5bbfe5] transition hover:bg-[#1090D0]/25"
                           >
-                            {stock}
+                            <FileText className="h-3 w-3" />
+                            {it.sourceDocId}
                           </button>
-                        </td>
-                      )
-                    })}
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={cn(
-                          'inline-flex h-2.5 w-2.5 rounded-full',
-                          it.active ? 'bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]' : 'bg-slate-500',
+                        ) : (
+                          <span className="text-slate-500 text-[11.5px]">Sin doc</span>
                         )}
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(it)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-[#1090D0]/40 hover:text-[#5bbfe5]"
-                          title="Editar"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDelete(it)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
-                          title="Eliminar (también borra del .md si estaba asociado)"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-300">
+                        {it.costPrice !== undefined && it.costPrice !== null
+                          ? `$${Number(it.costPrice).toFixed(2)}`
+                          : <span className="text-slate-500">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-mono font-semibold text-[#5bbfe5]">
+                          ${Number(it.salePrice).toFixed(2)}
+                        </span>
+                      </td>
+                      {branches.map((b) => {
+                        const stock = it.stocks?.[b.id] ?? 0
+                        return (
+                          <td key={b.id} className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openStockAdjust(it, b.id)}
+                              className={cn(
+                                'inline-flex min-w-[56px] items-center justify-end gap-1 rounded-[10px] bg-[#0b2641]/60 px-2.5 py-1 font-mono text-[12.5px] transition hover:ring-1 hover:ring-[#1090D0]/50',
+                                stockCellClass(stock, it.kind),
+                              )}
+                              title="Clic para ajustar stock"
+                            >
+                              {stock}
+                            </button>
+                          </td>
+                        )
+                      })}
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={cn(
+                            'inline-flex h-2.5 w-2.5 rounded-full',
+                            it.active ? 'bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]' : 'bg-slate-500',
+                          )}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(it)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-[#1090D0]/40 hover:text-[#5bbfe5]"
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(it)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a5a] bg-[#0b2641] text-slate-300 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300"
+                            title="Eliminar (también borra del .md si estaba asociado)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 
@@ -1572,6 +1840,398 @@ export default function CrmInventoryView() {
                   Importar y agregar a doc
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* GROUP MODAL (create/edit) */}
+      {groupModalMode ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] shadow-2xl shadow-black/50">
+            <div className="flex items-center justify-between border-b border-[#1a3a5a] px-5 py-4">
+              <h3 className="text-[16px] font-bold text-slate-50 flex items-center gap-2">
+                <Tag className="h-4 w-4 text-cyan-300" />
+                {groupModalMode === 'create' ? 'Nuevo grupo de promoción' : 'Editar grupo de promoción'}
+              </h3>
+              <button
+                type="button"
+                onClick={closeGroupModal}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#0b2641] hover:text-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5 max-h-[72vh] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="sm:col-span-2">
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Nombre grupo *
+                  </label>
+                  <div className="flex items-center gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5 focus-within:border-[#1090D0]/50">
+                    <Tag className="h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={groupForm.name}
+                      onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
+                      placeholder="Ej. Pack Viales Stayve"
+                      className="flex-1 bg-transparent text-[13.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="sm:col-span-1">
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Estado
+                  </label>
+                  <label className="mb-1.5 flex items-center justify-between rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
+                    <span className="text-[11.5px] font-bold text-slate-300 uppercase tracking-wider">Activo</span>
+                    <button
+                      type="button"
+                      onClick={() => setGroupForm({ ...groupForm, active: !groupForm.active })}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 items-center rounded-full transition',
+                        groupForm.active ? 'bg-[#1090D0]' : 'bg-slate-600/60',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition',
+                          groupForm.active ? 'translate-x-5' : 'translate-x-0.5',
+                        )}
+                      />
+                    </button>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1.5 flex items-center justify-between flex-wrap gap-2">
+                  <label className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    <Package className="h-3.5 w-3.5 text-cyan-300" />
+                    Productos incluidos ({groupForm.productIds.length})
+                  </label>
+                  <span className="text-[10.5px] text-slate-500">
+                    Se suman cantidades de CUALQUIERA de estos productos para alcanzar los niveles de promoción.
+                  </span>
+                </div>
+
+                <div className="rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] p-3">
+                  {/* Selected chips */}
+                  {groupForm.productIds.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 pb-2 mb-2 border-b border-[#1a3a5a]">
+                      {groupForm.productIds
+                        .map((pid) => items.find((i) => i.id === pid))
+                        .filter(Boolean)
+                        .map((it) => (
+                          <span
+                            key={it!.id}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-[10.5px] font-bold text-cyan-100"
+                          >
+                            {it!.sku ? <span className="font-mono text-cyan-300 mr-0.5">{it!.sku}</span> : null}
+                            {it!.name.length > 36 ? `${it!.name.slice(0, 36)}…` : it!.name}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGroupForm({
+                                  ...groupForm,
+                                  productIds: groupForm.productIds.filter((p) => p !== it!.id),
+                                })
+                              }
+                              className="ml-0.5 rounded-full text-cyan-200/80 hover:text-white hover:bg-cyan-500/20 h-4 w-4 flex items-center justify-center"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      {groupForm.productIds.some((pid) => !items.find((i) => i.id === pid)) ? (
+                        <span className="text-[10.5px] text-rose-300 italic font-bold">
+                          {(groupForm.productIds.filter((pid) => !items.find((i) => i.id === pid))).length} producto(s) ya no existen en catálogo — click en "Guardar" los limpiará.
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* Search bar */}
+                  <div className="mb-2 flex items-center gap-2 rounded-[12px] border border-[#1a3a5a] bg-[#0f3151] px-3 py-2 focus-within:border-[#1090D0]/50">
+                    <Search className="h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={groupForm.productSearch}
+                      onChange={(e) => setGroupForm({ ...groupForm, productSearch: e.target.value })}
+                      placeholder="Buscar productos para agregar (nombre, SKU, familia)..."
+                      className="flex-1 bg-transparent text-[12.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Checklist picker */}
+                  <div className="max-h-[240px] overflow-y-auto rounded-[12px] border border-[#1a3a5a] bg-white/[0.015] p-2 space-y-1">
+                    {(() => {
+                      const q = groupForm.productSearch.trim().toLowerCase()
+                      let list = items.filter((i) => i.active && i.kind === 'product')
+                      if (q) {
+                        list = list.filter(
+                          (i) =>
+                            i.name.toLowerCase().includes(q) ||
+                            i.sku.toLowerCase().includes(q) ||
+                            (i.family || '').toLowerCase().includes(q) ||
+                            (i.category || '').toLowerCase().includes(q),
+                        )
+                      }
+                      if (list.length === 0) {
+                        return (
+                          <div className="py-8 text-center text-[11.5px] text-slate-500">
+                            {q ? 'Sin resultados. Escribe otra búsqueda.' : 'Aún no hay productos activos tipo "Producto" en el catálogo.'}
+                          </div>
+                        )
+                      }
+                      return list.slice(0, 300).map((it) => {
+                        const checked = groupForm.productIds.includes(it.id)
+                        return (
+                          <label
+                            key={it.id}
+                            className={cn(
+                              'cursor-pointer flex items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 transition',
+                              checked ? 'bg-cyan-500/10 border border-cyan-400/30' : 'hover:bg-[#0b2641] border border-transparent',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'h-4 w-4 shrink-0 rounded-[5px] border flex items-center justify-center transition',
+                                checked ? 'bg-cyan-400 border-cyan-400 text-[#07203a]' : 'border-[#1a3a5a] bg-[#0f3151]',
+                              )}
+                            >
+                              {checked ? <Check className="h-3 w-3" /> : null}
+                            </span>
+                            <span className="font-mono text-[10.5px] text-slate-400 w-16 shrink-0 truncate">
+                              {it.sku || '—'}
+                            </span>
+                            <span className="flex-1 text-[12px] font-semibold text-slate-100 truncate">
+                              {it.name}
+                            </span>
+                            <span className="font-mono text-[11.5px] font-bold text-[#5bbfe5] shrink-0">
+                              ${Number(it.salePrice).toFixed(2)}
+                            </span>
+                            <input
+                              type="checkbox"
+                              className="hidden"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setGroupForm({
+                                    ...groupForm,
+                                    productIds: [...new Set([...groupForm.productIds, it.id])],
+                                  })
+                                } else {
+                                  setGroupForm({
+                                    ...groupForm,
+                                    productIds: groupForm.productIds.filter((p) => p !== it.id),
+                                  })
+                                }
+                              }}
+                            />
+                          </label>
+                        )
+                      })
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1.5 flex items-center justify-between flex-wrap gap-2">
+                  <label className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                    Niveles promoción (alcanzar cantidad TOTAL en el grupo = precio promocional c/u)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const avgPrice = groupForm.productIds.length
+                        ? groupForm.productIds.reduce((acc, pid) => {
+                            const it = items.find((i) => i.id === pid)
+                            return acc + Number(it?.salePrice || 0)
+                          }, 0) / groupForm.productIds.length
+                        : 0
+                      setGroupForm({
+                        ...groupForm,
+                        volumePriceTiers: [
+                          ...groupForm.volumePriceTiers,
+                          { minQty: '3', price: (avgPrice ? Number((avgPrice * 0.9).toFixed(2)) : 0).toString() },
+                        ],
+                      })
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-[#1090D0]/40 bg-[#1090D0]/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[#7fd2ff] hover:bg-[#1090D0]/20"
+                  >
+                    <Plus className="h-3 w-3" /> Agregar nivel
+                  </button>
+                </div>
+                <div className="rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] p-3">
+                  <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center text-[10.5px] font-extrabold uppercase tracking-widest text-slate-400 px-2 pb-2 border-b border-[#1a3a5a]">
+                    <span className="w-6 text-center">#</span>
+                    <span>Total pzs grupo</span>
+                    <span>Precio c/u</span>
+                    <span className="w-9"></span>
+                  </div>
+                  {groupForm.volumePriceTiers.length === 0 ? (
+                    <div className="px-2 py-6 text-center rounded-xl border border-dashed border-[#25507c] bg-white/[0.02] my-2">
+                      <p className="text-[11.5px] text-slate-400 leading-relaxed">
+                        Agrega niveles de promoción.<br />
+                        <span className="text-slate-300 font-semibold">Ej:</span> 3+ pzs (suma de todos los productos del grupo) = $240 c/u · 6+ pzs = $220 c/u.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 pt-2">
+                      {[...groupForm.volumePriceTiers]
+                        .map((t, i) => ({ t, i }))
+                        .sort((a, b) => (Number(a.t.minQty) || 0) - (Number(b.t.minQty) || 0))
+                        .map(({ t, i: _origIdx }, displayIdx) => {
+                          const avgPrice = groupForm.productIds.length
+                            ? groupForm.productIds.reduce((acc, pid) => {
+                                const it = items.find((i) => i.id === pid)
+                                return acc + Number(it?.salePrice || 0)
+                              }, 0) / groupForm.productIds.length
+                            : 0
+                          const qty = Math.max(2, Math.floor(Number(t.minQty) || 0))
+                          const pu = Number(t.price) || 0
+                          const pct = avgPrice > 0 ? Math.max(0, Math.round((1 - pu / avgPrice) * 100)) : 0
+                          return (
+                            <div key={_origIdx} className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center">
+                              <span className="w-6 text-center text-[12px] font-mono font-bold text-slate-500">{displayIdx + 1}</span>
+                              <div className="flex items-center gap-2 rounded-[12px] border border-[#1a3a5a] bg-[#0f3151] px-2.5 py-2 focus-within:border-[#1090D0]/50">
+                                <Package className="h-3.5 w-3.5 text-slate-400" />
+                                <input
+                                  type="number"
+                                  min={2}
+                                  step={1}
+                                  value={t.minQty}
+                                  onChange={(e) => {
+                                    const next = [...groupForm.volumePriceTiers]
+                                    next[_origIdx] = { ...next[_origIdx], minQty: e.target.value }
+                                    setGroupForm({ ...groupForm, volumePriceTiers: next })
+                                  }}
+                                  placeholder="3"
+                                  className="flex-1 bg-transparent font-mono text-[12.5px] text-slate-100 focus:outline-none w-20"
+                                />
+                                <span className="text-[10.5px] text-slate-500 font-bold">pzs+</span>
+                              </div>
+                              <div className="flex items-center gap-2 rounded-[12px] border border-[#1a3a5a] bg-[#0f3151] px-2.5 py-2 focus-within:border-[#1090D0]/50">
+                                <DollarSign className={cn('h-3.5 w-3.5', pct > 0 ? 'text-emerald-300' : 'text-slate-400')} />
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={t.price}
+                                  onChange={(e) => {
+                                    const next = [...groupForm.volumePriceTiers]
+                                    next[_origIdx] = { ...next[_origIdx], price: e.target.value }
+                                    setGroupForm({ ...groupForm, volumePriceTiers: next })
+                                  }}
+                                  placeholder="0.00"
+                                  className="flex-1 bg-transparent font-mono text-[12.5px] font-semibold text-slate-100 focus:outline-none"
+                                />
+                                {pct > 0 && qty >= 2 ? (
+                                  <span className="inline-flex items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-emerald-200 whitespace-nowrap">
+                                    -{pct}% vs avg
+                                  </span>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = groupForm.volumePriceTiers.filter((_, idx) => idx !== _origIdx)
+                                  setGroupForm({ ...groupForm, volumePriceTiers: next })
+                                }}
+                                className="flex h-9 w-9 items-center justify-center rounded-[12px] border border-rose-500/20 bg-rose-500/5 text-rose-300 hover:bg-rose-500/15"
+                                title="Borrar nivel"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  )}
+                  <p className="mt-3 rounded-xl border border-[#1a3a5a] bg-white/[0.02] px-3 py-2 text-[10.5px] leading-relaxed text-slate-400">
+                    📌 En el <span className="font-bold text-[#7fd2ff]">Punto de Venta</span> se suman TODAS las cantidades de los productos del grupo (mismo grupo).
+                    Se aplica el nivel con la cantidad más alta que alcance esa suma. Solo aplica si mejora el precio (nunca paga más caro).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1a3a5a] px-5 py-4">
+              <button
+                type="button"
+                onClick={closeGroupModal}
+                className="rounded-[14px] border border-[#1a3a5a] bg-[#11375a] px-4 py-2 text-[12.5px] font-semibold text-slate-200 transition hover:border-[#1090D0]/40 hover:text-white"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveGroup()}
+                disabled={savingGroup}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-[14px] px-5 py-2 text-[12.5px] font-bold text-white transition',
+                  savingGroup
+                    ? 'bg-slate-500/60 cursor-wait'
+                    : 'bg-[#1090D0] hover:bg-[#0c79ae]',
+                )}
+              >
+                {savingGroup ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                {savingGroup
+                  ? 'Guardando...'
+                  : groupModalMode === 'create'
+                    ? 'Crear grupo'
+                    : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* CONFIRM DELETE GROUP */}
+      {confirmDeleteGroup ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] shadow-2xl shadow-black/50">
+            <div className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-rose-500/15 text-rose-300">
+                  <Trash2 className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[15.5px] font-bold text-slate-50">Eliminar grupo</h3>
+                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-300">
+                    Se eliminará permanentemente el grupo{' '}
+                    <span className="font-semibold text-white">{confirmDeleteGroup.name}</span>.
+                    Las promociones por cantidad INDIVIDUALES de cada producto no se modifican.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#1a3a5a] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteGroup(null)}
+                className="rounded-[14px] border border-[#1a3a5a] bg-[#11375a] px-4 py-2 text-[12.5px] font-semibold text-slate-200 transition hover:border-[#1090D0]/40 hover:text-white"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteGroup()}
+                className="rounded-[14px] border border-rose-500/30 bg-rose-500 px-4 py-2 text-[12.5px] font-bold text-white transition hover:bg-rose-600"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Trash2 className="h-4 w-4" />
+                  Eliminar grupo
+                </span>
+              </button>
             </div>
           </div>
         </div>

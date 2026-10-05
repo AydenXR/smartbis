@@ -1,0 +1,12 @@
+ingress:
+  - hostname: api.smartbis.ai
+    service: http://127.0.0.1:3001
+  - hostname: pvlibapi.smartbis.ai
+    service: http://127.0.0.1:8788
+  - hostname: cotizador.smartbis.ai
+    service: http://127.0.0.1:8790
+  - hostname: smartbis.ai
+    service: http://127.0.0.1:5174
+  - hostname: www.smartbis.ai
+    service: http://127.0.0.1:5174
+  - service: http_status:404

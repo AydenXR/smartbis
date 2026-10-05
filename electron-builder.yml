@@ -1,10 +1,35 @@
 appId: com.smartbis.desktop
 productName: Smartbis POS
 copyright: Smartbis
-artifactName: Smartbis-POS-${version}-win-x64.${ext}
+artifactName: Smartbis-POS-${version}-Setup.${ext}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 files:
   - dist/**
   - electron/**
+  - api/dist/**
+  - .env
+  - .env.local
   - package.json
   - node_modules/**
   - '!**/*.map'
@@ -25,7 +50,9 @@ nsis:
   createStartMenuShortcut: true
   installerIcon: assets/icon.ico
   shortcutName: Smartbis POS
+  displayLanguageSelector: false
+  runAfterFinish: true
 afterSign: null
 publish:
   provider: generic
-  url: https://62.169.16.115/updates
+  url: https://updates.smartbis.ai/updates

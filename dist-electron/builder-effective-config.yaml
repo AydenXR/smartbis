@@ -1,0 +1,39 @@
+directories:
+  output: dist-electron
+  buildResources: build
+appId: com.smartbis.desktop
+productName: Smartbis POS
+copyright: Smartbis
+artifactName: Smartbis-POS-${version}-Setup.${ext}
+files:
+  - filter:
+      - dist/**
+      - electron/**
+      - api/dist/**
+      - .env
+      - .env.local
+      - package.json
+      - node_modules/**
+      - '!**/*.map'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  uninstallDisplayName: Smartbis POS
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: assets/icon.ico
+  shortcutName: Smartbis POS
+  displayLanguageSelector: false
+  runAfterFinish: true
+afterSign: null
+publish:
+  provider: generic
+  url: https://62.169.16.115/updates
+electronVersion: 44.0.0

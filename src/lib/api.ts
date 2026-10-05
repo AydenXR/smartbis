@@ -3,22 +3,36 @@ import type {
   AuthUser,
   ChatMessage,
   ChatResponse,
-  WorkspaceDocument,
+  DocumentIngestionStatus,
+  DocumentMutationPayload,
   WorkspacePayload,
 } from '@/types/app'
 
 const TOKEN_KEY = 'smartbis.auth.token'
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   if (typeof window === 'undefined') {
     return ''
   }
 
   const value = (window as Window & { __API_BASE__?: string }).__API_BASE__
-  return value ? value.replace(/\/$/, '') : ''
+  if (value) {
+    return value.replace(/\/$/, '')
+  }
+
+  const isDesktopBuild =
+    (window as Window & { smartbisDesktop?: unknown }).smartbisDesktop !== undefined ||
+    /Smartbis POS/i.test(window.navigator.userAgent || '') ||
+    (window.location && /^(file|chrome-extension|app):/.test(window.location.protocol))
+
+  if (isDesktopBuild) {
+    return 'https://api.smartbis.ai'
+  }
+
+  return ''
 }
 
-function resolveApiUrl(path: string) {
+export function resolveApiUrl(path: string) {
   const base = getApiBaseUrl()
   if (!base) {
     return path
@@ -31,6 +45,24 @@ type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   skipAuth?: boolean
+}
+
+function logClient(message: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const anyWindow = window as Window & {
+    smartbisDesktop?: {
+      log?: (message: string) => void
+    }
+  }
+
+  try {
+    anyWindow.smartbisDesktop?.log?.(`[client-session] ${message}`)
+  } catch {
+    console.warn('[client-session] log channel unavailable', message)
+  }
 }
 
 function getStoredToken() {
@@ -60,33 +92,45 @@ async function requestJson<T>(path: string, options: RequestOptions = {}) {
     headers['Content-Type'] = 'application/json'
   }
 
-  const response = await fetch(resolveApiUrl(path), {
-    method: options.method || 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  })
+  const targetUrl = resolveApiUrl(path)
+  logClient(`request start ${options.method || 'GET'} ${targetUrl}`)
 
-  const text = await response.text()
-  const payload = text ? (JSON.parse(text) as T & { error?: string }) : null
-  const errorMessage = payload?.error || 'No se pudo completar la solicitud'
+  try {
+    const response = await fetch(targetUrl, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    })
 
-  if (!response.ok) {
-    if (
-      response.status === 401 ||
-      /jwt|token|sesion|session|expired|unauthorized|auth/i.test(errorMessage)
-    ) {
-      clearStoredToken()
-      throw new Error('Tu sesion vencio. Inicia sesion nuevamente.')
+    const text = await response.text()
+    const payload = text ? (JSON.parse(text) as T & { error?: string }) : null
+    const errorMessage = payload?.error || 'No se pudo completar la solicitud'
+
+    if (!response.ok) {
+      logClient(`request non-ok ${response.status} ${path} body=${text}`)
+
+      if (
+        response.status === 401 ||
+        /jwt|token|sesion|session|expired|unauthorized|auth/i.test(errorMessage)
+      ) {
+        clearStoredToken()
+        throw new Error('Tu sesion vencio. Inicia sesion nuevamente.')
+      }
+
+      if (response.status === 404 && path === '/api/chat') {
+        throw new Error('El endpoint /api/chat no esta disponible en este momento.')
+      }
+
+      throw new Error(errorMessage)
     }
 
-    if (response.status === 404 && path === '/api/chat') {
-      throw new Error('El endpoint /api/chat no esta disponible en este momento.')
-    }
-
-    throw new Error(errorMessage)
+    logClient(`request ok ${options.method || 'GET'} ${path}`)
+    return payload as T
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logClient(`request failed ${options.method || 'GET'} ${path} error=${message}`)
+    throw error
   }
-
-  return payload as T
 }
 
 export async function registerAccount(input: { email: string; password: string }) {
@@ -139,7 +183,7 @@ export async function savePrompt(prompt: string) {
 }
 
 export async function createDocument(input: { fileName: string; content: string }) {
-  return requestJson<{ document: WorkspaceDocument }>('/api/documents', {
+  return requestJson<DocumentMutationPayload>('/api/documents', {
     method: 'POST',
     body: input,
   })
@@ -149,7 +193,7 @@ export async function updateDocument(
   currentFileName: string,
   input: { fileName: string; content: string },
 ) {
-  return requestJson<{ document: WorkspaceDocument }>(
+  return requestJson<DocumentMutationPayload>(
     `/api/documents/${encodeURIComponent(currentFileName)}`,
     {
       method: 'PUT',
@@ -159,9 +203,12 @@ export async function updateDocument(
 }
 
 export async function deleteDocument(currentFileName: string) {
-  return requestJson<null>(`/api/documents/${encodeURIComponent(currentFileName)}`, {
-    method: 'DELETE',
-  })
+  return requestJson<{ ingestion?: DocumentIngestionStatus }>(
+    `/api/documents/${encodeURIComponent(currentFileName)}`,
+    {
+      method: 'DELETE',
+    },
+  )
 }
 
 export async function sendChatMessage(input: {
@@ -365,7 +412,8 @@ export async function metaAutoEvalGet(id: string): Promise<AutoEval> {
 // POS / Operaciones (Punto de Venta · Inventario · Sucursales · Compras · Turnos · Cuentas · Registros)
 // ============================================
 
-export type PosRole = 'admin' | 'cashier'
+// 'admin' se conserva por compatibilidad con cuentas creadas antes de separar los roles.
+export type PosRole = 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
 export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
 export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
@@ -414,6 +462,43 @@ export interface PosCatalogItem {
   updatedAt: string
 }
 
+export interface PosPurchaseLine {
+  itemId: string
+  isNewItem?: boolean
+  newItemKind?: ItemKind
+  newItemSku?: string
+  newItemName?: string
+  productName?: string
+  qty: number
+  unitCost: number
+  shippingCost?: number
+  totalCost?: number
+}
+
+export interface PosPurchaseOrder {
+  id: string
+  branchId: string
+  date: string
+  providerName: string
+  folio?: string
+  total: number
+  currency: string
+  lines: PosPurchaseLine[]
+  notes?: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface PromoGroup {
+  id: string
+  name: string
+  productIds: string[]
+  volumePriceTiers: VolumePriceTier[]
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface PosSubuser {
   id: string
   email: string
@@ -425,6 +510,8 @@ export interface PosSubuser {
   updatedAt: string
 }
 
+export type ShiftCashMovementKind = 'withdrawal' | 'payment'
+
 export interface PosShift {
   id: string
   branchId: string
@@ -433,13 +520,14 @@ export interface PosShift {
   openedAt: string
   closedAt?: string
   initialCash: number
-  cashWithdrawals: Array<{ id: string; amount: number; reason?: string; businessExpense: boolean; at: string; by: string }>
+  cashWithdrawals: Array<{ id: string; amount: number; reason?: string; businessExpense: boolean; at: string; by: string; kind?: ShiftCashMovementKind; category?: string }>
   paymentsByMethod: Array<{ method: PaymentMethod; total: number }>
   closingCash?: number
   closingTotal?: number
   status: 'open' | 'closed'
   salesCount?: number
   salesTotal?: number
+  salesLines?: Array<{ itemId: string; sku?: string; name: string; qty: number; unitPrice: number; importe: number }>
 }
 
 export interface PosSaleLine {
@@ -512,7 +600,7 @@ export async function posCatalog(opts: PosCatalogOpts = {}) {
   if (opts.kinds?.length) qs.set('kinds', opts.kinds.join(','))
   if (opts.search) qs.set('search', opts.search)
   if (opts.activeOnly === false) qs.set('activeOnly', '0')
-  return requestJson<{ items: PosCatalogItem[] }>(`/api/pos/catalog?${qs.toString()}`)
+  return requestJson<{ items: PosCatalogItem[]; promoGroups: PromoGroup[] }>(`/api/pos/catalog?${qs.toString()}`)
 }
 
 export async function posCatalogSave(input: Partial<PosCatalogItem> & {
@@ -529,6 +617,19 @@ export async function posCatalogSave(input: Partial<PosCatalogItem> & {
 
 export async function posCatalogDelete(id: string) {
   return requestJson<{ ok: boolean }>(`/api/pos/catalog/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function posPromoGroups() {
+  return requestJson<{ groups: PromoGroup[] }>('/api/pos/promo-groups')
+}
+export async function posPromoGroupSave(input: Partial<PromoGroup> & { name: string }) {
+  return requestJson<{ group: PromoGroup }>('/api/pos/promo-groups', {
+    method: 'POST',
+    body: input,
+  })
+}
+export async function posPromoGroupDelete(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos/promo-groups/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function posCatalogAdjustStock(id: string, branchId: string, delta: number, reason?: string) {
@@ -588,7 +689,7 @@ export async function posCatalogImport(params: {
 }
 
 export async function posPurchases() {
-  return requestJson<{ purchases: any[] }>('/api/pos/purchases')
+  return requestJson<{ purchases: PosPurchaseOrder[] }>('/api/pos/purchases')
 }
 
 export async function posPurchaseCreate(input: {
@@ -598,10 +699,10 @@ export async function posPurchaseCreate(input: {
   folio?: string
   total: number
   currency?: string
-  lines: Array<any>
+  lines: PosPurchaseLine[]
   notes?: string
 }) {
-  return requestJson<{ purchase: any }>('/api/pos/purchases', {
+  return requestJson<{ purchase: PosPurchaseOrder }>('/api/pos/purchases', {
     method: 'POST',
     body: input,
   })
@@ -625,10 +726,110 @@ export async function posShiftWithdraw(shiftId: string, input: { amount: number;
   })
 }
 
+export async function posShiftPay(shiftId: string, input: { amount: number; reason?: string; category?: string }) {
+  return requestJson<{ payment: any }>(`/api/pos/shifts/${encodeURIComponent(shiftId)}/withdraw`, {
+    method: 'POST',
+    body: {
+      amount: input.amount,
+      reason: input.reason,
+      businessExpense: true,
+      kind: 'payment',
+      category: input.category,
+    },
+  })
+}
+
+export async function posShiftSummary(shiftId: string) {
+  return requestJson<{ shift: PosShift; sales: PosSale[] }>(`/api/pos/shifts/${encodeURIComponent(shiftId)}/summary`)
+}
+
 export async function posShiftClose(shiftId: string) {
   return requestJson<{ shift: PosShift }>(`/api/pos/shifts/${encodeURIComponent(shiftId)}/close`, {
     method: 'POST',
   })
+}
+
+export interface SystemStatusCheck {
+  ok: boolean
+  warn?: boolean
+  label: string
+  status?: string
+  detail?: string
+  latencyMs?: number
+  raw?: any
+}
+export interface SystemStatusOverview {
+  ok: boolean
+  generatedAt: string
+  summary: { total: number; ok: number; warn: number; error: number }
+  checks: SystemStatusCheck[]
+}
+export interface SystemDashboardTone {
+  tone?: 'ok' | 'warn' | 'error' | 'info'
+}
+export interface SystemStatusDashboard {
+  generatedAt: string
+  stats: {
+    meta: {
+      pageName: string | null
+      pageId: string | null
+      linked: boolean
+      state: string
+      testMode: boolean
+      botState: boolean
+    }
+    messages: {
+      total: number
+      today: number
+      receivedTotal: number
+      sentTotal: number
+      todayReceived: number
+      todaySent: number
+      blockedByAutocurador: number
+    }
+    chats: { total: number; unread: number; active24h: number }
+    pos: {
+      branches: number
+      openShiftId: string | null
+      openShiftSalesCount: number
+      openShiftSalesTotal: number
+      salesTotal: number
+      salesToday: number
+      salesMonth: number
+      salesCount: number
+      salesCountToday: number
+      salesCountMonth: number
+      shiftsWithSales: number
+    }
+    workspace: {
+      promptChars: number
+      documentsCount: number
+      hasPrompt: boolean
+    }
+    audit: {
+      last2000: number
+      logins24h: number
+      salesCreated: number
+      shiftsOpened: number
+      shiftsClosed: number
+      withdrawals: number
+    }
+    autocurador: {
+      total: number
+      correct: number
+      error: number
+      noinfo: number
+      judgeFailed: number
+      ratioCorrect: number
+    }
+  }
+  quick: Array<{ key: string; label: string; value: number; prefix?: string; tone?: 'ok' | 'warn' | 'error' | 'info' }>
+}
+export async function systemStatusOverview() {
+  return requestJson<SystemStatusOverview>('/api/status/overview')
+}
+export async function systemStatusDashboard() {
+  return requestJson<SystemStatusDashboard>('/api/status/dashboard')
 }
 
 export async function posSales(opts?: { branchId?: string; limit?: number; from?: string; to?: string; status?: string }) {

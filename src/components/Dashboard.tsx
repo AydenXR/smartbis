@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FilePlus2, Save, Trash2, Bot } from 'lucide-react'
+  import { FilePlus2, Save, Trash2, Bot, Download, PackageCheck, Clock, RefreshCw, PlayCircle, AlertCircle, CheckCircle2 } from 'lucide-react'
 import DashboardChatPanel from '@/components/DashboardChatPanel'
 import CrmFloatingNav from '@/components/CrmFloatingNav'
 import CrmChatsView from '@/components/CrmChatsView'
@@ -11,8 +11,10 @@ import CrmInventoryView from '@/components/CrmInventoryView'
 import CrmBranchesView from '@/components/CrmBranchesView'
 import CrmAuditRecordsView from '@/components/CrmAuditRecordsView'
 import CrmSalesView from '@/components/CrmSalesView'
+import CrmPurchasesView from '@/components/CrmPurchasesView'
 import CrmAccountsView from '@/components/CrmAccountsView'
 import CrmMyProfileView from '@/components/CrmMyProfileView'
+import CrmNotificationsView from '@/components/CrmNotificationsView'
 import { cn } from '@/lib/utils'
 import type { AuthUser, ChatMessage, WorkspaceDocument } from '@/types/app'
 import {
@@ -74,6 +76,8 @@ function initMetaStatus(): MetaStatusResponse {
   }
 }
 
+const CS_PAGES: (string | undefined)[] = ['chats', 'docs', 'settings']
+
 export default function Dashboard({
   user,
   prompt,
@@ -118,11 +122,200 @@ export default function Dashboard({
   const [errorChats, setErrorChats] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
 
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [installedVersion, setInstalledVersion] = useState<String | null>(null)
+  const [remoteVersion, setRemoteVersion] = useState<string | null>(null)
+  const [isUpdateAvailable, setIsUpdateAvailable] = useState(false)
+  const [isUpdateDownloaded, setIsUpdateDownloaded] = useState(false)
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [isInstalling, setIsInstalling] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
+  const [updateStatusMsg, setUpdateStatusMsg] = useState('')
+
+  function parseSemverForUpdates(v: unknown): [number, number, number] {
+    if (!v || typeof v !== 'string') return [-1, -1, -1]
+    const parts = String(v).split(/[.-]/).slice(0, 3).map((x) => parseInt(String(x || '0'), 10) || 0)
+    while (parts.length < 3) parts.push(0)
+    return [parts[0], parts[1], parts[2]]
+  }
+  function isRemoteGreaterForUpdates(remote: unknown, local: unknown): boolean {
+    const r = parseSemverForUpdates(remote)
+    const l = parseSemverForUpdates(local)
+    for (let i = 0; i < 3; i += 1) {
+      if (r[i] > l[i]) return true
+      if (r[i] < l[i]) return false
+    }
+    return false
+  }
+
+  useEffect(() => {
+    const anyWindow = window as Window & {
+      smartbisDesktop?: {
+        onRuntime?: (handler: (data: any) => void) => void
+        onUpdateAvailable?: (handler: (data: any) => void) => void
+        onUpdateDownloaded?: (handler: () => void) => void
+        onUpdateProgress?: (handler: (data: any) => void) => void
+        onUpdateError?: (handler: (data: any) => void) => void
+        onUpdateNotAvailable?: (handler: () => void) => void
+        checkForUpdates?: () => Promise<any>
+        downloadUpdate?: () => Promise<any>
+        restartAndInstall?: () => Promise<any>
+        log?: (message: string) => void
+      }
+    }
+    const desktop = anyWindow.smartbisDesktop
+    if (!desktop) return
+    setIsDesktop(true)
+    const envVersion = String((import.meta.env.VITE_APP_VERSION as string) || '0.43.0')
+    setInstalledVersion(envVersion)
+
+    if (desktop.onRuntime) {
+      desktop.onRuntime((data) => {
+        if (data?.installedVersion && typeof data.installedVersion === 'string') {
+          setInstalledVersion(data.installedVersion)
+        }
+      })
+    }
+    if (desktop.onUpdateAvailable) {
+      desktop.onUpdateAvailable((data) => {
+        const remote = data?.version
+        const installed = installedVersion || envVersion
+        if (remote && isRemoteGreaterForUpdates(remote, installed)) {
+          setRemoteVersion(String(remote))
+          setIsUpdateAvailable(true)
+          if (data?.downloaded) {
+            setIsUpdateDownloaded(true)
+            setDownloadProgress(100)
+          }
+        }
+      })
+    }
+    if (desktop.onUpdateDownloaded) {
+      desktop.onUpdateDownloaded(() => {
+        setIsUpdateDownloaded(true)
+        setDownloadProgress(100)
+        setIsDownloading(false)
+        setUpdateStatusMsg('Actualización lista para instalar.')
+      })
+    }
+    if (desktop.onUpdateProgress) {
+      desktop.onUpdateProgress((data) => {
+        const pct = typeof data?.percent === 'number' ? data.percent : null
+        if (pct !== null) {
+          setDownloadProgress(Math.max(0, Math.min(100, pct)))
+        }
+      })
+    }
+    if (desktop.onUpdateError) {
+      desktop.onUpdateError((data) => {
+        setIsDownloading(false)
+        setIsCheckingUpdates(false)
+        setUpdateStatusMsg(data?.message || 'Error al actualizar.')
+      })
+    }
+    if (desktop.onUpdateNotAvailable) {
+      desktop.onUpdateNotAvailable(() => {
+        setIsUpdateAvailable(false)
+        setUpdateStatusMsg('Ya tienes la versión más reciente.')
+      })
+    }
+    void (async () => {
+      try {
+        const res = await desktop.checkForUpdates?.()
+        if (res?.installed && typeof res.installed === 'string') {
+          setInstalledVersion(res.installed)
+        }
+        if (res?.ok && res?.updateAvailable && res?.version) {
+          setRemoteVersion(String(res.version))
+          setIsUpdateAvailable(true)
+          if (res.downloaded) {
+            setIsUpdateDownloaded(true)
+            setDownloadProgress(100)
+          }
+        } else if (res?.ok) {
+          setIsUpdateAvailable(false)
+          setUpdateStatusMsg('Ya tienes la versión más reciente.')
+        }
+      } catch (_) {}
+    })()
+  }, [installedVersion])
+
+  async function handleCheckUpdates() {
+    const desktop = (window as any).smartbisDesktop
+    if (!desktop) { setUpdateStatusMsg('Modo web: solo disponible en escritorio.'); return }
+    setIsCheckingUpdates(true)
+    setUpdateStatusMsg('Verificando actualizaciones...')
+    try {
+      const res = await desktop.checkForUpdates?.()
+      if (res?.installed && typeof res.installed === 'string') setInstalledVersion(res.installed)
+      if (res?.ok && res?.updateAvailable && res?.version) {
+        setRemoteVersion(String(res.version))
+        setIsUpdateAvailable(true)
+        if (res.downloaded) { setIsUpdateDownloaded(true); setDownloadProgress(100) }
+        setUpdateStatusMsg(`Versión ${res.version} disponible.`)
+      } else {
+        setIsUpdateAvailable(false)
+        setUpdateStatusMsg('Ya tienes la versión más reciente.')
+      }
+    } catch (e: any) {
+      setUpdateStatusMsg(e?.message || 'No se pudo verificar actualizaciones.')
+    } finally {
+      setIsCheckingUpdates(false)
+    }
+  }
+
+  async function handleDownloadUpdate() {
+    const desktop = (window as any).smartbisDesktop
+    if (!desktop) return
+    if (!isUpdateAvailable) return
+    setIsDownloading(true)
+    setDownloadProgress(0)
+    setUpdateStatusMsg('Descargando actualización...')
+    try {
+      const res = await desktop.downloadUpdate?.()
+      if (res?.ok) {
+        setIsUpdateDownloaded(true)
+        setDownloadProgress(100)
+        setUpdateStatusMsg('Actualización descargada. Cierra y abre de nuevo o pulsa Instalar.')
+      } else {
+        setUpdateStatusMsg(res?.message || 'No se pudo descargar.')
+      }
+    } catch (e: any) {
+      setUpdateStatusMsg(e?.message || 'Error al descargar.')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  async function handleInstallUpdate() {
+    const desktop = (window as any).smartbisDesktop
+    if (!desktop) return
+    if (!isUpdateDownloaded) return
+    setIsInstalling(true)
+    setUpdateStatusMsg('Instalando y reiniciando...')
+    try {
+      await desktop.restartAndInstall?.()
+    } catch (e: any) {
+      setIsInstalling(false)
+      setUpdateStatusMsg(e?.message || 'No se pudo instalar.')
+    }
+  }
+
   const APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || ''
   const GRAPH_VERSION = import.meta.env.VITE_META_GRAPH_VERSION || 'v22.0'
 
   // Restricción cashier: solo permitidas operations (POS + Inventario) y myprofile. Todo lo demás → redirect.
   const isCashier = user.posRole === 'cashier'
+  // Admin PV: control de Punto de Venta (POS, inventario, compras, ventas, sucursales). Sin acceso a la zona CS.
+  const isAdminPv = user.posRole === 'admin_pv'
+  // Admin CS: control TOTAL de Atención al cliente (documentos, prompt, chats, pruebas, conexión). Sin acceso al POS.
+  const isAdminCs = user.posRole === 'admin_cs'
+  // Agente CS: solo administra Chats y Documentos (incluye auto-ingesta). Sin prompt, sin pruebas,
+  // sin conexión Messenger, sin POS y sin gestión de cuentas/registros (igual que Caja en su zona).
+  const isCsAgent = user.posRole === 'cs_agent'
+  // Roles "operativos" (no admin) que no pueden crear sub-usuarios ni ver Cuentas/Registros.
+  const isBaseWorker = isCashier || isCsAgent
   useEffect(() => {
     if (!isCashier) return
     const ALLOWED: (string | undefined)[] = ['operations', 'myprofile']
@@ -134,6 +327,24 @@ export default function Dashboard({
       setOperationsTab('pos')
     }
   }, [isCashier, crmPage, operationsTab, setCrmPage, setOperationsTab])
+
+  useEffect(() => {
+    if (!isAdminPv) return
+    if (CS_PAGES.includes(crmPage)) setCrmPage('operations')
+  }, [isAdminPv, crmPage, setCrmPage])
+
+  useEffect(() => {
+    if (!(isAdminCs || isCsAgent)) return
+    if (crmPage === 'operations') setCrmPage('docs')
+  }, [isAdminCs, isCsAgent, crmPage, setCrmPage])
+
+  // Agente CS: sin acceso a Conectar (configuración de Messenger) ni a las pestañas Prompt/Pruebas
+  // dentro de la vista de Documentos (solo administra chats y documentos/auto-ingesta).
+  useEffect(() => {
+    if (!isCsAgent) return
+    if (crmPage === 'settings') setCrmPage('docs')
+    if (activeTab === 'prompt' || activeTab === 'chat') setActiveTab('documents')
+  }, [isCsAgent, crmPage, activeTab, setCrmPage, setActiveTab])
 
   useEffect(() => {
     setPromptDraft(prompt)
@@ -379,12 +590,26 @@ export default function Dashboard({
     setDocumentStatus('Documento eliminado.')
   }
 
+  function renderRestricted(title: string, message: string) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-10 text-center max-w-lg">
+          <p className="text-xl font-bold text-[#1090D0]">{title}</p>
+          <p className="mt-3 text-sm text-slate-300">{message}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-[#0c2a47] text-white">
       <div className="flex h-screen w-screen flex-row gap-0 overflow-hidden bg-[#0c2a47]">
         <section className="flex h-screen min-h-0 w-full flex-1 flex-col gap-0 overflow-hidden bg-[#0c2a47]">
           <div className="h-screen min-h-0 flex-1 overflow-hidden">
             {crmPage === 'chats' ? (
+              isAdminPv ? (
+                renderRestricted('Chats · Acceso restringido', 'Esta zona es exclusiva de Admin CS y del propietario de la cuenta.')
+              ) : (
               <CrmChatsView
                 status={metaStatus}
                 loadingStatus={loadingStatus}
@@ -404,7 +629,11 @@ export default function Dashboard({
                 onMarkAsRead={handleMarkAsRead}
                 onDeleteChat={handleDeleteChat}
               />
+              )
             ) : crmPage === 'docs' ? (
+              isAdminPv ? (
+                renderRestricted('Documentos · Acceso restringido', 'Esta zona es exclusiva de Admin CS y del propietario de la cuenta.')
+              ) : (
               <DocsAndPromptView
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
@@ -426,8 +655,13 @@ export default function Dashboard({
                 onSaveDocument={async () => { await handleDocumentSave(); }}
                 onDeleteDocument={async () => { await handleDeleteDocument(); }}
                 onSendChatMessage={onSendChatMessage}
+                restrictToDocumentsOnly={isCsAgent}
               />
+              )
             ) : crmPage === 'settings' ? (
+              (isAdminPv || isCsAgent) ? (
+                renderRestricted('Conectar · Acceso restringido', 'Esta zona es exclusiva de Admin CS y del propietario de la cuenta.')
+              ) : (
               <CrmSettingsView
                 status={metaStatus}
                 loadingStatus={loadingStatus}
@@ -446,16 +680,17 @@ export default function Dashboard({
                 APP_ID={APP_ID}
                 graphVersion={GRAPH_VERSION}
               />
+              )
             ) : crmPage === 'myprofile' ? (
               <CrmMyProfileView
                 userEmail={user.email}
                 displayName={user.displayName}
                 userName={user.displayName}
-                userRole={(user.posRole === 'owner' ? 'admin' : (user.posRole || 'admin')) as any}
+                userRole={user.posRole || 'admin'}
                 memberSince={new Date().toLocaleDateString('es-MX')}
               />
             ) : crmPage === 'accounts' ? (
-              user.posRole && user.posRole !== 'cashier' ? <CrmAccountsView /> : (
+              user.posRole && !isBaseWorker ? <CrmAccountsView /> : (
                 <div className="flex h-full w-full items-center justify-center">
                   <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-10 text-center max-w-lg">
                     <p className="text-xl font-bold text-[#1090D0]">Cuentas · Acceso restringido</p>
@@ -464,7 +699,7 @@ export default function Dashboard({
                 </div>
               )
             ) : crmPage === 'records' ? (
-              user.posRole && user.posRole !== 'cashier' ? <CrmAuditRecordsView /> : (
+              user.posRole && !isBaseWorker ? <CrmAuditRecordsView /> : (
                 <div className="flex h-full w-full items-center justify-center">
                   <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-10 text-center max-w-lg">
                     <p className="text-xl font-bold text-[#1090D0]">Historial · Solo Administradores</p>
@@ -473,6 +708,9 @@ export default function Dashboard({
                 </div>
               )
             ) : crmPage === 'operations' ? (
+              (isAdminCs || isCsAgent) ? (
+                renderRestricted('Punto de Venta · Acceso restringido', 'Esta zona es exclusiva de Admin PV y del propietario de la cuenta.')
+              ) : (
               <CrmOperationsLayout
                 active={operationsTab}
                 setActive={setOperationsTab}
@@ -483,23 +721,207 @@ export default function Dashboard({
                   <CrmPosView />
                 ) : operationsTab === 'inventory' ? (
                   <CrmInventoryView />
+                ) : operationsTab === 'purchases' ? (
+                  <CrmPurchasesView />
+                ) : operationsTab === 'sales' ? (
+                  <CrmSalesView />
                 ) : operationsTab === 'branches' ? (
                   <CrmBranchesView />
-                ) : operationsTab === 'purchases' ? (
-                  <CrmSalesView />
                 ) : operationsTab === 'dashboard' ? (
                   <CrmAuditRecordsView />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-10 text-center">
-                      <p className="text-xl font-bold text-[#1090D0]">Configuración · Piso #6</p>
-                      <p className="mt-3 text-sm text-slate-300">
-                        Recuerda: el IVA se configura individualmente por sucursal en el Piso #4 Sucursales.
-                      </p>
+                  <div className="flex h-full w-full items-center justify-center overflow-y-auto px-4 py-10">
+                    <div className="w-full max-w-3xl space-y-6">
+                      <div className="rounded-[22px] border border-[#1a3a5a] bg-[#0f3151] p-8">
+                        <div className="flex flex-wrap items-center gap-4">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1090D0]/18 text-[#5bbfe5] shadow-[inset_0_0_0_1px_rgba(16,144,208,0.3)]">
+                            <PackageCheck className="h-7 w-7" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
+                              Smartbis POS · Actualizaciones
+                            </p>
+                            <p className="mt-1 text-2xl font-extrabold text-slate-50">
+                              Versión instalada{' '}
+                              <span className="font-mono text-[#1090D0]">
+                                v{String(installedVersion || (import.meta.env.VITE_APP_VERSION as string) || '0.43.0')}
+                              </span>
+                            </p>
+                            <p className="mt-1 text-[12.5px] text-slate-400">
+                              {isDesktop
+                                ? 'Plataforma escritorio con actualizaciones OTA desde updates.smartbis.ai'
+                                : 'Plataforma web. Instala la versión de escritorio para recibir actualizaciones automáticas.'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isUpdateAvailable && remoteVersion ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#1090D0]/40 bg-[#1090D0]/15 px-3 py-1 text-[11px] font-bold text-[#8ed7f5]">
+                                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#1090D0] shadow-[0_0_0_3px_rgba(16,144,208,0.18)]" />
+                                Actualización v{remoteVersion}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-200">
+                                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]" />
+                                Versión al día
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+                          <div className="rounded-2xl border border-[#1a3a5a] bg-[#0b2641]/70 p-4">
+                            <div className="flex items-center gap-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                              <Clock className="h-3.5 w-3.5" />
+                              Lanzamiento
+                            </div>
+                            <div className="mt-2 font-mono text-[14px] font-bold text-slate-100">
+                              {new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#1a3a5a] bg-[#0b2641]/70 p-4">
+                            <div className="flex items-center gap-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                              <Download className="h-3.5 w-3.5" />
+                              Canal
+                            </div>
+                            <div className="mt-2 font-mono text-[14px] font-bold text-slate-100">
+                              Estable · OTA
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-[#1a3a5a] bg-[#0b2641]/70 p-4">
+                            <div className="flex items-center gap-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                              <PackageCheck className="h-3.5 w-3.5" />
+                              Entorno
+                            </div>
+                            <div className="mt-2 font-mono text-[14px] font-bold text-slate-100">
+                              {isDesktop ? 'DESKTOP' : 'WEB'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-6">
+                          <p className="mb-3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
+                            Control de actualizaciones
+                          </p>
+                          <div className="space-y-3 rounded-2xl border border-[#1a3a5a] bg-[#0b2641]/60 p-5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleCheckUpdates()}
+                                disabled={isCheckingUpdates || isDownloading || isInstalling || !isDesktop}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1a3a5a] bg-[#11375a] px-3.5 py-2 text-[12px] font-semibold text-slate-100 transition hover:border-[#1090D0]/40 hover:text-white disabled:opacity-50"
+                              >
+                                <RefreshCw className={cn('h-4 w-4', isCheckingUpdates ? 'animate-spin' : '')} />
+                                {isCheckingUpdates ? 'Verificando...' : '1. Verificar actualizaciones'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDownloadUpdate()}
+                                disabled={!isDesktop || !isUpdateAvailable || isDownloading || isCheckingUpdates || isInstalling || isUpdateDownloaded}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1a3a5a] bg-[#11375a] px-3.5 py-2 text-[12px] font-semibold text-slate-100 transition hover:border-[#1090D0]/40 hover:text-white disabled:opacity-50"
+                              >
+                                <Download className={cn('h-4 w-4', isDownloading ? 'animate-bounce' : '')} />
+                                {isUpdateDownloaded ? 'Descargada ✓' : isDownloading ? `Descargando ${downloadProgress !== null ? `${downloadProgress.toFixed(0)}%` : '...'}` : '2. Descargar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleInstallUpdate()}
+                                disabled={!isDesktop || !isUpdateDownloaded || isInstalling || isDownloading || isCheckingUpdates}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-[#1090D0] px-4 py-2 text-[12px] font-bold text-white shadow-[0_4px_14px_-4px_rgba(16,144,208,0.8)] transition hover:bg-[#0c79ae] disabled:opacity-50"
+                              >
+                                <PlayCircle className={cn('h-4 w-4', isInstalling ? 'animate-pulse' : '')} />
+                                {isInstalling ? 'Instalando...' : '3. Instalar y reiniciar'}
+                              </button>
+                            </div>
+
+                            {(downloadProgress !== null && isDownloading) || updateStatusMsg ? (
+                              <div className="space-y-2">
+                                {downloadProgress !== null && isDownloading ? (
+                                  <div>
+                                    <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
+                                      <span>Progreso de descarga</span>
+                                      <span className="font-mono font-bold text-[#5bbfe5]">{downloadProgress.toFixed(0)}%</span>
+                                    </div>
+                                    <div className="h-2 overflow-hidden rounded-full bg-[#071828]">
+                                      <div
+                                        className="h-full rounded-full bg-gradient-to-r from-[#1090D0] to-[#5bbfe5] transition-all duration-300"
+                                        style={{ width: `${Math.max(0, Math.min(100, downloadProgress))}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {updateStatusMsg ? (
+                                  <div className={cn(
+                                    'flex items-start gap-2 rounded-xl border px-3 py-2 text-[12px]',
+                                    (isUpdateAvailable && !isUpdateDownloaded && !isDownloading)
+                                      ? 'border-[#1090D0]/30 bg-[#1090D0]/10 text-[#b6e3f4]'
+                                      : isUpdateDownloaded
+                                      ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                                      : 'border-[#1a3a5a] bg-[#0b2641]/80 text-slate-300',
+                                  )}>
+                                    {isUpdateDownloaded ? (
+                                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                                    ) : isUpdateAvailable && !isDownloading ? (
+                                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#5bbfe5]" />
+                                    ) : (
+                                      <PackageCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                                    )}
+                                    <span>{updateStatusMsg}</span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-6">
+                          <p className="mb-3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
+                            Notas de la versión
+                          </p>
+                          <div className="space-y-4 rounded-2xl border border-[#1a3a5a] bg-[#0b2641]/60 p-5 text-[13px] leading-relaxed text-slate-300 tech-scrollbar max-h-[340px] overflow-y-auto">
+                            <div>
+                              <p className="font-bold text-slate-100">v0.55.0 · Bot Salubel: Pagos inteligentes y listados de productos limpios</p>
+                              <p className="mt-1 text-slate-400">
+                                Nueva lógica de validación de ubicación obligatoria para Salubel Institute: el bot ahora pregunta si el cliente está en México o Internacional antes de mostrar métodos de pago. Clientes en México reciben cuentas Santander, OXXO y Banamex; clientes internacionales solo pueden pagar vía Stripe o PayPal (nunca se muestran cuentas bancarias mexicanas). Enlaces de Stripe dinámicos según el precio del curso ($895 y $595 MXN). Listados de productos simplificados: ahora el bot muestra únicamente NOMBRE y PRECIO como primera información, ocultando SKU, Unidad y Categoría a menos que el cliente lo solicite explícitamente. Actualizaciones al prompt del sistema con inyección de fecha/hora actual en zona Sonora/Arizona para evitar ofrecer fechas pasadas de cursos. Consistencia centralizada de información de pagos y productos como verdad absoluta en código. Todas las respuestas de pago cierran invitando a enviar el comprobante al WhatsApp +52 1 662 335 8779. Nuevo piso #6 Actualizaciones: ahora incluye botones Verificar, Descargar e Instalar con barra de progreso y estado en tiempo real.
+                              </p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-100">v0.44.0 · Ajuste altura escritorio</p>
+                              <p className="mt-1 text-slate-400">
+                                La nueva barra superior integrada ya no corta los botones Cobrar, Cotizacion, Promociones y Retiro del fondo del POS. Ajuste de solo los 32px exactos que ocupaba la barra, sin exagerar.
+                              </p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-100">v0.43.0 · IVA condicional, turno obligatorio y OTA</p>
+                              <p className="mt-1 text-slate-400">
+                                IVA solo cuando la casilla Factura esta marcada. Turno obligatorio (se quito Cancelar). Barra superior integrada Salir + Desktop PROD sin solapamientos. Actualizaciones OTA automaticas al abrir y boton de notas abajo-derecha. Piso #6 cambio de icono a Descarga con version y changelog. Escritorio se conecta al backend remoto (datos iguales que web).
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-[#1a3a5a] pt-5">
+                          <p className="text-[11.5px] text-slate-400">
+                            Recordatorio rápido: el porcentaje de IVA y la moneda por sucursal se configuran en{' '}
+                            <span className="font-bold text-slate-200">#5 Sucursales</span>.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleCheckUpdates()}
+                            disabled={isCheckingUpdates || isDownloading || isInstalling || !isDesktop}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#1090D0] px-4 py-2 text-[12px] font-bold text-white transition hover:bg-[#0c79ae] shadow-[0_4px_14px_-4px_rgba(16,144,208,0.8)] disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn('h-4 w-4', isCheckingUpdates ? 'animate-spin' : '')} />
+                            Revisar actualizaciones
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </CrmOperationsLayout>
+              )
+            ) : crmPage === 'notifications' ? (
+              <CrmNotificationsView />
             ) : (
               <CrmSettingsView
                 status={metaStatus}
@@ -594,7 +1016,12 @@ export default function Dashboard({
         onGoProfile={() => setCrmPage('myprofile')}
         onGoAccounts={() => setCrmPage('accounts')}
         onGoRecords={() => setCrmPage('records')}
+        onGoNotifications={() => setCrmPage('notifications')}
         isCashier={user.posRole === 'cashier'}
+        hideCsSections={isAdminPv}
+        hidePosSections={isAdminCs || isCsAgent}
+        hideAdminOnlySections={isBaseWorker}
+        restrictCsToDocsOnly={isCsAgent}
       />
     </main>
   )
@@ -627,6 +1054,8 @@ type DocsAndPromptViewProps = {
     message: string,
     history: Array<Pick<ChatMessage, 'role' | 'content'>>,
   ) => Promise<string>
+  /** Agente CS: solo administra Documentos (y auto-ingesta); sin acceso a Prompt ni Pruebas. */
+  restrictToDocumentsOnly?: boolean
 }
 
 function DocsAndPromptView(props: DocsAndPromptViewProps) {
@@ -651,17 +1080,18 @@ function DocsAndPromptView(props: DocsAndPromptViewProps) {
     onSaveDocument,
     onDeleteDocument,
     onSendChatMessage,
+    restrictToDocumentsOnly,
   } = props
   return (
     <section className="flex h-screen min-h-0 w-full max-w-full max-h-full flex-col overflow-hidden gap-4 bg-[#0c2a47] px-4 py-4">
       <div className="min-h-0 flex-1 flex flex-col gap-4 overflow-hidden">
-      {activeTab === 'chat' ? (
+      {activeTab === 'chat' && !restrictToDocumentsOnly ? (
         <DashboardChatPanel
           prompt={prompt}
           documents={documents}
           onSendMessage={onSendChatMessage}
         />
-      ) : activeTab === 'prompt' ? (
+      ) : activeTab === 'prompt' && !restrictToDocumentsOnly ? (
         <div className="min-h-0 flex-1 flex flex-col overflow-hidden rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-5">
           <div className="mb-4 space-y-2 shrink-0">
             <h2 className="font-display text-[18px] font-bold text-white">prompt.md</h2>

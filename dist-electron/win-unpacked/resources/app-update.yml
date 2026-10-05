@@ -1,0 +1,3 @@
+provider: generic
+url: https://updates.smartbis.ai/updates
+updaterCacheDirName: smartbis2-updater

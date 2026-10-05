@@ -3,7 +3,7 @@ export type AuthUser = {
   clientId: string
   tenantId: string
   email: string
-  posRole?: 'owner' | 'admin' | 'cashier'
+  posRole?: 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
   posBranchId?: string
   subuserId?: string
   displayName?: string
@@ -17,6 +17,20 @@ export type WorkspaceDocument = {
   content: string
   updatedAt: string
   isActive?: boolean
+}
+
+export type DocumentIngestionStatus = {
+  ok: boolean
+  indexedAt?: string
+  documents?: number
+  activeDocuments?: number
+  blocks?: number
+  error?: string
+}
+
+export type DocumentMutationPayload = {
+  document: WorkspaceDocument
+  ingestion?: DocumentIngestionStatus
 }
 
 export type ChatMessage = {

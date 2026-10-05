@@ -12,6 +12,7 @@ import {
   Users,
   ShoppingCart,
   ScrollText,
+  Bell,
 } from 'lucide-react'
 import type { MetaStatusResponse } from '@/lib/api'
 import LogoSb from '../assets/logosb.png'
@@ -41,6 +42,7 @@ type Props = CrmSidebarProps & {
   onGoAccounts?: () => void
   onGoRecords?: () => void
   onGoProfile?: () => void
+  onGoNotifications?: () => void
 }
 type CrmSidebarProps_Actual = Props
 
@@ -53,6 +55,7 @@ export default function CrmSidebar({
   onGoAccounts,
   onGoRecords,
   onGoProfile,
+  onGoNotifications,
 }: CrmSidebarProps_Actual) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -179,6 +182,20 @@ export default function CrmSidebar({
                 >
                   <ScrollText className="h-4 w-4 text-[#6bb8dd]" />
                   Registros
+                </button>
+              </li>
+              <li className="h-px bg-[#1a3a5a]" />
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false)
+                    onGoNotifications?.()
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[12.5px] font-semibold text-slate-100 transition hover:bg-[#1090D0]/10"
+                >
+                  <Bell className="h-4 w-4 text-[#6bb8dd]" />
+                  Estado del Sistema
                 </button>
               </li>
             </ul>

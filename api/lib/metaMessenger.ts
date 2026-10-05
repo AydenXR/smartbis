@@ -658,7 +658,6 @@ export function buildOAuthLoginURL(tenantId: string, redirectFrontendSuccess = '
     + `&state=${encodeURIComponent(state)}`
     + `&response_type=code`
     + `&scope=${encodeURIComponent(scope)}`
-    + `&auth_type=rerequest`
 }
 
 export async function exchangeCodeForUserToken(code: string): Promise<{ access_token: string; token_type?: string; expires_in?: number } | null> {
@@ -689,14 +688,25 @@ export async function exchangeLongLivedUserToken(shortLivedToken: string): Promi
   } catch { return null }
 }
 
-export async function listUserPages(longLivedUserToken: string): Promise<any[]> {
+export async function listUserPages(longLivedUserToken: string): Promise<{ success: boolean; pages: any[]; error?: string }> {
   try {
     const url = `${GRAPH_BASE}/me/accounts?fields=id,name,access_token,category,cover,picture{url}&access_token=${encodeURIComponent(longLivedUserToken)}`
     const r = await fetch(url)
     const data = await r.json() as any
-    if (!r.ok || !Array.isArray(data?.data)) return []
-    return data.data
-  } catch { return [] }
+    if (!r.ok || data?.error) {
+      const why = String(data?.error?.message || data?.error?.error_user_msg || `HTTP ${r.status} Graph API /me/accounts`)
+      console.warn('[metaMessenger] listUserPages Graph error:', why, data?.error || null)
+      return { success: false, pages: [], error: why }
+    }
+    if (!Array.isArray(data?.data)) {
+      return { success: false, pages: [], error: 'Respuesta /me/accounts inválida.' }
+    }
+    return { success: true, pages: data.data }
+  } catch (e: any) {
+    const err = e?.message ? String(e.message) : 'Error de red al consultar /me/accounts'
+    console.warn('[metaMessenger] listUserPages exception:', err)
+    return { success: false, pages: [], error: err }
+  }
 }
 
 export async function subscribePageToApp(pageAccessToken: string): Promise<boolean> {

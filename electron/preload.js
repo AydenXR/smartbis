@@ -5,9 +5,14 @@ contextBridge.exposeInMainWorld('smartbisDesktop', {
   onUpdateDownloaded: (handler) => ipcRenderer.on('app:update-downloaded', () => handler()),
   onUpdateProgress: (handler) => ipcRenderer.on('app:update-progress', (_, data) => handler(data)),
   onUpdateError: (handler) => ipcRenderer.on('app:update-error', (_, data) => handler(data)),
+  onUpdateNotAvailable: (handler) => ipcRenderer.on('app:update-not-available', () => handler()),
   onRuntime: (handler) => ipcRenderer.on('app:runtime', (_, data) => handler(data)),
+  onClearSession: (handler) => ipcRenderer.on('app:clear-session', () => handler()),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('app:download-update'),
   restartAndInstall: () => ipcRenderer.invoke('app:restart-and-update'),
+  declineUpdate: (version) => ipcRenderer.invoke('app:decline-update', version),
+  log: (message) => ipcRenderer.send('app:log', message),
 });
 
 window.addEventListener('DOMContentLoaded', () => {

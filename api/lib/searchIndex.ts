@@ -1,5 +1,7 @@
 import type { DocumentSection, WorkspaceDocument } from './workspace.js'
 
+import { createHash } from 'node:crypto'
+
 const MAX_CONTEXT_BLOCKS = 4
 const MAX_CONTEXT_CHARS = 2600
 const MAX_BLOCK_CHARS = 900
@@ -48,7 +50,31 @@ const QUERY_STOP_WORDS = new Set([
   'hay',
   'delos',
   'las',
+  'si', 'no', 'ok', 'okay', 'vale', 'perfecto', 'genial', 'bien', 'claro',
+  'gracias', 'dale', 'listo',
 ])
+
+function extractHintedCourseNames(query: string): { hintedNames: string[]; hasContextMarker: boolean } {
+  if (!query) return { hintedNames: [], hasContextMarker: false }
+  const q = String(query)
+  const hasContextMarker =
+    /\[CONTEXTO RESPUESTA CORTA/i.test(q) ||
+    /CONTEXTO RESPUESTA CORTA/.test(q)
+  const hintedNames: string[] = []
+  const markerRe = /mencionados por el asesor en los mensajes anteriores:\s*([^\].\n]+)\]/i
+  const m = markerRe.exec(q)
+  if (m && m[1]) {
+    const raw = m[1]
+    for (const part of raw.split(/\s*\|\s*/)) {
+      const n = part.trim()
+      if (n.length >= 4) hintedNames.push(n)
+    }
+  }
+  const normHinted = hintedNames
+    .map((n) => normalizeText(n))
+    .filter((s) => s && s.length >= 4)
+  return { hintedNames: normHinted, hasContextMarker }
+}
 
 export type SearchIntent = ReturnType<typeof analyzeQuery>
 
@@ -82,6 +108,28 @@ export type SearchContextResult = {
   contextBlock: string
   matchedBlocks: IndexedBlock[]
   intent: SearchIntent
+}
+
+export function getSearchIndexSignature(documents: WorkspaceDocument[]) {
+  const signature = createHash('sha256')
+  const activeDocuments = documents
+    .filter((document) => document.isActive)
+    .sort((left, right) => left.id.localeCompare(right.id))
+
+  for (const document of activeDocuments) {
+    signature.update(document.id)
+    signature.update('\0')
+    signature.update(document.title)
+    signature.update('\0')
+    signature.update(document.section)
+    signature.update('\0')
+    signature.update(document.updatedAt)
+    signature.update('\0')
+    signature.update(document.content)
+    signature.update('\0')
+  }
+
+  return signature.digest('hex')
 }
 
 export function normalizeText(value: string) {
@@ -409,9 +457,40 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
   const queryIntent = analyzeQuery(query)
   const queryWords = extractQueryWords(query)
   let score = 0
+  const { hintedNames, hasContextMarker } = extractHintedCourseNames(query)
 
   if (!query.trim()) {
     return block.document.section === 'general' ? 2 : 1
+  }
+
+  if (hintedNames.length > 0) {
+    const blockNorm = `${block.normalizedTitle} ${block.normalizedBody}`
+    for (const hn of hintedNames) {
+      if (!hn) continue
+      if (block.normalizedTitle.includes(hn) || blockNorm.includes(` ${hn} `) || blockNorm.startsWith(hn + ' ') || blockNorm.endsWith(' ' + hn) || blockNorm === hn) {
+        score += 65
+        break
+      }
+      const hnWords = hn.split(' ').filter((w) => w.length >= 4)
+      let coincidencias = 0
+      for (const w of hnWords) {
+        if (block.titleTokens.includes(w) || block.bodyTokens.includes(w) || block.normalizedTitle.includes(w) || block.normalizedBody.includes(w)) {
+          coincidencias += 1
+        }
+      }
+      if (coincidencias >= Math.max(1, Math.ceil(hnWords.length * 0.5))) {
+        score += 40 + coincidencias * 5
+        break
+      }
+    }
+  }
+
+  const querySignificativa = queryWords.length >= 2
+  if (!querySignificativa && hasContextMarker && hintedNames.length === 0) {
+    const s = String(block.document.section || '').toLowerCase()
+    if (s === 'productos' || s === 'cursos' || s === 'servicios' || s === 'tratamientos') {
+      score -= 6
+    }
   }
 
   // BOOST OBLIGATORIO: Bloque especial de FECHAS de cursos [FECHAS_CURSOS_DISPONIBLES] tiene que ser SIEMPRE el TOP 1
@@ -637,16 +716,11 @@ export function createSearchIndex(input: { tenantId: string; documents: Workspac
     splitDocumentIntoBlocks(document).map((block, index) => toIndexedBlock(document, block, index)),
   )
 
-  const signature = activeDocuments
-    .map((document) => `${document.id}:${document.updatedAt}:${document.isActive ? '1' : '0'}`)
-    .sort()
-    .join('|')
-
   return {
     tenantId: input.tenantId,
     documents: input.documents,
     blocks,
-    signature,
+    signature: getSearchIndexSignature(activeDocuments),
     stats: {
       documents: input.documents.length,
       activeDocuments: activeDocuments.length,
