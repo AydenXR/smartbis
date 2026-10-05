@@ -19,6 +19,7 @@ type DbChatInput = {
   prompt: string
   message: string
   history: DbConversationMessage[]
+  referralContext?: string
   psid?: string
   triggerMessageId?: string
   botMessageId?: string
@@ -132,7 +133,7 @@ const ANTI_INTERNAL_REASONING_RULE = `=== PRIORIDAD 0 (NUNCA, JAMÁS, BAJO NING�
 === FIN PRIORIDAD 0.1 ===
 `
 
-function buildSystemPrompt(prompt: string, contextBlock: string) {
+function buildSystemPrompt(prompt: string, contextBlock: string, referralContext = '') {
   const now = getCurrentDateTimeSpanish()
   const timeAwarenessBlock = `=== PRIORIDAD 0.2 (CONCIENCIA TEMPORAL Y FECHAS — NUNCA, BAJO NINGÚN CONCEPTO, INCUMPLE ESTAS REGLAS):
 - La fecha y hora ACTUAL en que transcurre esta conversación es: ${now.fechaCompleta} (formato ISO: ${now.fechaISO}).
@@ -160,7 +161,10 @@ Para fechas de cursos, el calendario recuperado ahora mismo de los documentos ac
 
 ${ragDateAuthorityBlock}
 
-Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, NO lo inventes y pide confirmar por WhatsApp o comenta que no dispones de esa información pública):
+REGLA DE ATENCIÓN AL CLIENTE: responde como una persona del equipo, de forma cálida, directa y natural. No reveles ni insinúes que eres una IA, bot, modelo o sistema.
+Usa únicamente datos respaldados por la información disponible. Si falta un dato, no digas “no tengo información”, “no cuento con la información”, “no sé” ni “no puedo responder”. Ofrece confirmar el detalle con un asesor por WhatsApp o pregunta una aclaración concreta si el mensaje es ambiguo. No inventes el dato faltante ni detalles de contacto que no aparezcan en las fuentes.
+
+${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes y ofrece confirmar el detalle con un asesor):
 ${contextBlock}`
 }
 
@@ -396,6 +400,8 @@ Cuándo usar:
      O los documentos recuperados NO contienen la información para responder la pregunta,
      Y por lo tanto el bot tuvo que responder sin fuente, o pedir disculpas, o derivar a WhatsApp.
 
+REGLA DE ATENCIÓN SEGURA: si falta información, es CORRECT una respuesta natural que ofrezca confirmar el dato con un asesor o pida una aclaración concreta, siempre que no afirme hechos sin respaldo. No marques noinfo solo porque esa respuesta no use documentos. Son incorrectas las frases que dicen que el bot no tiene información, no sabe, o revelan que es una IA/bot.
+
 INSTRUCCIONES DE SALIDA (OBLIGATORIO, SIN TEXTO EXTRA):
 Responde ÚNICAMENTE con un bloque JSON que tenga esta estructura y NADA MÁS:
 {
@@ -474,6 +480,8 @@ async function runAutocuratorJudge(args: {
   maxTokens: number
   tenantPrompt: string
   userQuestion: string
+  conversationContext: string
+  referralContext: string
   botAnswer: string
   matchedBlocksText: string
 }): Promise<JudgeOutput> {
@@ -500,6 +508,12 @@ ${ragSummary}
 
 === PREGUNTA DEL CLIENTE ===
 ${args.userQuestion}
+
+=== CONTEXTO RECIENTE DE LA CONVERSACIÓN ===
+${args.conversationContext || '(sin mensajes anteriores)'}
+
+=== CONTEXTO DEL ANUNCIO (PISTA DE INTENCIÓN, NO FUENTE DE PRECIO) ===
+${args.referralContext || '(sin referencia de anuncio)'}
 
 === RESPUESTA DEL BOT ===
 ${args.botAnswer}
@@ -559,6 +573,13 @@ function matchedBlocksToRefs(blocks: any[]): AutoEvalMatchedBlockRef[] {
     const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 16)
     return { hash, title: title || undefined, section: section || undefined, snippet: snippet || undefined }
   })
+}
+
+const NO_INFORMATION_REPLY = 'Con gusto te apoyamos con ese tema. Escríbenos por WhatsApp y un asesor te confirma los detalles.'
+const NO_INFORMATION_PHRASE = /(?:no\s+(?:cuento|contamos|tenemos|tengo|dispongo|disponemos)\s+(?:con\s+)?(?:esa\s+)?(?:informaci[oó]n|datos)|no\s+hay\s+(?:informaci[oó]n|datos)|no\s+(?:s[eé]|sabemos|puedo\s+responder|podemos\s+responder)|no\s+estoy\s+capacitado\s+para\s+responder|(?:soy|como)\s+(?:una?\s+)?(?:ia|inteligencia\s+artificial|bot|asistente\s+virtual))/i
+
+function replaceNoInformationReply(answer: string): string {
+  return NO_INFORMATION_PHRASE.test(answer) ? NO_INFORMATION_REPLY : answer
 }
 
 async function buildDbDocumentsContextBlock(tenantId: string, query = '') {
@@ -758,7 +779,7 @@ function extraerNombreCursoDeMensaje(texto: string): string[] {
   return unicos
 }
 
-function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[]): string {
+function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[], referralContext = ''): string {
   const normalizedMsg = (userMessage || '').replace(/\s+/g, ' ').trim()
   const recent = (history || []).slice(-8)
   const msgWords = normalizedMsg.split(/\s+/).filter((w) => w.length >= 2)
@@ -769,7 +790,7 @@ function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[
     msgWords.length <= 2 &&
     RESPUESTAS_CORTAS_SIN_CONTEXTO.has(msgLowerSimple)
 
-  if (msgWords.length >= 3 && !esRespuestaCorta) return normalizedMsg
+  if (msgWords.length >= 3 && !esRespuestaCorta) return `${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
 
   const ultimosMensajesAsesor = recent
     .filter((m) => m.role === 'assistant')
@@ -788,13 +809,13 @@ function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[
   }
 
   const context = recent.map((m) => `${m.role === 'user' ? 'USUARIO' : 'ASESOR'}: ${m.content}`).join('\n')
-  if (!context) return normalizedMsg + pistasAdicionales
+  if (!context) return `${normalizedMsg}${pistasAdicionales}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
   let combined = `${context}\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
   if (combined.length > 1500) {
     const tail = 1500 - pistasAdicionales.length
     combined = context.slice(Math.max(0, context.length - tail)) + `\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
   }
-  return combined
+  return `${combined}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
 }
 
 export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerOpts = {}) {
@@ -808,7 +829,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     throw new Error('LLM_API_KEY no esta configurada')
   }
 
-  const retrievalQuery = buildEnhancedQuery(input.message, input.history || [])
+  const retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '')
   const { documents, contextBlock, matchedBlocks } = await buildDbDocumentsContextBlock(input.tenantId, retrievalQuery)
 
   const generalDocText = (documents || []).map((d: any) => {
@@ -839,7 +860,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   } catch (_e) { /* no-op */ }
 
   const trimmedHistory = input.history.slice(-12)
-  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock)
+  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '')
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     ...trimmedHistory.map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: String(m.content || '') })),
@@ -880,6 +901,9 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   }
 
   answer = applyUpcomingCourseDateCorrection(answer, input.message, matchedBlocks)
+  // Evita que frases internas de incertidumbre lleguen al cliente. La respuesta
+  // ofrece una vía humana sin inventar datos ni revelar automatización.
+  answer = replaceNoInformationReply(answer)
 
   // ===== AUTO-CURADO · JUEZ SÍNCRONO (último filtro, antes de devolver respuesta) =====
   const matchedBlocksForJudge = matchedBlocks || []
@@ -898,6 +922,8 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       maxTokens,
       tenantPrompt: input.prompt,
       userQuestion: input.message,
+      conversationContext: (input.history || []).slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'ASESOR'}: ${String(m.content || '').slice(0, 700)}`).join('\n').slice(-5000),
+      referralContext: input.referralContext || '',
       botAnswer: answer,
       matchedBlocksText,
     })
@@ -957,6 +983,13 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       ].filter(Boolean)
       evalReason = `Bloqueado por fail-closed (judge_failed${tags.length ? ' · ' + tags.join(' · ') : ''}). Error original: ${e?.message || String(e || 'error desconocido')}`.slice(0, 600)
     }
+  }
+
+  if ((evalCategory === 'noinfo' || evalCategory === 'judge_failed') && answer === NO_INFORMATION_REPLY) {
+    // Una derivación neutral y segura es una respuesta válida aunque la base no
+    // contenga el dato; así el cliente recibe una salida útil en vez de silencio.
+    evalCategory = 'correct'
+    evalReason = 'Se ofreció confirmación con un asesor porque las fuentes no respaldan el dato solicitado.'
   }
 
   const blocked = evalCategory !== 'correct'

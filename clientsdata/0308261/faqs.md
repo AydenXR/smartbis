@@ -18,6 +18,10 @@ Pregunta: Como puedo saber si un producto esta disponible o hay stock?
 Respuesta: Puedes consultar la disponibilidad directamente por el WhatsApp oficial +52 1 662 335 8779, ya que el asesor verifica el inventario actualizado del punto de venta y confirma la cantidad de cada producto.
 
 [FAQ]
+Pregunta: Para que sirve este producto, que beneficios tiene o cual es su metodo de aplicacion?
+Respuesta: Para obtener todos los detalles del producto y su metodo de aplicacion, por favor comunicate con nosotros por WhatsApp al +52 1 662 335 8779.
+
+[FAQ]
 Pregunta: Los productos Stayve son originales? Que garantia tienen?
 Respuesta: Si, todos los productos distribuidos por Salubel Institute son 100% originales y de alta calidad, garantizando seguridad en todos los tratamientos esteticos.
 
@@ -55,7 +59,7 @@ Respuesta: El tiempo de entrega depende de la paqueteria y la distancia de desti
 
 [FAQ]
 Pregunta: Cual es el horario exacto de cada curso online y como funcionan?
-Respuesta: Los cursos online incluyen una practica demostrativa guiada por la instructora en video (sin requerir paciente real ni simuladores). Los videos quedan disponibles durante un mes a partir del lunes mas proximo a tu inscripcion. El horario de transmision en vivo se confirma con tu asesor.
+Respuesta: Los cursos online con fecha programada se imparten en la fecha indicada y la clase queda grabada. El alumno puede revisar la grabacion cuantas veces quiera durante un mes, a partir del lunes siguiente a la clase. Para obtener el acceso debe solicitarlo por WhatsApp oficial +52 1 662 335 8779. Si un curso online no tiene una fecha disponible, tambien se puede comprar su version pregrabada para tomarlo sin esperar una nueva convocatoria. El horario de cada curso se confirma con el asesor.
 
 [FAQ]
 Pregunta: Cual es el horario exacto de cada curso presencial?
@@ -71,7 +75,7 @@ Respuesta: Las fechas actualizadas del calendario mensual de cursos se consultan
 
 [FAQ]
 Pregunta: Si un curso no esta en el calendario actual, como puedo pre-inscribirme o apartar lugar?
-Respuesta: Se puede solicitar informacion sobre apertura de nuevas fechas y dejar un apartado de lugar directamente mediante WhatsApp oficial.
+Respuesta: Si el curso online no tiene una fecha disponible, puedes comprar la version pregrabada y tomarlo sin esperar una nueva convocatoria. Para consultar disponibilidad y recibir acceso, comunicate por WhatsApp oficial +52 1 662 335 8779. Para cursos presenciales, consulta con el asesor si se abrira una nueva fecha.
 
 [FAQ]
 Pregunta: Que curso me recomiendan si soy principiante y nunca he estudiado estetica?
@@ -79,7 +83,7 @@ Respuesta: Se recomienda iniciar con los cursos basicos introductorios. Para una
 
 [FAQ]
 Pregunta: Se necesitan estudios previos para tomar los cursos?
-Respuesta: Algunos cursos avanzados o de aparatologia e inyectables pueden requerir perfil previo en el area de la salud o estetica; cada caso se valida de forma directa con tu asesor.
+Respuesta: Cualquier persona puede tomar los cursos; no se requieren estudios ni experiencia previa para inscribirse. Esto es independiente de los requisitos legales o profesionales para aplicar tratamientos. Para aplicar los tratamientos asociados a Rinomodelacion con acido hialuronico, Russian Lips + Tecnica francesa, aplicacion de Botox en tercio superior o inferior y manejo de hiperhidrosis, se requiere titulo medico. No se requiere titulo medico para tomar esos cursos.
 
 [FAQ]
 Pregunta: Hay limite de edad para tomar los cursos?
@@ -88,6 +92,14 @@ Respuesta: Los cursos estan dirigidos principalmente a mayores de edad con inter
 [FAQ]
 Pregunta: Los cursos incluyen material de practica?
 Respuesta: Los cursos presenciales incluyen los materiales necesarios para la practica durante la clase. El detalle completo se proporciona al momento de inscribirte.
+
+[FAQ]
+Pregunta: En el curso de Relleno de arrugas y revitalizacion con Hyaluron Pen, quien proporciona la herramienta para la practica y como es la practica online?
+Respuesta: En la modalidad presencial, Salubel proporciona la herramienta Hyaluron Pen para la practica; el alumno no necesita llevarla. En la modalidad online, la Dra. Lydia Coronado realiza el procedimiento como demostracion mientras los alumnos observan.
+
+[FAQ]
+Pregunta: La aplicacion con Hyaluron Pen requiere anestesia o puede causar encapsulamiento?
+Respuesta: Para consultas sobre anestesia o riesgos de encapsulamiento en la aplicacion con Hyaluron Pen, solicita orientacion individualizada por WhatsApp oficial +52 1 662 335 8779. No es posible confirmar esos aspectos por este medio.
 
 [FAQ]
 Pregunta: Que tipo de constancia o certificado se entrega al terminar el curso?
@@ -115,7 +127,7 @@ Respuesta: El WhatsApp oficial es atendido por el equipo de Atencion a Clientes 
 
 [FAQ]
 Pregunta: Cuales son los pasos exactos para inscribirme a un curso online?
-Respuesta: 1. Envia mensaje al WhatsApp oficial +52 1 662 335 8779 con tu nombre completo, curso de interes y modalidad. 2. Verifica disponibilidad con el asesor. 3. Realiza el pago mediante transferencia SPEI, tarjeta, efectivo o meses sin intereses. 4. Envia el comprobante para recibir el acceso a los videos, disponibles durante un mes a partir del lunes mas proximo.
+Respuesta: 1. Envia mensaje al WhatsApp oficial +52 1 662 335 8779 con tu nombre completo, curso de interes y modalidad. 2. Verifica disponibilidad con el asesor. 3. Realiza el pago mediante transferencia SPEI, tarjeta, efectivo o meses sin intereses. 4. Envia el comprobante y, para obtener acceso a la grabacion, solicitalo por WhatsApp oficial. La grabacion queda disponible durante un mes a partir del lunes siguiente a la clase.
 
 [FAQ]
 Pregunta: Que datos necesitan para formalizar la inscripcion a un curso?
@@ -167,7 +179,7 @@ Respuesta: La politica de cancelacion y reprogramacion se consulta directamente 
 
 [FAQ]
 Pregunta: Si compro un curso online cuanto tiempo tengo acceso a los videos?
-Respuesta: Los videos y practicas demostrativas del curso online quedan disponibles por un periodo de un mes, a partir del lunes mas proximo a tu inscripcion.
+Respuesta: La grabacion de la clase online queda disponible durante un mes a partir del lunes siguiente a la clase y puedes revisarla cuantas veces quieras. Para obtener el acceso, solicitalo por WhatsApp oficial +52 1 662 335 8779.
 
 [FAQ]
 Pregunta: Cual es el horario de atencion al cliente? En que idioma atienden?

@@ -6,6 +6,7 @@ import {
   ArrowRightLeft,
   MapPin,
   Download as DownloadIcon,
+  Calculator,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
@@ -19,6 +20,7 @@ export type OperationsPage =
   | 'branches'
   | 'dashboard'
   | 'settings'
+  | 'administration'
 
 type NavItem = {
   id: OperationsPage
@@ -36,6 +38,7 @@ const navItems: NavItem[] = [
   { id: 'sales', num: 5, label: '#4 Ventas', icon: ArrowRightLeft, title: '#4 Ventas' },
   { id: 'branches', num: 6, label: '#5 Sucursales', icon: MapPin, title: '#5 Sucursales' },
   { id: 'settings', num: 7, label: '#6 Actualizaciones', icon: DownloadIcon, title: '#6 Actualizaciones' },
+  { id: 'administration', num: 8, label: '#7 Administración', icon: Calculator, title: '#7 Administración' },
 ]
 
 type CrmOperationsLayoutProps = {

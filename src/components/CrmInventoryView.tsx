@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Package,
   Search,
@@ -138,6 +138,7 @@ export default function CrmInventoryView() {
   const [toast, setToast] = useState<string>('')
   const [tab, setTab] = useState<TabKind>('all')
   const [search, setSearch] = useState('')
+  const [expandedLotsItemId, setExpandedLotsItemId] = useState<string | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [form, setForm] = useState<FormState>({ ...emptyForm })
   const [saving, setSaving] = useState(false)
@@ -298,7 +299,7 @@ export default function CrmInventoryView() {
   }
 
   async function handleSave() {
-    if (!form.name.trim() || !form.salePrice) return
+    if (!form.name.trim() || (form.salePrice !== '' && (!Number.isFinite(Number(form.salePrice)) || Number(form.salePrice) < 0))) return
     setSaving(true)
     setError('')
     try {
@@ -951,7 +952,7 @@ export default function CrmInventoryView() {
                     <th className="px-4 py-3">Nombre</th>
                     <th className="px-4 py-3">Familia</th>
                     <th className="px-4 py-3 whitespace-nowrap">Doc fuente</th>
-                    <th className="px-4 py-3 text-right">Costo</th>
+                    <th className="px-4 py-3 text-right">Costo promedio</th>
                     <th className="px-4 py-3 text-right">Precio Venta</th>
                     {branches.map((b) => (
                       <th key={b.id} className="px-4 py-3 text-right whitespace-nowrap">
@@ -964,8 +965,8 @@ export default function CrmInventoryView() {
                 </thead>
                 <tbody>
                   {filteredItems.map((it) => (
+                    <Fragment key={it.id}>
                     <tr
-                      key={it.id}
                       className="border-b border-[#1a3a5a]/40 last:border-0 hover:bg-[#11375a]/40"
                     >
                       <td className="px-4 py-3">
@@ -1015,9 +1016,15 @@ export default function CrmInventoryView() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-slate-300">
-                        {it.costPrice !== undefined && it.costPrice !== null
+                        <div>{it.costPrice !== undefined && it.costPrice !== null
                           ? `$${Number(it.costPrice).toFixed(2)}`
-                          : <span className="text-slate-500">—</span>}
+                          : <span className="text-slate-500">—</span>}</div>
+                        {(it.inventoryLots || []).some(lot => lot.qtyRemaining > 0) ? (
+                          <button type="button" onClick={() => setExpandedLotsItemId(current => current === it.id ? null : it.id)} className="mt-1 inline-flex items-center gap-1 text-[10px] text-[#7fd2ff] hover:text-white">
+                            Lotes ({it.inventoryLots!.filter(lot => lot.qtyRemaining > 0).length})
+                            {expandedLotsItemId === it.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="font-mono font-semibold text-[#5bbfe5]">
@@ -1071,6 +1078,22 @@ export default function CrmInventoryView() {
                         </div>
                       </td>
                     </tr>
+                    {expandedLotsItemId === it.id ? (
+                      <tr className="border-b border-[#1a3a5a] bg-[#0b2641]/80">
+                        <td colSpan={9 + branches.length} className="px-5 py-4">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Lotes disponibles · FIFO consume primero la fecha más antigua</p>
+                          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {(it.inventoryLots || []).filter(lot => lot.qtyRemaining > 0).sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate)).map(lot => (
+                              <div key={lot.id} className="rounded-lg border border-[#255074] bg-[#0f3151] px-3 py-2 text-xs text-slate-300">
+                                <div className="font-bold text-white">{branches.find(branch => branch.id === lot.branchId)?.name || 'Sucursal'} · {new Date(lot.purchaseDate).toLocaleDateString('es-MX')}</div>
+                                <div className="mt-1">Disponibles: <strong>{lot.qtyRemaining}</strong> de {lot.qtyReceived} · Costo unitario: <strong>${Number(lot.unitCost).toFixed(2)}</strong></div>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

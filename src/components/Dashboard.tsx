@@ -12,6 +12,7 @@ import CrmBranchesView from '@/components/CrmBranchesView'
 import CrmAuditRecordsView from '@/components/CrmAuditRecordsView'
 import CrmSalesView from '@/components/CrmSalesView'
 import CrmPurchasesView from '@/components/CrmPurchasesView'
+import CrmAdministrationView from '@/components/CrmAdministrationView'
 import CrmAccountsView from '@/components/CrmAccountsView'
 import CrmMyProfileView from '@/components/CrmMyProfileView'
 import CrmNotificationsView from '@/components/CrmNotificationsView'
@@ -725,6 +726,8 @@ export default function Dashboard({
                   <CrmPurchasesView />
                 ) : operationsTab === 'sales' ? (
                   <CrmSalesView />
+                ) : operationsTab === 'administration' ? (
+                  <CrmAdministrationView />
                 ) : operationsTab === 'branches' ? (
                   <CrmBranchesView />
                 ) : operationsTab === 'dashboard' ? (

@@ -6,6 +6,7 @@ import {
   posBranches,
   posCatalog,
   posPurchaseCreate,
+  posPurchaseDelete,
   posPurchases,
   type PosBranch,
   type PosCatalogItem,
@@ -19,6 +20,7 @@ type PurchaseLineDraft = {
   newItemName: string
   quantity: string
   unitCost: string
+  salePrice: string
   shippingCost: string
 }
 
@@ -31,6 +33,7 @@ function createLineDraft(id: number): PurchaseLineDraft {
     newItemName: '',
     quantity: '1',
     unitCost: '',
+    salePrice: '',
     shippingCost: '0',
   }
 }
@@ -240,6 +243,7 @@ export default function CrmPurchasesView() {
   const [nextLineId, setNextLineId] = useState(2)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deletingPurchaseId, setDeletingPurchaseId] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -313,6 +317,7 @@ export default function CrmPurchasesView() {
     for (const [index, line] of lines.entries()) {
       const quantity = Number(line.quantity)
       const unitCost = Number(line.unitCost)
+      const salePrice = line.salePrice.trim() ? Number(line.salePrice) : 0
       const shippingCost = Number(line.shippingCost)
       const isNewItem = line.itemId === NEW_PRODUCT
       const selectedProduct = products.find((product) => product.id === line.itemId)
@@ -337,6 +342,10 @@ export default function CrmPurchasesView() {
         setError(`El costo unitario de la línea ${index + 1} no es válido.`)
         return
       }
+      if (!Number.isFinite(salePrice) || salePrice < 0) {
+        setError(`El precio de venta de la línea ${index + 1} no es válido.`)
+        return
+      }
       if (!line.shippingCost.trim()) {
         setError(`Escribe el costo de envío de la línea ${index + 1}; usa 0 si no aplica.`)
         return
@@ -350,6 +359,7 @@ export default function CrmPurchasesView() {
         itemId: selectedProduct?.id || '',
         qty: quantity,
         unitCost,
+        salePrice,
         shippingCost,
         totalCost: quantity * unitCost + shippingCost,
         isNewItem,
@@ -384,6 +394,23 @@ export default function CrmPurchasesView() {
     }
   }
 
+  async function handleDeletePurchase(purchase: PosPurchaseOrder) {
+    const detail = `${purchase.providerName}${purchase.folio ? ` (folio ${purchase.folio})` : ''}`
+    if (!window.confirm(`¿Eliminar la compra de ${detail}? Esta acción también descontará del inventario las cantidades recibidas en esa compra.`)) return
+    setError('')
+    setSuccess('')
+    setDeletingPurchaseId(purchase.id)
+    try {
+      await posPurchaseDelete(purchase.id)
+      setPurchases((current) => current.filter((item) => item.id !== purchase.id))
+      setSuccess('Compra eliminada y existencias ajustadas.')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'No se pudo eliminar la compra.')
+    } finally {
+      setDeletingPurchaseId('')
+    }
+  }
+
   const branchNames = useMemo(
     () => new Map(branches.map((branch) => [branch.id, branch.name])),
     [branches],
@@ -415,6 +442,7 @@ export default function CrmPurchasesView() {
 
       <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151] p-5">
         <h2 className="text-lg font-bold text-white">Registrar compra</h2>
+        <p className="mt-1 text-xs text-slate-400">Cada compra recibida aumenta el inventario y crea un lote con su costo y fecha. El Punto de Venta consume primero el lote más antiguo (FIFO).</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="space-y-1.5 text-xs font-semibold text-slate-300">
             Sucursal de recepción
@@ -444,6 +472,7 @@ export default function CrmPurchasesView() {
                 <th className="px-3 py-3">Nombre del producto</th>
                 <th className="px-3 py-3">Cantidad</th>
                 <th className="px-3 py-3">Costo unitario</th>
+                <th className="px-3 py-3">Precio de venta</th>
                 <th className="px-3 py-3">Envío</th>
                 <th className="px-3 py-3">Costo total</th>
                 <th className="w-12 px-3 py-3"><span className="sr-only">Acciones</span></th>
@@ -466,6 +495,7 @@ export default function CrmPurchasesView() {
                   </td>
                   <td className="px-3 py-2.5"><input type="number" min="1" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: event.target.value })} className="w-24 rounded-lg border border-[#255074] bg-[#0b2641] px-3 py-2 text-sm text-white outline-none focus:border-[#1090D0]" aria-label="Cantidad" /></td>
                   <td className="px-3 py-2.5"><input type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => updateLine(line.id, { unitCost: event.target.value })} className="w-32 rounded-lg border border-[#255074] bg-[#0b2641] px-3 py-2 text-sm text-white outline-none focus:border-[#1090D0]" aria-label="Costo unitario" /></td>
+                  <td className="px-3 py-2.5"><input type="number" min="0" step="0.01" value={line.salePrice} onChange={(event) => updateLine(line.id, { salePrice: event.target.value })} className="w-32 rounded-lg border border-[#255074] bg-[#0b2641] px-3 py-2 text-sm text-white outline-none focus:border-[#1090D0]" aria-label="Precio de venta" placeholder="0" /></td>
                   <td className="px-3 py-2.5"><input type="number" min="0" step="0.01" value={line.shippingCost} onChange={(event) => updateLine(line.id, { shippingCost: event.target.value })} className="w-32 rounded-lg border border-[#255074] bg-[#0b2641] px-3 py-2 text-sm text-white outline-none focus:border-[#1090D0]" aria-label="Envío" /></td>
                   <td className="whitespace-nowrap px-3 py-2.5 font-bold text-white">{currencyLabel(purchaseLineTotal(line), currency)}</td>
                   <td className="px-3 py-2.5">
@@ -511,6 +541,7 @@ export default function CrmPurchasesView() {
                   <th className="px-3 py-3">Envío</th>
                   <th className="px-3 py-3">Costo total</th>
                   <th className="px-3 py-3">Sucursal</th>
+                  <th className="px-3 py-3"><span className="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1a3a5a]">
@@ -529,6 +560,11 @@ export default function CrmPurchasesView() {
                       <td className="whitespace-nowrap px-3 py-3">{currencyLabel(lineShipping, purchase.currency)}</td>
                       <td className="whitespace-nowrap px-3 py-3 font-bold text-white">{currencyLabel(lineTotal, purchase.currency)}</td>
                       <td className="px-3 py-3">{branchNames.get(purchase.branchId) || 'Sucursal eliminada'}</td>
+                      <td className="px-3 py-3">
+                        <button type="button" onClick={() => void handleDeletePurchase(purchase)} disabled={Boolean(deletingPurchaseId)} aria-label={`Eliminar compra completa de ${purchase.providerName}`} title="Eliminar compra completa" className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-40">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
                     </tr>
                   )
                 }))}

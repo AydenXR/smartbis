@@ -1,4 +1,6 @@
 node_modules
+.wine-smartbis-test
+dist-electron
 dist_eval_salubel_v1_backup
 dist_eval_salubel_v2
 dist_eval_salubel_v3

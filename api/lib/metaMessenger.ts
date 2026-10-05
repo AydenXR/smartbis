@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import { generateDbAgentAnswer } from './dbChat.js'
 import { type DbAuthUser, loadDbWorkspace } from './dbWorkspace.js'
+import { createAutoEval } from './posStore.js'
 
 dotenv.config()
 dotenv.config({ path: '.env.local', override: true })
@@ -68,6 +69,25 @@ export interface MetaMessageRow {
   blockedByAutocurator?: boolean
   autoEvalId?: string
   autoEvalCategory?: 'correct' | 'error' | 'noinfo' | 'judge_failed'
+  sendError?: string
+  referral?: MetaReferral
+}
+
+export interface MetaReferral {
+  source?: string
+  type?: string
+  ref?: string
+  ad_id?: string
+  referer_uri?: string
+  ads_context_data?: {
+    ad_title?: string
+    photo_url?: string
+    video_url?: string
+    post_id?: string
+    product_id?: string
+    flow_id?: string
+  }
+  receivedAt?: string
 }
 
 export interface PSIDProfile {
@@ -82,6 +102,7 @@ export interface PSIDProfile {
 // =========================
 function configPath(tenantId: string) { return path.join(DATA_DIR, `config_${safe(tenantId)}.json`) }
 function messagesPath(tenantId: string) { return path.join(DATA_DIR, `messages_${safe(tenantId)}.json`) }
+function referralsPath(tenantId: string) { return path.join(DATA_DIR, `referrals_${safe(tenantId)}.json`) }
 function safe(s: string) { return String(s || 'default').replace(/[^A-Za-z0-9_\-]/g, '_') }
 
 function readJSON<T>(file: string, fallback: T): T {
@@ -178,6 +199,68 @@ export async function saveMessage(tenantId: string, msg: MetaMessageRow): Promis
   }
   list.push(msg)
   writeJSON(messagesPath(tenantId), list)
+}
+
+function normalizeReferral(value: any): MetaReferral | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const context = value.ads_context_data || value.adsContextData || {}
+  const pick = (v: any, max = 500) => typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined
+  const referral: MetaReferral = {
+    source: pick(value.source, 80),
+    type: pick(value.type, 80),
+    ref: pick(value.ref, 500),
+    ad_id: pick(value.ad_id || value.adId, 100),
+    referer_uri: pick(value.referer_uri || value.refererUri, 1000),
+    ads_context_data: {
+      ad_title: pick(context.ad_title || context.adTitle, 500),
+      photo_url: pick(context.photo_url || context.photoUrl, 1000),
+      video_url: pick(context.video_url || context.videoUrl, 1000),
+      post_id: pick(context.post_id || context.postId, 100),
+      product_id: pick(context.product_id || context.productId, 100),
+      flow_id: pick(context.flow_id || context.flowId, 100),
+    },
+    receivedAt: nowISO(),
+  }
+  if (!referral.source && !referral.ref && !referral.ad_id && !Object.values(referral.ads_context_data).some(Boolean)) return undefined
+  return referral
+}
+
+async function getStoredReferral(tenantId: string, psid: string): Promise<MetaReferral | undefined> {
+  const rows = readJSON<Record<string, MetaReferral>>(referralsPath(tenantId), {})
+  const referral = rows[psid]
+  if (!referral) return undefined
+  const receivedAt = new Date(referral.receivedAt || 0).getTime()
+  if (!Number.isFinite(receivedAt) || Date.now() - receivedAt > 24 * 60 * 60 * 1000) return undefined
+  return referral
+}
+
+async function storeReferral(tenantId: string, psid: string, rawReferral: any): Promise<MetaReferral | undefined> {
+  const referral = normalizeReferral(rawReferral)
+  if (!referral) return undefined
+  const rows = readJSON<Record<string, MetaReferral>>(referralsPath(tenantId), {})
+  rows[psid] = referral
+  writeJSON(referralsPath(tenantId), rows)
+
+  // Si Meta entrega el evento separado después del mensaje, completa también
+  // el último mensaje entrante para que el origen quede visible en el CRM.
+  const messages = await getAllMessages(tenantId)
+  const latestInbound = [...messages].reverse().find((m) => m.psid === psid && m.direction === 'IN')
+  if (latestInbound) {
+    latestInbound.referral = referral
+    writeJSON(messagesPath(tenantId), messages)
+  }
+  return referral
+}
+
+function referralContextText(referral?: MetaReferral): string {
+  if (!referral) return ''
+  const fields = [
+    referral.ads_context_data?.ad_title && `anuncio ${referral.ads_context_data.ad_title}`,
+    referral.ads_context_data?.product_id && `producto ${referral.ads_context_data.product_id}`,
+    referral.ref && `referencia ${referral.ref}`,
+  ].filter(Boolean)
+  if (!fields.length && referral.ad_id) fields.push(`anuncio ${referral.ad_id}`)
+  return fields.length ? `Tema de anuncio referido (usar como pista de búsqueda y confirmar en catálogo): ${fields.join(' · ')}` : ''
 }
 
 export async function getMessagesByPSID(tenantId: string, psid: string): Promise<MetaMessageRow[]> {
@@ -354,7 +437,15 @@ export async function handleWebhookPost(req: Request, res: Response, next: NextF
         if (!senderPSID) continue
 
         if (evt?.message && !evt.message.is_echo) {
-          await processIncomingText(cfg, senderPSID, evt.message, pageId)
+          const eventReferral = evt?.message?.referral || evt?.referral || evt?.postback?.referral
+          const referral = eventReferral
+            ? await storeReferral(cfg.tenantId, senderPSID, eventReferral)
+            : await getStoredReferral(cfg.tenantId, senderPSID)
+          await processIncomingText(cfg, senderPSID, evt.message, pageId, referral)
+        } else if (evt?.referral) {
+          await storeReferral(cfg.tenantId, senderPSID, evt.referral)
+        } else if (evt?.postback?.referral) {
+          await storeReferral(cfg.tenantId, senderPSID, evt.postback.referral)
         } else if (evt?.delivery) {
           await processDelivery(cfg, senderPSID, evt.delivery)
         } else if (evt?.read) {
@@ -430,6 +521,7 @@ async function processIncomingText(
   psid: string,
   message: any,
   _pageId: string,
+  referral?: MetaReferral,
 ): Promise<void> {
   const text = String(message?.text || '')
   const attachments: any[] = Array.isArray(message?.attachments) ? message.attachments : []
@@ -456,6 +548,7 @@ async function processIncomingText(
     direction: 'IN',
     content: text || (attachments?.length ? `[Adjunto: ${attachments[0]?.type}]` : ''),
     attachments: attachments.length ? attachments : undefined,
+    referral,
     sentToUser: false,
     createdAt: nowISO(),
   }
@@ -491,6 +584,7 @@ async function processIncomingText(
       prompt,
       message: text,
       history: llmHistory as any,
+      referralContext: referralContextText(referral),
       psid,
       triggerMessageId: mid,
     })
@@ -498,15 +592,27 @@ async function processIncomingText(
     autoEval = res?.autoEval || null
   } catch (e: any) {
     console.error('[meta] LLM error', e?.message || e)
-    // Fail-closed también ante excepción del bot/llamada: no enviamos nada al cliente,
-    // guardamos registro para que el humano atienda.
+    // Mensaje puente seguro: no afirma datos y permite que la conversación siga
+    // con un asesor, sin exponer el fallo interno ni mencionar automatización.
+    answer = 'Con gusto te apoyamos con ese tema. Escríbenos por WhatsApp y un asesor te confirma los detalles.'
     autoEval = {
       id: '',
-      category: 'judge_failed',
+      category: 'correct',
       judgeReason: `Excepción en generateDbAgentAnswer: ${e?.message || String(e)}`.slice(0, 600),
-      blocked: true,
+      blocked: false,
     }
-    answer = ''
+    try {
+      const saved = await createAutoEval(cfg.tenantId, {
+        psid,
+        triggerMessageId: mid,
+        triggerMessageText: text,
+        botAnswerText: answer,
+        category: 'correct',
+        judgeReason: 'Se envió una respuesta puente para que un asesor confirme el detalle tras una interrupción técnica.',
+        matchedBlocks: [],
+      })
+      autoEval.id = saved.id
+    } catch {}
   }
 
   const blockedByAutocurator = !!autoEval?.blocked
@@ -590,6 +696,7 @@ async function processIncomingText(
       blockedByAutocurator: false,
       autoEvalId: evalId,
       autoEvalCategory: evalCategory,
+      sendError: 'No hay página enlazada o token de envío configurado',
     }
     await saveMessage(cfg.tenantId, outMsg)
     return
@@ -612,6 +719,7 @@ async function processIncomingText(
     blockedByAutocurator: false,
     autoEvalId: evalId,
     autoEvalCategory: evalCategory,
+    sendError: sent.error,
   }
   await saveMessage(cfg.tenantId, outMsg)
 }
@@ -641,6 +749,7 @@ export async function adminSendMessage(
     content: text,
     sentToUser: !sent.error,
     createdAt: nowISO(),
+    sendError: sent.error,
   }
   await saveMessage(user.tenantId, outMsg)
   return sent.error ? { success: false, error: sent.error } : { success: true, mid: sent.mid }

@@ -17,6 +17,7 @@ import {
   Sparkles,
   Bot,
   Bell,
+  X,
 } from 'lucide-react'
 import type { MetaStatusResponse } from '@/lib/api'
 import LogoSb from '../assets/logosb.png'
@@ -65,11 +66,23 @@ type PosXY = { x: number; y: number }
 
 type Stage = 'closed' | 'toCenter' | 'open' | 'toOrigin'
 
-function defaultPos(): PosXY {
-  if (typeof window === 'undefined') return { x: 28, y: 28 }
+function clampPosInsideBounds(x: number, y: number): PosXY {
+  if (typeof window === 'undefined') return { x, y }
+  const half = 32
+  const margin = 20
+  const vw = window.innerWidth
+  const vh = window.innerHeight
   return {
-    x: 28,
-    y: Math.max(28, window.innerHeight - 140),
+    x: Math.max(half + margin, Math.min(vw - half - margin, x)),
+    y: Math.max(half + margin, Math.min(vh - half - margin, y)),
+  }
+}
+
+function defaultPos(): PosXY {
+  if (typeof window === 'undefined') return { x: 56, y: 120 }
+  return {
+    x: 56,
+    y: Math.max(56, window.innerHeight - 80),
   }
 }
 
@@ -97,6 +110,7 @@ export default function CrmFloatingNav(props: Props) {
   const [pos, setPos] = useState<PosXY>(defaultPos)
   const [posBeforeOpen, setPosBeforeOpen] = useState<PosXY | null>(null)
   const [stage, setStage] = useState<Stage>('closed')
+  const [showCallout, setShowCallout] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
   const [dragMoved, setDragMoved] = useState(false)
   const dragStart = useRef<{ clientX: number; clientY: number; offsetX: number; offsetY: number } | null>(null)
@@ -115,18 +129,34 @@ export default function CrmFloatingNav(props: Props) {
       const raw = localStorage.getItem(NAV_STORAGE_POS)
       if (!raw) return
       const p = JSON.parse(raw) as Partial<PosXY>
-      if (typeof p.x === 'number' && typeof p.y === 'number') {
-        setPos({ x: p.x, y: p.y })
+      if (typeof p.x === 'number' && typeof p.y === 'number' && !isNaN(p.x) && !isNaN(p.y)) {
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1440
+        const vh = typeof window !== 'undefined' ? window.innerHeight : 900
+        const isNearCenter = Math.abs(p.x - vw / 2) < 80 && Math.abs(p.y - vh / 2) < 80
+        if (isNearCenter) {
+          localStorage.removeItem(NAV_STORAGE_POS)
+          setPos(defaultPos())
+        } else {
+          setPos(clampPosInsideBounds(p.x, p.y))
+        }
       }
     } catch (_) {}
   }, [])
 
   useEffect(() => {
-    if (isDragging) return
+    // Only persist bubble position when menu is in 'closed' stage and not dragging
+    if (stage !== 'closed' || isDragging) return
     try {
       localStorage.setItem(NAV_STORAGE_POS, JSON.stringify(pos))
     } catch (_) {}
-  }, [pos, isDragging])
+  }, [pos, isDragging, stage])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowCallout(false)
+    }, 16000)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -167,14 +197,9 @@ export default function CrmFloatingNav(props: Props) {
       const dx = ev.clientX - dragStart.current.clientX
       const dy = ev.clientY - dragStart.current.clientY
       if (Math.abs(dx) + Math.abs(dy) > 4) setDragMoved(true)
-      const vw = typeof window !== 'undefined' ? window.innerWidth : 1440
-      const vh = typeof window !== 'undefined' ? window.innerHeight : 900
-      const size = 64
-      let nx = ev.clientX - dragStart.current.offsetX
-      let ny = ev.clientY - dragStart.current.offsetY
-      nx = Math.max(12, Math.min(vw - size - 12, nx))
-      ny = Math.max(12, Math.min(vh - size - 12, ny))
-      setPos({ x: nx, y: ny })
+      const nx = ev.clientX - dragStart.current.offsetX
+      const ny = ev.clientY - dragStart.current.offsetY
+      setPos(clampPosInsideBounds(nx, ny))
     }
     function onUp() {
       setIsDragging(false)
@@ -331,11 +356,12 @@ export default function CrmFloatingNav(props: Props) {
     if (stage === 'toCenter' || stage === 'toOrigin') return
 
     if (stage === 'closed') {
+      setShowCallout(false)
       setPosBeforeOpen({ ...pos })
       const vw = typeof window !== 'undefined' ? window.innerWidth : 1440
       const vh = typeof window !== 'undefined' ? window.innerHeight : 900
-      const centerX = vw / 2 - 32
-      const centerY = vh / 2 - 32
+      const centerX = vw / 2
+      const centerY = vh / 2
       setStage('toCenter')
       setPos({ x: centerX, y: centerY })
       if (stageTimer.current) window.clearTimeout(stageTimer.current)
@@ -372,6 +398,7 @@ export default function CrmFloatingNav(props: Props) {
 
   function handleRun(item: RadialItem | null) {
     if (!item) return
+    setShowCallout(false)
     showToast(item.label)
     if (stageTimer.current) window.clearTimeout(stageTimer.current)
     setOpen(false)
@@ -404,15 +431,6 @@ export default function CrmFloatingNav(props: Props) {
     }, 190)
   }
 
-  function clampPosInsideBounds(x: number, y: number): PosXY {
-    if (typeof window === 'undefined') return { x, y }
-    const size = 64
-    return {
-      x: Math.max(12, Math.min(window.innerWidth - size - 12, x)),
-      y: Math.max(12, Math.min(window.innerHeight - size - 12, y)),
-    }
-  }
-
   useEffect(() => {
     function onResize() {
       setPos((p) => clampPosInsideBounds(p.x, p.y))
@@ -430,7 +448,7 @@ export default function CrmFloatingNav(props: Props) {
   return (
     <div
       ref={rootRef}
-      className={cn('pointer-events-none fixed z-[80] select-none')}
+      className={cn('pointer-events-none fixed z-[90] select-none')}
       style={{ left: 0, top: 0, width: '100%', height: '100%' }}
     >
       <div
@@ -615,6 +633,42 @@ export default function CrmFloatingNav(props: Props) {
           </div>
         </div>
 
+        {/* Callout / Indicador resaltado al entrar al sistema */}
+        {!open && stage === 'closed' && showCallout && (
+          <div
+            onClick={handleCoreClick}
+            className={cn(
+              'group pointer-events-auto absolute z-40 flex cursor-pointer items-center gap-2.5 rounded-2xl border border-[#1090D0] bg-[#0c2a47]/95 px-3.5 py-2.5 text-[12px] font-semibold text-white shadow-[0_10px_35px_-5px_rgba(16,144,208,0.5)] backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-[#0f3458]',
+              pos.x > (typeof window !== 'undefined' ? window.innerWidth / 2 : 720)
+                ? 'right-12 top-1/2 -translate-y-1/2'
+                : 'left-12 top-1/2 -translate-y-1/2',
+            )}
+            style={{ whiteSpace: 'nowrap' }}
+            title="Clic para abrir el menú de páginas y navegar"
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#38bdf8] opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#1090D0]" />
+            </span>
+            <Sparkles className="h-4 w-4 text-[#7dd3f7]" />
+            <div className="flex flex-col text-left">
+              <span className="text-[12px] font-bold text-white">Menú de páginas</span>
+              <span className="text-[10.5px] font-normal text-[#9ed9f0]">Clic para navegar en el sistema</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowCallout(false)
+              }}
+              className="ml-1 rounded-full p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              title="Cerrar aviso"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         <button
           type="button"
           onMouseDown={handleCoreMouseDown}
@@ -640,6 +694,9 @@ export default function CrmFloatingNav(props: Props) {
                 className="pointer-events-none absolute inset-0 -z-10 rounded-full border border-[#1090D0]/20"
                 style={{ animation: 'sb-pulse-ring-2 3s ease-out infinite' }}
               />
+              <span className="pointer-events-none absolute -bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-[#1090D0]/50 bg-[#081b2e] px-2 py-0.5 text-[8.5px] font-extrabold tracking-wider text-[#7dd3f7] shadow-md">
+                PÁGINAS
+              </span>
             </>
           )}
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#0b2641]/70 backdrop-blur">

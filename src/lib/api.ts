@@ -268,6 +268,27 @@ export interface MetaMessageRow {
   deliveredAt?: string
   createdAt: string
   testMode?: boolean
+  blockedByAutocurator?: boolean
+  autoEvalCategory?: AutoEvalCategory
+  sendError?: string
+  referral?: MetaReferral
+}
+
+export interface MetaReferral {
+  source?: string
+  type?: string
+  ref?: string
+  ad_id?: string
+  referer_uri?: string
+  ads_context_data?: {
+    ad_title?: string
+    photo_url?: string
+    video_url?: string
+    post_id?: string
+    product_id?: string
+    flow_id?: string
+  }
+  receivedAt?: string
 }
 
 export interface MetaChatDetailResponse {
@@ -417,6 +438,7 @@ export type PosRole = 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
 export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
 export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
+export interface PosAdministrationConfig { workingDaysByMonth: Record<string, number[]>; expenses: Array<{ id: string; name: string; amount: number }> }
 
 export interface PosBranch {
   id: string
@@ -458,8 +480,26 @@ export interface PosCatalogItem {
   sourceDocId?: string
   sourceBlockHash?: string
   lastPurchaseCost?: number
+  inventoryLots?: PosInventoryLot[]
   createdAt: string
   updatedAt: string
+}
+
+export interface PosInventoryLot {
+  id: string
+  branchId: string
+  purchaseId?: string
+  purchaseDate: string
+  qtyReceived: number
+  qtyRemaining: number
+  unitCost: number
+  source: 'purchase' | 'opening' | 'adjustment'
+}
+
+export interface PosSaleCostAllocation {
+  lotId?: string
+  qty: number
+  unitCost: number
 }
 
 export interface PosPurchaseLine {
@@ -471,8 +511,10 @@ export interface PosPurchaseLine {
   productName?: string
   qty: number
   unitCost: number
+  salePrice?: number
   shippingCost?: number
   totalCost?: number
+  inventoryLotId?: string
 }
 
 export interface PosPurchaseOrder {
@@ -537,6 +579,9 @@ export interface PosSaleLine {
   qty: number
   unitPrice: number
   importe: number
+  unitCost?: number
+  costTotal?: number
+  costAllocations?: PosSaleCostAllocation[]
 }
 
 export interface PosSale {
@@ -692,6 +737,14 @@ export async function posPurchases() {
   return requestJson<{ purchases: PosPurchaseOrder[] }>('/api/pos/purchases')
 }
 
+export async function posAdministrationConfig() {
+  return requestJson<{ config: PosAdministrationConfig | null }>('/api/pos/administration/config')
+}
+
+export async function posAdministrationConfigSave(config: PosAdministrationConfig) {
+  return requestJson<{ config: PosAdministrationConfig }>('/api/pos/administration/config', { method: 'PUT', body: config })
+}
+
 export async function posPurchaseCreate(input: {
   branchId: string
   date?: string
@@ -705,6 +758,12 @@ export async function posPurchaseCreate(input: {
   return requestJson<{ purchase: PosPurchaseOrder }>('/api/pos/purchases', {
     method: 'POST',
     body: input,
+  })
+}
+
+export async function posPurchaseDelete(id: string) {
+  return requestJson<{ ok: true }>(`/api/pos/purchases/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
 }
 
