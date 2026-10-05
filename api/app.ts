@@ -54,6 +54,7 @@ import {
   deletePromoGroup,
   listPurchases,
   createPurchase,
+  deletePurchase,
   getOpenShift,
   openShift,
   withdrawCash,
@@ -79,6 +80,8 @@ import {
   parseImportBuffer,
   listAutoEvals,
   getAutoEval,
+  getAdministrationConfig,
+  setAdministrationConfig,
   type PosRole,
   type PosPurchaseLine,
 } from './lib/posStore.js'
@@ -209,6 +212,31 @@ const CS_ADMIN_ROLES: PosRole[] = ['admin', 'admin_cs']
 const CS_AGENT_ROLES: PosRole[] = ['admin', 'admin_cs', 'cs_agent']
 // Ambos tipos de admin pueden crear/gestionar sub-usuarios (Cuentas).
 const ANY_ADMIN_ROLES: PosRole[] = ['admin', 'admin_pv', 'admin_cs']
+app.get('/api/pos/administration/config', requireAuth, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    res.json({ config: await getAdministrationConfig(user.tenantId) })
+  } catch (e) { next(e) }
+})
+app.put('/api/pos/administration/config', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const body = req.body || {}
+    const workingDaysByMonth = body.workingDaysByMonth
+    if (!workingDaysByMonth || typeof workingDaysByMonth !== 'object' || Array.isArray(workingDaysByMonth) || !Array.isArray(body.expenses)) {
+      res.status(400).json({ error: 'Configuración de gastos inválida' }); return
+    }
+    const calendarEntries = Object.entries(workingDaysByMonth)
+    if (calendarEntries.some(([month, days]) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !Array.isArray(days) || days.some((day: any) => !Number.isInteger(day) || day < 1 || day > 31) || new Set(days as number[]).size !== (days as number[]).length)) {
+      res.status(400).json({ error: 'La selección de días laborables no es válida' }); return
+    }
+    const expenses = body.expenses.map((item: any) => ({ id: String(item?.id || ''), name: String(item?.name || '').trim(), amount: Number(item?.amount) }))
+    if (expenses.some((item: any) => !item.id || !item.name || !Number.isFinite(item.amount) || item.amount < 0)) {
+      res.status(400).json({ error: 'Revisa los nombres y montos de gastos fijos' }); return
+    }
+    res.json({ config: await setAdministrationConfig(user.tenantId, { workingDaysByMonth: workingDaysByMonth as Record<string, number[]>, expenses }) })
+  } catch (e) { next(e) }
+})
 // Roles que se pueden asignar al crear/editar un sub-usuario (nunca 'owner').
 const ASSIGNABLE_SUBUSER_ROLES: PosRole[] = ['admin', 'admin_pv', 'admin_cs', 'cashier', 'cs_agent']
 // Reutiliza la misma lógica de permisos para la zona de Atención al cliente.
@@ -1617,12 +1645,14 @@ app.post('/api/pos/purchases', requireAuth, cashierGuard(POS_ADMIN_ROLES), async
       }
       const qty = Number(rawLine.qty)
       const unitCost = Number(rawLine.unitCost)
+      const salePrice = Number(rawLine.salePrice ?? 0)
       const shippingCost = Number(rawLine.shippingCost ?? 0)
       const isNewItem = Boolean(rawLine.isNewItem)
       const newItemName = typeof rawLine.newItemName === 'string' ? rawLine.newItemName.trim() : ''
       if (!Number.isInteger(qty) || qty < 1) { res.status(400).json({ error: `La cantidad de la línea ${index + 1} debe ser un entero mayor a cero` }); return }
       if (typeof rawLine.unitCost === 'boolean' || String(rawLine.unitCost ?? '').trim() === '') { res.status(400).json({ error: `Escribe el costo unitario de la línea ${index + 1}` }); return }
       if (!Number.isFinite(unitCost) || unitCost < 0) { res.status(400).json({ error: `El costo unitario de la línea ${index + 1} no es válido` }); return }
+      if (!Number.isFinite(salePrice) || salePrice < 0) { res.status(400).json({ error: `El precio de venta de la línea ${index + 1} no es válido` }); return }
       if (rawLine.shippingCost !== undefined && rawLine.shippingCost !== null && (typeof rawLine.shippingCost === 'boolean' || String(rawLine.shippingCost).trim() === '')) { res.status(400).json({ error: `Escribe el costo de envío de la línea ${index + 1}` }); return }
       if (!Number.isFinite(shippingCost) || shippingCost < 0) { res.status(400).json({ error: `El envío de la línea ${index + 1} no es válido` }); return }
       if (isNewItem && !newItemName) { res.status(400).json({ error: `Escribe el nombre del producto nuevo en la línea ${index + 1}` }); return }
@@ -1631,6 +1661,7 @@ app.post('/api/pos/purchases', requireAuth, cashierGuard(POS_ADMIN_ROLES), async
         itemId: typeof rawLine.itemId === 'string' ? rawLine.itemId : '',
         qty,
         unitCost,
+        salePrice,
         shippingCost,
         isNewItem,
         newItemKind: 'product',
@@ -1651,6 +1682,25 @@ app.post('/api/pos/purchases', requireAuth, cashierGuard(POS_ADMIN_ROLES), async
       createdBy: user.id,
     })
     res.status(201).json({ purchase: p })
+  } catch (e) {
+    next(e)
+  }
+})
+app.delete('/api/pos/purchases/:id', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    let ok: boolean
+    try {
+      ok = await deletePurchase(user.tenantId, String(req.params.id), user.email)
+    } catch (error: any) {
+      if (error?.message === 'PURCHASE_LOT_ALREADY_USED') {
+        res.status(409).json({ error: 'No se puede eliminar esta compra: una parte del lote ya se vendió o se ajustó. Registra una devolución o un ajuste para conservar el costo histórico.' })
+        return
+      }
+      throw error
+    }
+    if (!ok) { res.status(404).json({ error: 'Compra no encontrada' }); return }
+    res.json({ ok: true })
   } catch (e) {
     next(e)
   }

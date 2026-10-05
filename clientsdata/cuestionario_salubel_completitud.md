@@ -21,7 +21,7 @@
 ### Categoría: STOCK Y DISPONIBILIDAD DE PRODUCTOS
 
 **1. ¿Tienes un stock actualizado de TODOS los productos? Enumera cada SKU con su cantidad disponible.**
-> Respuesta:
+> Respuesta:                                                                                                                                                                                                                            2222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222
 >
 
 **2. ¿Qué productos están AGOTADOS actualmente y cuándo vuelven a estar disponibles?**

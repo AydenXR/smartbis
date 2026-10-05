@@ -1177,7 +1177,7 @@ function MessageBubble(props: MessageBubbleProps) {
               ) : (
                 <span className="flex items-center gap-0.5 text-rose-300">
                   <XCircle className="h-3 w-3" />
-                  no entregado
+                  {msg.blockedByAutocurator ? 'bloqueado por autocurador' : 'no entregado'}
                 </span>
               )}
             </>
@@ -1201,6 +1201,19 @@ function MessageBubble(props: MessageBubbleProps) {
         >
           {msg.content}
         </p>
+        {msg.referral ? (
+          <div className="mt-2 rounded-lg border border-sky-300/20 bg-sky-300/5 px-2 py-1 text-[10px] leading-snug text-sky-100/80">
+            <span className="font-bold uppercase tracking-wide">Origen referido{msg.referral.source === 'ADS' ? ' · anuncio' : ''}</span>
+            {msg.referral.ads_context_data?.ad_title ? ` · ${msg.referral.ads_context_data.ad_title}` : ''}
+            {msg.referral.ads_context_data?.product_id ? ` · Producto ${msg.referral.ads_context_data.product_id}` : ''}
+            {!msg.referral.ads_context_data?.ad_title && !msg.referral.ads_context_data?.product_id && msg.referral.ad_id ? ` · ID ${msg.referral.ad_id}` : ''}
+          </div>
+        ) : null}
+        {msg.sendError ? (
+          <p className="mt-1 border-t border-rose-300/15 pt-1 text-[10px] leading-snug text-rose-200/80">
+            Error de envío: {msg.sendError}
+          </p>
+        ) : null}
       </div>
     </div>
   )

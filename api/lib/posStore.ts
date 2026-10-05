@@ -207,8 +207,26 @@ export interface PosCatalogItem {
   sourceDocId?: string
   sourceBlockHash?: string
   lastPurchaseCost?: number
+  inventoryLots?: PosInventoryLot[]
   createdAt: string
   updatedAt: string
+}
+
+export interface PosInventoryLot {
+  id: string
+  branchId: string
+  purchaseId?: string
+  purchaseDate: string
+  qtyReceived: number
+  qtyRemaining: number
+  unitCost: number
+  source: 'purchase' | 'opening' | 'adjustment'
+}
+
+export interface PosSaleCostAllocation {
+  lotId?: string
+  qty: number
+  unitCost: number
 }
 
 export interface PosPurchaseLine {
@@ -220,8 +238,10 @@ export interface PosPurchaseLine {
   productName?: string
   qty: number
   unitCost: number
+  salePrice?: number
   shippingCost?: number
   totalCost?: number
+  inventoryLotId?: string
 }
 
 export interface PosPurchaseOrder {
@@ -264,6 +284,9 @@ export interface PosSaleLine {
   qty: number
   unitPrice: number
   importe: number
+  unitCost?: number
+  costTotal?: number
+  costAllocations?: PosSaleCostAllocation[]
 }
 
 export interface PosSale {
@@ -303,6 +326,7 @@ export interface PosAuditLog {
     | 'product_edit'
     | 'product_delete'
     | 'purchase_create'
+    | 'purchase_delete'
     | 'sale_create'
     | 'sale_quote'
     | 'cash_withdrawal'
@@ -388,9 +412,22 @@ export interface TenantPosData {
   audit: PosAuditLog[]
   subusers: PosSubUser[]
   config: PosConfig
+  administrationConfig?: { workingDaysByMonth: Record<string, number[]>; expenses: Array<{ id: string; name: string; amount: number }> }
   autoEvals: AutoEval[]
   createdAt: string
   updatedAt: string
+}
+
+export async function getAdministrationConfig(tenantId: string) {
+  const s = await readPosStore(tenantId)
+  return s.administrationConfig || null
+}
+
+export async function setAdministrationConfig(tenantId: string, input: { workingDaysByMonth: Record<string, number[]>; expenses: Array<{ id: string; name: string; amount: number }> }) {
+  const s = await readPosStore(tenantId)
+  s.administrationConfig = input
+  await writePosStore(tenantId, s)
+  return input
 }
 
 function defaultPosData(tenantId: string): TenantPosData {
@@ -664,7 +701,7 @@ export async function listCatalog(
   let list = s.catalogItems.filter((i) => {
     if (!i || typeof i !== 'object') return false
     if (!i.name || !i.sku) return false
-    if (typeof i.salePrice !== 'number' || !Number.isFinite(i.salePrice) || i.salePrice <= 0) return false
+    if (typeof i.salePrice !== 'number' || !Number.isFinite(i.salePrice) || i.salePrice < 0) return false
     if (typeof i.active === 'boolean' && !i.active) return false
     return true
   })
@@ -785,6 +822,20 @@ export async function adjustStock(
   if (!it) throw new Error('ITEM_NOT_FOUND')
   const cur = it.stocks[branchId] || 0
   const next = Math.max(0, cur + delta)
+  ensureItemLotCoverage(it, branchId)
+  if (delta > 0) {
+    it.inventoryLots!.push({
+      id: `lot_${uid()}`,
+      branchId,
+      purchaseDate: nowISO(),
+      qtyReceived: delta,
+      qtyRemaining: delta,
+      unitCost: Math.max(0, Number(it.costPrice ?? it.lastPurchaseCost ?? 0)),
+      source: 'adjustment',
+    })
+  } else if (delta < 0) {
+    consumeItemLots(it, branchId, Math.min(cur, Math.abs(delta)))
+  }
   it.stocks[branchId] = next
   it.updatedAt = nowISO()
   await writePosStore(tenantId, s)
@@ -891,6 +942,70 @@ export async function deletePromoGroup(tenantId: string, id: string, userEmail: 
 }
 
 // ============ PURCHASES ============
+function ensureItemLotCoverage(item: PosCatalogItem, branchId: string) {
+  item.inventoryLots ||= []
+  const stock = Math.max(0, Number(item.stocks?.[branchId] || 0))
+  const branchLots = item.inventoryLots.filter(lot => lot.branchId === branchId)
+  const tracked = branchLots.reduce((sum, lot) => sum + Math.max(0, Number(lot.qtyRemaining || 0)), 0)
+  if (tracked < stock) {
+    const qty = stock - tracked
+    item.inventoryLots.push({
+      id: `lot_${uid()}`,
+      branchId,
+      purchaseDate: item.createdAt || nowISO(),
+      qtyReceived: qty,
+      qtyRemaining: qty,
+      unitCost: Math.max(0, Number(item.costPrice ?? item.lastPurchaseCost ?? 0)),
+      source: 'opening',
+    })
+  } else if (tracked > stock) {
+    let excess = tracked - stock
+    for (const lot of branchLots.slice().sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))) {
+      const reduction = Math.min(excess, lot.qtyRemaining)
+      lot.qtyRemaining -= reduction
+      excess -= reduction
+      if (excess <= 0) break
+    }
+  }
+}
+
+function consumeItemLots(item: PosCatalogItem, branchId: string, qty: number) {
+  ensureItemLotCoverage(item, branchId)
+  let remaining = Math.max(0, Number(qty) || 0)
+  const allocations: PosSaleCostAllocation[] = []
+  const fifoLots = (item.inventoryLots || [])
+    .filter(lot => lot.branchId === branchId && lot.qtyRemaining > 0)
+    .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id))
+  for (const lot of fifoLots) {
+    if (remaining <= 0) break
+    const taken = Math.min(remaining, lot.qtyRemaining)
+    if (taken <= 0) continue
+    lot.qtyRemaining -= taken
+    remaining -= taken
+    allocations.push({ lotId: lot.id, qty: taken, unitCost: lot.unitCost })
+  }
+  if (remaining > 0) {
+    allocations.push({
+      qty: remaining,
+      unitCost: Math.max(0, Number(item.costPrice ?? item.lastPurchaseCost ?? 0)),
+    })
+  }
+  const costTotal = Math.round(allocations.reduce((sum, allocation) => sum + allocation.qty * allocation.unitCost, 0) * 100) / 100
+  return { allocations, costTotal }
+}
+
+function updateItemCostFromLots(item: PosCatalogItem) {
+  const remainingLots = (item.inventoryLots || []).filter(lot => lot.qtyRemaining > 0)
+  const totalQty = remainingLots.reduce((sum, lot) => sum + lot.qtyRemaining, 0)
+  if (totalQty > 0) {
+    item.costPrice = Math.round(remainingLots.reduce((sum, lot) => sum + lot.qtyRemaining * lot.unitCost, 0) / totalQty * 100) / 100
+  }
+  const latestPurchase = (item.inventoryLots || [])
+    .filter(lot => lot.source === 'purchase')
+    .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))[0]
+  if (latestPurchase) item.lastPurchaseCost = latestPurchase.unitCost
+}
+
 export async function listPurchases(tenantId: string): Promise<PosPurchaseOrder[]> {
   const s = await readPosStore(tenantId)
   return [...s.purchases].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
@@ -918,9 +1033,11 @@ export async function createPurchase(
   const normalizedLines: PosPurchaseLine[] = inp.lines.map((line) => {
     const qty = Number(line.qty)
     const unitCostRaw = Number(line.unitCost)
+    const salePriceRaw = Number(line.salePrice ?? 0)
     const shippingCostRaw = Number(line.shippingCost ?? 0)
     if (!Number.isInteger(qty) || qty < 1) throw new Error('La cantidad de compra no es válida')
     if (!Number.isFinite(unitCostRaw) || unitCostRaw < 0) throw new Error('El costo unitario no es válido')
+    if (!Number.isFinite(salePriceRaw) || salePriceRaw < 0) throw new Error('El precio de venta no es válido')
     if (!Number.isFinite(shippingCostRaw) || shippingCostRaw < 0) throw new Error('El costo de envío no es válido')
     const unitCost = Math.round(unitCostRaw * 100) / 100
     const shippingCost = Math.round(shippingCostRaw * 100) / 100
@@ -939,6 +1056,7 @@ export async function createPurchase(
       newItemName: isNewItem ? newItemName : undefined,
       qty,
       unitCost,
+      salePrice: Math.round(salePriceRaw * 100) / 100,
       shippingCost,
       totalCost,
     }
@@ -970,25 +1088,51 @@ export async function createPurchase(
         category: '',
         description: '',
         costPrice: landedUnitCost,
-        salePrice: landedUnitCost * (s.config.priceSuggestMultiplier || 2),
+        salePrice: l.salePrice || 0,
         currency: s.config.currencyDefault,
         stocks: Object.fromEntries(s.branches.map(b => [b.id, 0])),
         tags: [],
         active: true,
         attrs: {},
         lastPurchaseCost: landedUnitCost,
+        inventoryLots: [],
         createdAt: nowISO(),
         updatedAt: nowISO(),
       }
       newItem.stocks[branch.id] = l.qty
+      const lotId = `lot_${uid()}`
+      newItem.inventoryLots!.push({
+        id: lotId,
+        branchId: branch.id,
+        purchaseId: created.id,
+        purchaseDate: created.date,
+        qtyReceived: l.qty,
+        qtyRemaining: l.qty,
+        unitCost: landedUnitCost,
+        source: 'purchase',
+      })
+      l.inventoryLotId = lotId
       s.catalogItems.push(newItem)
       l.itemId = newItem.id
     } else {
       const it = s.catalogItems.find(i => i.id === l.itemId)
       if (!it) throw new Error('PURCHASE_PRODUCT_NOT_FOUND')
+      ensureItemLotCoverage(it, branch.id)
       it.stocks[branch.id] = (it.stocks[branch.id] || 0) + l.qty
-      it.lastPurchaseCost = landedUnitCost
-      it.costPrice = landedUnitCost
+      const lotId = `lot_${uid()}`
+      it.inventoryLots!.push({
+        id: lotId,
+        branchId: branch.id,
+        purchaseId: created.id,
+        purchaseDate: created.date,
+        qtyReceived: l.qty,
+        qtyRemaining: l.qty,
+        unitCost: landedUnitCost,
+        source: 'purchase',
+      })
+      l.inventoryLotId = lotId
+      updateItemCostFromLots(it)
+      if (l.salePrice !== undefined && l.salePrice > 0) it.salePrice = l.salePrice
       it.updatedAt = nowISO()
     }
   }
@@ -1002,6 +1146,46 @@ export async function createPurchase(
     details: created,
   })
   return created
+}
+
+export async function deletePurchase(tenantId: string, purchaseId: string, userEmail: string): Promise<boolean> {
+  const s = await readPosStore(tenantId)
+  const idx = s.purchases.findIndex(p => p.id === purchaseId)
+  if (idx === -1) return false
+  const purchase = s.purchases[idx]
+
+  for (const line of purchase.lines) {
+    if (!line.inventoryLotId) continue
+    const item = s.catalogItems.find(catalogItem => catalogItem.id === line.itemId)
+    const lot = item?.inventoryLots?.find(inventoryLot => inventoryLot.id === line.inventoryLotId)
+    if (lot && lot.qtyRemaining < lot.qtyReceived) throw new Error('PURCHASE_LOT_ALREADY_USED')
+  }
+
+  // Reverse stock increments applied when this purchase was created
+  for (const line of purchase.lines) {
+    if (!line.itemId) continue
+    const item = s.catalogItems.find(i => i.id === line.itemId)
+    if (!item) continue
+    const current = item.stocks[purchase.branchId] || 0
+    item.stocks[purchase.branchId] = Math.max(0, current - line.qty)
+    if (line.inventoryLotId && item.inventoryLots) {
+      item.inventoryLots = item.inventoryLots.filter(lot => lot.id !== line.inventoryLotId)
+      updateItemCostFromLots(item)
+    }
+    item.updatedAt = nowISO()
+  }
+
+  s.purchases.splice(idx, 1)
+  await writePosStore(tenantId, s)
+  const branchName = s.branches.find(b => b.id === purchase.branchId)?.name || purchase.branchId
+  await appendAudit(tenantId, {
+    userEmail,
+    kind: 'purchase_delete',
+    message: `Eliminó compra a proveedor: ${purchase.providerName} · $${purchase.total} (${branchName}). ${purchase.lines.length} líneas.`,
+    branchId: purchase.branchId,
+    details: purchase,
+  })
+  return true
 }
 
 // ============ SHIFTS ============
@@ -1176,14 +1360,7 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
   const s = await readPosStore(inp.tenantId)
   const branch = s.branches.find(b => b.id === inp.branchId)
   if (!branch) throw new Error('BRANCH_NOT_FOUND')
-  if (inp.status === 'paid') {
-    for (const l of inp.lines) {
-      const it = s.catalogItems.find(i => i.id === l.itemId)
-      if (!it) continue
-      it.stocks[branch.id] = Math.max(0, (it.stocks[branch.id] || 0) - l.qty)
-      it.updatedAt = nowISO()
-    }
-  }
+  const saleLines: PosSaleLine[] = inp.lines.map(line => ({ ...line }))
   const subtotal = inp.lines.reduce((a, l) => a + l.importe, 0)
   const discount = Math.min(subtotal, Math.max(0, inp.discount || 0))
   const withDiscount = Math.max(0, subtotal - discount)
@@ -1202,6 +1379,19 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
         : paidAmount > 0
           ? 'pending'
           : 'pending'
+  if (finalStatus === 'paid') {
+    for (const line of saleLines) {
+      const item = s.catalogItems.find(catalogItem => catalogItem.id === line.itemId)
+      if (!item) continue
+      const { allocations, costTotal } = consumeItemLots(item, branch.id, line.qty)
+      line.costAllocations = allocations
+      line.costTotal = costTotal
+      line.unitCost = line.qty > 0 ? Math.round(costTotal / line.qty * 100) / 100 : 0
+      item.stocks[branch.id] = Math.max(0, (item.stocks[branch.id] || 0) - line.qty)
+      updateItemCostFromLots(item)
+      item.updatedAt = nowISO()
+    }
+  }
   const sale: PosSale = {
     id: `sl_${uid()}`,
     tenantId: inp.tenantId,
@@ -1219,7 +1409,7 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     total,
     paidAmount: +paidAmount.toFixed(2),
     pendingAmount,
-    lines: inp.lines,
+    lines: saleLines,
     payments: inp.payments || [],
     currency: s.config.currencyDefault,
     ivaRate,
@@ -1259,7 +1449,42 @@ export async function cancelSale(tenantId: string, saleId: string, userEmail: st
     for (const l of sl.lines) {
       const it = s.catalogItems.find(i => i.id === l.itemId)
       if (!it) continue
+      ensureItemLotCoverage(it, sl.branchId)
+      const allocations = l.costAllocations?.length
+        ? l.costAllocations
+        : [{ qty: l.qty, unitCost: Number(l.unitCost ?? it.costPrice ?? it.lastPurchaseCost ?? 0) }]
+      let restoredQty = 0
+      for (const allocation of allocations) {
+        const lot = allocation.lotId ? it.inventoryLots?.find(itemLot => itemLot.id === allocation.lotId) : undefined
+        if (lot) {
+          lot.qtyRemaining += allocation.qty
+        } else {
+          it.inventoryLots!.push({
+            id: `lot_${uid()}`,
+            branchId: sl.branchId,
+            purchaseDate: sl.createdAt,
+            qtyReceived: allocation.qty,
+            qtyRemaining: allocation.qty,
+            unitCost: allocation.unitCost,
+            source: 'adjustment',
+          })
+        }
+        restoredQty += allocation.qty
+      }
+      if (restoredQty < l.qty) {
+        const qty = l.qty - restoredQty
+        it.inventoryLots!.push({
+          id: `lot_${uid()}`,
+          branchId: sl.branchId,
+          purchaseDate: sl.createdAt,
+          qtyReceived: qty,
+          qtyRemaining: qty,
+          unitCost: Number(l.unitCost ?? it.costPrice ?? it.lastPurchaseCost ?? 0),
+          source: 'adjustment',
+        })
+      }
       it.stocks[sl.branchId] = (it.stocks[sl.branchId] || 0) + l.qty
+      updateItemCostFromLots(it)
       it.updatedAt = nowISO()
     }
   }

@@ -1,0 +1,10 @@
+{
+  "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+  "appId": "1435396631510590",
+  "verifyToken": "smartbisfacebook_verify_token",
+  "graphVersion": "v22.0",
+  "state": "PAUSE",
+  "testMode": false,
+  "webhookSubscribed": false,
+  "updatedAt": "2026-10-05T21:28:28.592Z"
+}

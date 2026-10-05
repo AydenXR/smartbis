@@ -1,3 +1,13 @@
+[REQUISITOS_PARA_TOMAR_CURSOS_Y_APLICAR_TRATAMIENTOS]
+Cualquier persona puede tomar los cursos; no se requieren estudios ni experiencia previa para inscribirse.
+
+Requisito distinto para aplicar tratamientos: se requiere titulo medico para aplicar los tratamientos asociados a los siguientes cursos. Este requisito es para la aplicacion del tratamiento, no para tomar el curso:
+- Rinomodelacion con acido hialuronico
+- Russian Lips + Tecnica francesa
+- Aplicacion de Botox en tercio superior
+- Aplicacion de Botox en tercio inferior
+- Manejo de hiperhidrosis
+
 [TEMARIOS]
 
 FIBROBLAST
@@ -497,22 +507,29 @@ Conclusiones
 - Lifting de párpados con Fibroblast
 
 [FECHAS_CURSOS]
-En línea tenemos tentativamente programados:
-✨ 26 Agosto - Limpieza facial
-✨ 01 Septiembre - Aplicación de toxina botulínica en tercio superior
-✨ 02 Septiembre - Bioestimulación con PDRN
-✨ 09 Septiembre - Limpomodelación con enzimas
-✨ 22 Septiembre - Aplicación de toxina botulínica en tercio inferior
-✨ 23 Septiembre - Eliminación de verrugas y manchas con Plasma Pen
-✨ 29 Septiembre - Aumento de glúteos con peptonas
+Actualizado: 03 de octubre de 2026.
 
-Presencial tenemos programados:
-✨ 20 Agosto - Lipoenzimas
-✨ 27 Agosto - Eliminación de verrugas y manchas con plasma pen
-✨ 03 Septiembre - Bioestimulación con PDRN
-✨ 10 Septiembre - Relleno de labios con Hyaluron Pen
-✨ 17 Septiembre - Aumento de glúteos con peptonas
-✨ 24 Septiembre - Limpieza facial
+En línea tenemos tentativamente programados para 2026:
+✨ 07 Octubre - Relleno de arrugas y revitalización con Hyaluron Pen
+✨ 13 Octubre - Russian Lips
+✨ 16 Octubre - Rejuvenecimiento y eliminación de manchas con Dermapen
+✨ 21 Octubre - Hidrofacial
+✨ 28 Octubre - Mesobotox
+✨ 03 Noviembre - Rejuvenecimiento facial en tercio superior (Botox superior)
+✨ 04 Noviembre - Limpieza facial
+✨ 11 Noviembre - Peeling químico
+✨ 18 Noviembre - Bioestimulación con PDRN de Salmón
+✨ 25 Noviembre - Lipoenzimas
+
+Presencial tenemos programados para 2026:
+✨ 08 Octubre - Lifting de párpados con Plasma Pen
+✨ 15 Octubre - Manejo de estrías y cicatrices con Plasma Pen
+✨ 22 Octubre - Lipoenzimas
+✨ 29 Octubre - Eliminación de verrugas y manchas con Plasma Pen
+✨ 05 Noviembre - Rejuvenecimiento y eliminación de manchas con Dermapen
+✨ 12 Noviembre - Bioestimulación con PDRN de salmón
+✨ 19 Noviembre - Limpieza facial
+✨ 26 Noviembre - Relleno de arrugas y revitalización facial con Hyaluron Pen
 
 [CURSO]
 Nombre del curso: Bioestimulación con PDRN de salmón.
@@ -629,6 +646,8 @@ Precio: Online: $595 MXN ($33 USD) / Presencial: $1450 MXN
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
 Presencial: Constancia de participación, práctica con modelo real, materiales para la práctica, manual digital, protocolo de procedimiento, historia clínica, consentimiento informado.
+Práctica presencial: Salubel proporciona la herramienta Hyaluron Pen para la práctica; el alumno no necesita llevarla.
+Práctica online: La Dra. Lydia Coronado realiza el procedimiento como demostración mientras los alumnos observan.
 
 [CURSO]
 Nombre del curso: Lifting de párpados con Fibroblast.
