@@ -8789,7 +8789,6 @@
 - Stock Sucursal Principal: 0
 - Activo: Sí
 
-
 ## Pieza
 - SKU: CA4DAFD4
 - Tipo: product
@@ -15822,18 +15821,6 @@
 - Stock Sucursal Principal: 0
 - Activo: Sí
 
-## Toxina Botulinica NABOTA
-- SKU: TNAB
-- Tipo: product
-- Nombre: Toxina Botulinica NABOTA
-- Familia: Productos de apoyo microblading
-- Categoría: Productos de apoyo microblading
-- Precio costo: 
-- Precio venta: 0
-- Moneda: MXN
-- Stock Sucursal Principal: 34
-- Activo: Sí
-
 ## Toxina Botulinica NOVATOX
 - SKU: NOVAT
 - Tipo: product
@@ -15844,30 +15831,6 @@
 - Precio venta: 0
 - Moneda: MXN
 - Stock Sucursal Principal: 0
-- Activo: Sí
-
-## Toxina Botulinica INNOTOX 50U
-- SKU: INNOTX
-- Tipo: product
-- Nombre: Toxina Botulinica INNOTOX 50U
-- Familia: Productos de apoyo microblading
-- Categoría: Productos de apoyo microblading
-- Precio costo: 
-- Precio venta: 0
-- Moneda: MXN
-- Stock Sucursal Principal: 1
-- Activo: Sí
-
-## Toxina Botulinica INNOTOX 100U
-- SKU: INNOTX100
-- Tipo: product
-- Nombre: Toxina Botulinica INNOTOX 100U
-- Familia: Productos de apoyo microblading
-- Categoría: Productos de apoyo microblading
-- Precio costo: 
-- Precio venta: 0
-- Moneda: MXN
-- Stock Sucursal Principal: -3
 - Activo: Sí
 
 ## Toxina Botulinica DYSPORT 500U
@@ -16036,5 +15999,44 @@
 - Precio venta: 0
 - Moneda: MXN
 - Stock Sucursal Principal: 3
+- Activo: Sí
+
+## NABOTA 100U
+- SKU: NAB-100
+- Tipo: product
+- Nombre: NABOTA 100U
+- Familia: Toxinas Botulínicas
+- Categoría: Nabota
+- Precio costo: 819.5
+- Precio venta: 1490
+- Moneda: MXN
+- Stock Sucursal Principal: 10
+- Ubicación: Congelador Toxinas A1
+- Activo: Sí
+
+## INNOTOX 50U
+- SKU: INT-050
+- Tipo: product
+- Nombre: INNOTOX 50U
+- Familia: Toxinas Botulínicas
+- Categoría: Innotox
+- Precio costo: 467.5
+- Precio venta: 850
+- Moneda: MXN
+- Stock Sucursal Principal: 10
+- Ubicación: Congelador Toxinas A2
+- Activo: Sí
+
+## VIALES INDIVIDUALES STAYVE
+- SKU: STY-VIAL
+- Tipo: product
+- Nombre: VIALES INDIVIDUALES STAYVE
+- Familia: Ampolletas · Stayve
+- Categoría: Stayve
+- Precio costo: 126.5
+- Precio venta: 230
+- Moneda: MXN
+- Stock Sucursal Principal: 0
+- Ubicación: Gondola Stayve S1
 - Activo: Sí
 

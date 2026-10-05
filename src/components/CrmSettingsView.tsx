@@ -5,12 +5,10 @@ import {
   PlugZap,
   HandCoins,
   ShieldCheck,
-  Link2,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   Loader2,
-  KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MetaBotState, MetaStatusResponse } from '@/lib/api'
@@ -64,7 +62,6 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
 
   const [fbLoginUrl, setFbLoginUrl] = useState<string>('')
   const [loadingLoginUrl, setLoadingLoginUrl] = useState(false)
-  const [tab, setTab] = useState<'oauth' | 'manual'>('manual')
   const [form, setForm] = useState({ pageId: '', pageName: '', pageAccessToken: '' })
   const [loadingSave, setLoadingSave] = useState(false)
   const [lastSaved, setLastSaved] = useState<{ ok: boolean; text: string } | null>(null)
@@ -83,12 +80,16 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       stateSaved?: string | null
       sel_ok?: string | null
       error?: string | null
+      pages_error?: string | null
+      pages_empty?: string | null
     }) => {
       if (!mounted) return
       const pagesB64 = raw.fbpages || raw.pages || null
       const lltOk = raw.llt_ok || null
       const stateSaved = raw.stateSaved || null
       const selOk = raw.sel_ok || null
+      const pagesErr = raw.pages_error ? decodeURIComponent(String(raw.pages_error)) : null
+      const pagesEmpty = raw.pages_empty === '1'
 
       if (stateSaved === '1' || selOk === '1') {
         setLastSaved({
@@ -107,11 +108,24 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         })
         return
       }
+      if (pagesErr) {
+        setLastSaved({
+          ok: false,
+          text: '⚠️ Error de Facebook al consultar tus páginas. Detalle: ' + pagesErr,
+        })
+        return
+      }
+      if (pagesEmpty) {
+        setLastSaved({
+          ok: false,
+          text: '⚠️ Tu cuenta Facebook NO tiene páginas seleccionadas para esta App. En el diálogo de inicio de sesión asegúrate de MARCAR al menos una página y autorizar los 3 permisos (Mostrar lista de páginas, Administrar páginas, Gestionar mensajes).',
+        })
+        return
+      }
       if (lltOk === '1' && pagesB64) {
         try {
           const pages = decodeBase64urlJson<any[]>(pagesB64)
           if (Array.isArray(pages) && pages.length > 0) {
-            setTab('oauth')
             setFBPagesFetched(pages)
             if (pages.length === 1) {
               const only = pages[0] as any
@@ -159,7 +173,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
           } else {
             setLastSaved({
               ok: false,
-              text: 'No se encontraron páginas administradas por tu cuenta Facebook en esta app (revisa los scopes y permisos).',
+              text: '⚠️ No se encontraron páginas. Abre Facebook, revisa en Configuración → Integraciones → Smartbis, y asegúrate de haber otorgado permiso sobre al menos una página. Luego vuelve a iniciar sesión.',
             })
           }
         } catch (e: any) {
@@ -185,6 +199,8 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       stateSaved: q.get('stateSaved'),
       sel_ok: q.get('sel_ok'),
       error: q.get('error'),
+      pages_error: q.get('pages_error'),
+      pages_empty: q.get('pages_empty'),
     })
     const url = new URL(window.location.href)
     const hadQuery =
@@ -193,7 +209,9 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       url.searchParams.has('llt_ok') ||
       url.searchParams.has('stateSaved') ||
       url.searchParams.has('error') ||
-      url.searchParams.has('sel_ok')
+      url.searchParams.has('sel_ok') ||
+      url.searchParams.has('pages_error') ||
+      url.searchParams.has('pages_empty')
     if (hadQuery) {
       url.searchParams.delete('fbpages')
       url.searchParams.delete('pages')
@@ -201,6 +219,8 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       url.searchParams.delete('stateSaved')
       url.searchParams.delete('error')
       url.searchParams.delete('sel_ok')
+      url.searchParams.delete('pages_error')
+      url.searchParams.delete('pages_empty')
       window.history.replaceState({}, '', url.toString())
     }
 
@@ -215,6 +235,8 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         stateSaved: d.stateSaved || null,
         sel_ok: d.sel_ok || null,
         error: d.error || null,
+        pages_error: d.pages_error || null,
+        pages_empty: d.pages_empty || null,
       })
     }
     window.addEventListener('message', onMessage)
@@ -249,32 +271,6 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       )
     } finally {
       setLoadingLoginUrl(false)
-    }
-  }
-
-  async function handleManualSave() {
-    if (!form.pageId || !form.pageAccessToken) {
-      setLastSaved({ ok: false, text: 'Completa al menos Page ID y Page Access Token.' })
-      return
-    }
-    setLoadingSave(true)
-    setLastSaved(null)
-    try {
-      const r = await onLinkManual({ ...form })
-      setLastSaved({
-        ok: r.success,
-        text: r.success
-          ? `✅ Guardado correctamente. Página ${r.pageName || r.pageId} conectada. Webhook suscrito: ${r.subscribed ? 'SÍ' : 'NO (revisa permisos del token)'}`
-          : 'Error guardando la configuración.',
-      })
-      if (r.success) {
-        await onSetState({ state: 'START' })
-        void onRefresh()
-      }
-    } catch (e: any) {
-      setLastSaved({ ok: false, text: e?.message || 'Error al guardar.' })
-    } finally {
-      setLoadingSave(false)
     }
   }
 
@@ -313,6 +309,9 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
           {/* 1. Estados arriba */}
           <StatusSummaryCard status={status} />
 
+          {/* 1.5 Controles rápidos (no requieren OAuth) */}
+          <QuickControls status={status} onSetState={onSetState} />
+
           {/* 2. Sección Conectar página Facebook DEBAJO de los estados */}
           <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-4">
             <h3 className="mb-3 text-[13px] font-semibold text-white">
@@ -338,8 +337,8 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
             ) : null}
 
             <div className="space-y-3.5">
-              {/* Selector de páginas OAuth */}
-              {fbPagesFetched && fbPagesFetched.length > 1 ? (
+              {/* Selector de páginas OAuth (solo aparece tras login exitoso y hay 1+ páginas) */}
+              {fbPagesFetched && fbPagesFetched.length > 0 ? (
                 <div className="rounded-xl border border-[#1090D0]/30 bg-[#1090D0]/10 px-4 py-3">
                   <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6bb8dd]">
                     Selecciona la página que quieres conectar
@@ -425,6 +424,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                 </div>
               ) : null}
 
+              {/* Botón de Iniciar Sesión con Facebook (OAuth) */}
               <button
                 type="button"
                 onClick={handleOAuthUrlClick}
@@ -435,8 +435,9 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                 {loadingLoginUrl ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                Continuar con Facebook
+                {fbPagesFetched && fbPagesFetched.length > 0 ? 'Volver a iniciar sesión con Facebook' : 'Iniciar sesión con Facebook'}
               </button>
+
               {fbLoginUrl ? (
                 <p className="break-all rounded-xl border border-[#1a3a5a] bg-[#0b2540] px-3 py-2 font-mono text-[10px] text-slate-400">
                   Login URL: <span className="text-[#6bb8dd]">{fbLoginUrl.slice(0, 140)}</span>…

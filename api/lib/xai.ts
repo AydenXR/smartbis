@@ -48,8 +48,39 @@ function getConfiguredFallbackModel() {
   return ''
 }
 
+const MESES_ES_XAI = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const DIAS_ES_XAI = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+function getCurrentDateTimeSpanishXai(): { fechaCompleta: string; fechaISO: string } {
+  const now = new Date()
+  const options: Intl.DateTimeFormatOptions = { timeZone: 'America/Hermosillo' }
+  const zoned = new Date(now.toLocaleString('en-US', options))
+  const diaSemana = DIAS_ES_XAI[zoned.getDay()]
+  const diaNum = zoned.getDate()
+  const mesNum = zoned.getMonth()
+  const mesNombre = MESES_ES_XAI[mesNum]
+  const anio = zoned.getFullYear()
+  const horas = zoned.getHours().toString().padStart(2, '0')
+  const mins = zoned.getMinutes().toString().padStart(2, '0')
+  return {
+    fechaCompleta: `${diaSemana} ${diaNum.toString().padStart(2, '0')} de ${mesNombre} de ${anio}, ${horas}:${mins} hrs (zona horaria Arizona / Sonora, México — tiempo local Hermosillo UTC-7)`,
+    fechaISO: `${anio}-${(mesNum + 1).toString().padStart(2, '0')}-${diaNum.toString().padStart(2, '0')}`,
+  }
+}
+
 function buildSystemPrompt(prompt: string, contextBlock: string) {
-  return `${prompt}
+  const now = getCurrentDateTimeSpanishXai()
+  const timeAwareness = `=== REGLAS SOBRE FECHAS (OBLIGATORIO CUMPLIRLAS SIEMPRE):
+- Fecha y hora ACTUAL de esta conversación: ${now.fechaCompleta} (ISO: ${now.fechaISO}).
+- ANTES de mencionar CUALQUIER fecha (cursos, eventos, promociones, reservas), verifica si ya PASÓ respecto a HOY.
+- Si la fecha YA PASÓ: NUNCA la digas como "programada" o "disponible". En vez de eso, di que ya pasó y sugiere consultar disponibilidad por WhatsApp.
+- Ejemplo: HOY es 01 de Septiembre. Fecha "20 de Agosto" = YA PASÓ.
+  ❌ No digas: "está programada para el 20 de agosto"
+  ✅ Sí di: "Esa fecha ya pasó. Por favor contáctanos por WhatsApp para conocer las próximas fechas disponibles."
+=== FIN REGLAS SOBRE FECHAS ===
+
+`
+  return `${timeAwareness}${prompt}
 
 Fuentes de verdad:
 ${contextBlock}`

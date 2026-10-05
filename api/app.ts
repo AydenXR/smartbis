@@ -1,10 +1,15 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import cors from 'cors'
+import fs from 'node:fs'
+import path from 'node:path'
+import { timingSafeEqual } from 'node:crypto'
 import dotenv from 'dotenv'
 import {
   createDbDocument,
   deleteDbDocument,
   getDbUserFromToken,
+  ingestAllDbTenants,
+  ingestDbTenantDocuments,
   loadDbWorkspace,
   loginDbAccount,
   registerDbAccount,
@@ -31,6 +36,7 @@ import {
   getMessagesByPSID,
   markChatAsRead,
   deleteChatByPSID,
+  getAllMessages,
   type MetaBotState,
 } from './lib/metaMessenger.js'
 import {
@@ -42,6 +48,10 @@ import {
   getCatalogItem,
   upsertCatalogItem,
   deleteCatalogItem,
+  listPromoGroups,
+  getPromoGroup,
+  upsertPromoGroup,
+  deletePromoGroup,
   listPurchases,
   createPurchase,
   getOpenShift,
@@ -70,10 +80,25 @@ import {
   listAutoEvals,
   getAutoEval,
   type PosRole,
+  type PosPurchaseLine,
 } from './lib/posStore.js'
 
 dotenv.config()
-dotenv.config({ path: '.env.local', override: true })
+
+const resolvedEnvFiles = [
+  path.resolve(process.cwd(), '.env.local'),
+  path.resolve(process.cwd(), 'resources', 'app.asar', '.env.local'),
+  path.resolve(process.cwd(), 'resources', 'app.asar.unpacked', '.env.local'),
+  path.resolve(process.cwd(), 'app.asar', '.env.local'),
+]
+
+const resolvedEnvFile = resolvedEnvFiles.find((file) => fs.existsSync(file))
+
+if (resolvedEnvFile) {
+  dotenv.config({ path: resolvedEnvFile, override: true })
+} else {
+  dotenv.config({ path: '.env.local', override: true })
+}
 
 const app: express.Application = express()
 
@@ -145,11 +170,451 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// Middleware requireRole(opcional). Si rol=owner/admin permite TODO. Si cashier: solo lo suyo.
+function cashierGuard(allowed: PosRole[]) {
+  return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
+    const user = res.locals.user as DbAuthUser & {
+      posRole?: PosRole
+      posBranchId?: string
+      authKind?: string
+      subuserId?: string | number
+    }
+    if (!user) {
+      res.status(401).json({ error: 'Sesion inválida' })
+      return
+    }
+    // --- Owner del tenant (Supabase o posRole=owner) → TODOS los permisos ---
+    if (user.authKind === 'tenant_owner' || user.posRole === 'owner') {
+      next()
+      return
+    }
+    // Subusuarios: mapear role, default cashier si viene vacío
+    const rawRole = (user.posRole as PosRole) || undefined
+    const effectiveRole: PosRole = rawRole || 'cashier'
+    if (!allowed.includes(effectiveRole)) {
+      res.status(403).json({ error: 'No tienes permiso para realizar esta acción' })
+      return
+    }
+    next()
+  }
+}
+
+// Roles con control de Punto de Venta (inventario, compras, sucursales, catálogo).
+// 'admin' se conserva por compatibilidad con cuentas creadas antes de separar los roles.
+const POS_ADMIN_ROLES: PosRole[] = ['admin', 'admin_pv']
+// Roles con control TOTAL de Atención al cliente (documentos, prompt, chats, pruebas, conexión).
+const CS_ADMIN_ROLES: PosRole[] = ['admin', 'admin_cs']
+// Roles que pueden administrar chats y documentos (incluye auto-ingesta), pero NO prompt,
+// pruebas de chat interno ni la configuración de conexión con Messenger.
+const CS_AGENT_ROLES: PosRole[] = ['admin', 'admin_cs', 'cs_agent']
+// Ambos tipos de admin pueden crear/gestionar sub-usuarios (Cuentas).
+const ANY_ADMIN_ROLES: PosRole[] = ['admin', 'admin_pv', 'admin_cs']
+// Roles que se pueden asignar al crear/editar un sub-usuario (nunca 'owner').
+const ASSIGNABLE_SUBUSER_ROLES: PosRole[] = ['admin', 'admin_pv', 'admin_cs', 'cashier', 'cs_agent']
+// Reutiliza la misma lógica de permisos para la zona de Atención al cliente.
+const csGuard = cashierGuard
+
 app.get('/api/health', (_req: Request, res: Response): void => {
   res.status(200).json({
     success: true,
     message: 'ok',
   })
+})
+
+app.get('/api/cron/document-ingestion', async (req: Request, res: Response, next: NextFunction) => {
+  const expectedSecret = process.env.CRON_SECRET?.trim()
+  if (!expectedSecret) {
+    res.status(503).json({ error: 'CRON_SECRET no esta configurado' })
+    return
+  }
+
+  const authorization = req.headers.authorization || ''
+  const suppliedSecret = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  const supplied = Buffer.from(suppliedSecret)
+  const expected = Buffer.from(expectedSecret)
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+    res.status(401).json({ error: 'No autorizado' })
+    return
+  }
+
+  try {
+    const result = await ingestAllDbTenants()
+    res.status(result.failures.length > 0 ? 500 : 200).json(result)
+  } catch (error) {
+    next(error)
+  }
+})
+
+type CheckResult = {
+  ok: boolean
+  warn?: boolean
+  label: string
+  status?: string
+  detail?: string
+  latencyMs?: number
+  raw?: any
+}
+async function runWithTimeout<T>(p: Promise<T>, ms: number, fallback: T | null = null): Promise<T | null> {
+  let tm: NodeJS.Timeout | null = null
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T | null>((resolve) => {
+        tm = setTimeout(() => resolve(fallback), ms)
+      }),
+    ]) as T | null
+  } catch {
+    return fallback
+  } finally {
+    if (tm) clearTimeout(tm)
+  }
+}
+app.get('/api/status/overview', requireAuth, async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const tenantId = String(user.tenantId || '')
+    const checks: CheckResult[] = []
+
+    const llmBase = String(process.env.LLM_BASE_URL || process.env.XAI_BASE_URL || '').trim()
+    const llmKey = String(process.env.LLM_API_KEY || process.env.XAI_API_KEY || '').trim()
+    const llmModel = String(process.env.LLM_MODEL_NAME || process.env.XAI_MODEL || '').trim()
+    if (llmBase && llmKey && llmModel) {
+      const t0 = Date.now()
+      try {
+        const testRsp = await runWithTimeout(fetch(llmBase.replace(/\/$/, '') + '/models', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${llmKey}` },
+        }), 4200, null)
+        const ok = !!testRsp && testRsp.ok
+        checks.push({
+          ok,
+          label: /groq/i.test(llmBase) ? 'Groq / API LLM' : 'Proveedor LLM',
+          status: ok ? 'Conectado' : 'HTTP no 2xx',
+          detail: llmModel + ' · ' + llmBase.replace(/^https?:\/\//, '').split('/')[0],
+          latencyMs: Date.now() - t0,
+          raw: ok ? undefined : { status: (testRsp as any)?.status },
+        })
+      } catch (e: any) {
+        checks.push({
+          ok: false,
+          label: 'Proveedor LLM / Groq',
+          status: 'Error',
+          detail: String(e?.message || e).slice(0, 200),
+          latencyMs: Date.now() - t0,
+        })
+      }
+    } else {
+      checks.push({
+        ok: false,
+        warn: true,
+        label: 'Proveedor LLM / Groq',
+        status: 'No configurado',
+        detail: 'Falta LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_NAME en .env',
+      })
+    }
+
+    const cfg = await runWithTimeout(getTenantMetaConfig(tenantId), 2000, null)
+    const linked = Boolean(cfg?.linkedAt || cfg?.pageAccessToken || cfg?.pageId)
+    const metaCheck: CheckResult = {
+      ok: linked,
+      warn: !linked,
+      label: 'Meta Graph API',
+      status: linked ? 'Página vinculada' : 'Sin vincular',
+      detail: linked
+        ? [cfg?.pageName || '', cfg?.pageId ? `pageId ${cfg.pageId}` : '', cfg?.webhookSubscribed ? 'webhook ok' : ''].filter(Boolean).join(' · ')
+        : 'Abre la sección Conectar Messenger para vincular la página de Facebook/Instagram.',
+    }
+    if (linked && cfg?.pageAccessToken) {
+      const t1 = Date.now()
+      try {
+        const r = await runWithTimeout(fetch(
+          `https://graph.facebook.com/${cfg.graphVersion || 'v22.0'}/me?fields=id,name&access_token=${encodeURIComponent(cfg.pageAccessToken)}`,
+        ), 4000, null)
+        const fetchR = r as any
+        const data = fetchR?.ok ? await fetchR.json?.()?.catch?.(() => null) ?? null : null
+        metaCheck.latencyMs = Date.now() - t1
+        if (data?.id) {
+          metaCheck.ok = true
+          metaCheck.status = 'Página OK'
+          metaCheck.detail = (cfg.pageName || data.name || 'Página') + ' · id ' + data.id
+        } else {
+          metaCheck.ok = false
+          metaCheck.warn = false
+          metaCheck.status = 'Token inválido / expirado'
+          metaCheck.detail = 'Refresh del token necesario en Conectar Messenger.'
+        }
+      } catch (e: any) {
+        metaCheck.latencyMs = Date.now() - t1
+        metaCheck.status = 'Network error'
+        metaCheck.detail = String(e?.message || e).slice(0, 220)
+      }
+    }
+    checks.push(metaCheck)
+
+    const supUrl = String(process.env.SUPABASE_URL || '').trim()
+    const supKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '').trim()
+    if (supUrl && supKey) {
+      const t2 = Date.now()
+      try {
+        const r = await runWithTimeout(fetch(
+          supUrl.replace(/\/$/, '') + '/rest/v1/?apikey=' + encodeURIComponent(supKey),
+          { headers: { apikey: supKey, Authorization: `Bearer ${supKey}` } },
+        ), 4000, null)
+        checks.push({
+          ok: !!(r && (r.ok || (r as any).status === 400 || (r as any).status === 401)),
+          warn: false,
+          label: 'Supabase / Base de datos',
+          status: r?.ok ? 'OK' : ((r as any)?.status ? `HTTP ${(r as any).status}` : 'Timeout'),
+          detail: supUrl.replace(/^https?:\/\//, '').split('/')[0] || '',
+          latencyMs: Date.now() - t2,
+        })
+      } catch (e: any) {
+        checks.push({
+          ok: false,
+          label: 'Supabase / Base de datos',
+          status: 'Error',
+          detail: String(e?.message || e).slice(0, 200),
+          latencyMs: Date.now() - t2,
+        })
+      }
+    } else {
+      checks.push({
+        ok: false,
+        warn: true,
+        label: 'Supabase / Base de datos',
+        status: 'No configurada',
+        detail: 'Falta SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en .env',
+      })
+    }
+
+    try {
+      const t3 = Date.now()
+      const branches = await listBranches(tenantId)
+      const openShift = await getOpenShift(tenantId, user.id)
+      checks.push({
+        ok: true,
+        label: 'POS · Turnos',
+        status: openShift?.id ? 'Turno abierto' : 'Sin turno abierto',
+        warn: !openShift?.id,
+        detail: `${branches.length || 0} sucursal(es) · ${openShift?.salesCount || 0} ventas · ${openShift?.salesTotal ? '$' + Number(openShift.salesTotal).toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '$0.00'}`,
+        latencyMs: Date.now() - t3,
+        raw: openShift?.id ? undefined : { branches: branches.length },
+      })
+    } catch (e: any) {
+      checks.push({
+        ok: false,
+        label: 'POS · Turnos',
+        status: 'Error interno',
+        detail: String(e?.message || e).slice(0, 220),
+      })
+    }
+
+    try {
+      const t4 = Date.now()
+      const { execSync } = await import('node:child_process')
+      const ps = String(execSync('docker ps --format "{{.Names}}|{{.Status}}" 2>/dev/null || true').toString() || '').trim().split('\n').filter(Boolean)
+      const containers = ps.map(line => {
+        const [name, status] = line.split('|')
+        return { name: (name || '').trim(), status: (status || '').trim() }
+      })
+      const unhealthy = containers.filter(c => /(unhealthy|restarting|exited|dead|start)/i.test(c.status))
+      checks.push({
+        ok: unhealthy.length === 0,
+        warn: containers.length === 0,
+        label: 'Contenedores Docker',
+        status: containers.length
+          ? (unhealthy.length ? `${unhealthy.length} en alerta / ${containers.length} totales` : `${containers.length} sanos`)
+          : 'Sin información',
+        detail: containers.length ? containers.map(c => `${c.name}: ${c.status}`).join('  ·  ') : 'No hay docker info disponible en el host.',
+        latencyMs: Date.now() - t4,
+      })
+    } catch (e: any) {
+      checks.push({
+        ok: true,
+        warn: true,
+        label: 'Contenedores Docker',
+        status: 'Sin acceso docker',
+        detail: String(e?.message || e).slice(0, 220) || 'No se puede ejecutar docker ps desde este contenedor.',
+      })
+    }
+
+    try {
+      const t5 = Date.now()
+      const audit = await listAudit(tenantId, { limit: 5 })
+      const docs = await loadDbWorkspace(tenantId)
+      checks.push({
+        ok: true,
+        warn: !docs?.prompt || String(docs.prompt).length < 200,
+        label: 'Autocurador · Prompt · Docs',
+        status: 'OK',
+        detail: [
+          `Prompt ${docs?.prompt?.length || 0} chars`,
+          `${(docs?.documents || []).length} doc(s)`,
+          `Auditoría últ ${audit?.length || 0}`,
+        ].join(' · '),
+        latencyMs: Date.now() - t5,
+      })
+    } catch (e: any) {
+      checks.push({
+        ok: false,
+        label: 'Autocurador · Prompt · Docs',
+        status: 'Error',
+        detail: String(e?.message || e).slice(0, 220),
+      })
+    }
+
+    const overallOk = checks.every(c => c.ok || c.warn)
+    const anyFatal = checks.some(c => !c.ok && !c.warn)
+    res.status(200).json({
+      ok: overallOk && !anyFatal,
+      generatedAt: new Date().toISOString(),
+      summary: {
+        total: checks.length,
+        ok: checks.filter(c => c.ok).length,
+        warn: checks.filter(c => !c.ok && c.warn).length,
+        error: checks.filter(c => !c.ok && !c.warn).length,
+      },
+      checks,
+    })
+    return
+  } catch (e) {
+    next(e)
+  }
+})
+
+// Dashboard supervisión de métricas + kpis
+app.get('/api/status/dashboard', requireAuth, async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const tenantId = String(user.tenantId || '')
+    const now = new Date()
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+
+    const [
+      metaCfg,
+      allMessages,
+      chatItems,
+      branches,
+      openShift,
+      allSales,
+      workspace,
+      auditAll,
+      autoEvalsLatest,
+    ] = await Promise.all([
+      runWithTimeout(getTenantMetaConfig(tenantId), 2000, null),
+      runWithTimeout(getAllMessages(tenantId), 3500, [] as any[]),
+      runWithTimeout(listChats(tenantId, 500), 3000, [] as any[]),
+      listBranches(tenantId),
+      getOpenShift(tenantId, user.id),
+      listSales(tenantId),
+      loadDbWorkspace(tenantId),
+      listAudit(tenantId, { limit: 2000 }),
+      listAutoEvals(tenantId, { limit: 500 }),
+    ])
+
+    const msgs = Array.isArray(allMessages) ? allMessages as any[] : []
+    const chats = Array.isArray(chatItems) ? chatItems as any[] : []
+    const sales = Array.isArray(allSales) ? allSales as any[] : []
+    const audits = Array.isArray(auditAll) ? auditAll as any[] : []
+    const evals = Array.isArray(autoEvalsLatest) ? autoEvalsLatest as any[] : []
+
+    const todayMsgs = msgs.filter(m => m && m.createdAt && m.createdAt >= startOfDay)
+    const inMsgs = msgs.filter(m => m?.direction === 'IN')
+    const outMsgs = msgs.filter(m => m?.direction === 'OUT_BOT' || m?.direction === 'OUT_HUMAN')
+    const todayIn = todayMsgs.filter(m => m?.direction === 'IN').length
+    const todayOut = todayMsgs.filter(m => m?.direction === 'OUT_BOT' || m?.direction === 'OUT_HUMAN').length
+
+    const blockedBy = msgs.filter(m => m?.blockedByAutocurador === true).length
+    const unreadChats = chats.filter(c => typeof c?.unreadCount === 'number' && c.unreadCount > 0).length
+
+    const salesToday = sales.filter(s => s && s.createdAt && s.createdAt >= startOfDay)
+    const salesMonth = sales.filter(s => s && s.createdAt && s.createdAt >= startOfMonth)
+    const sumAmount = (arr: any[]) => arr.reduce((a, s) => a + (Number(s?.total) || 0), 0)
+
+    const closedShiftsCount = sales.filter((s: any) => s && s.shiftId).length
+    const evalCategorized = {
+      total: evals.length,
+      correct: evals.filter((e: any) => e?.category === 'correct').length,
+      error: evals.filter((e: any) => e?.category === 'error').length,
+      noinfo: evals.filter((e: any) => e?.category === 'noinfo').length,
+      judgeFailed: evals.filter((e: any) => e?.category === 'judge_failed').length,
+      ratioCorrect: evals.length
+        ? Math.round((evals.filter((e: any) => e?.category === 'correct').length * 1000) / evals.length) / 10
+        : 0,
+    }
+    const login24h = audits.filter(a => a?.kind === 'login' && a?.at && a.at >= new Date(Date.now() - 24 * 3600 * 1000).toISOString()).length
+
+    const stats = {
+      meta: {
+        pageName: metaCfg?.pageName || null,
+        pageId: metaCfg?.pageId || null,
+        linked: Boolean(metaCfg?.linkedAt || (metaCfg as any)?.linked || metaCfg?.pageAccessToken),
+        state: metaCfg?.state || 'PAUSE',
+        testMode: Boolean(metaCfg?.testMode),
+        botState: metaCfg?.state === 'START' && Boolean(metaCfg?.pageAccessToken),
+      },
+      messages: {
+        total: msgs.length,
+        today: todayMsgs.length,
+        receivedTotal: inMsgs.length,
+        sentTotal: outMsgs.length,
+        todayReceived: todayIn,
+        todaySent: todayOut,
+        blockedByAutocurador: blockedBy,
+      },
+      chats: {
+        total: chats.length,
+        unread: unreadChats,
+        active24h: chats.filter(c => c?.lastMessageAt && c.lastMessageAt >= new Date(Date.now() - 24 * 3600 * 1000).toISOString()).length,
+      },
+      pos: {
+        branches: branches.length,
+        openShiftId: openShift?.id || null,
+        openShiftSalesCount: openShift?.salesCount || 0,
+        openShiftSalesTotal: openShift?.salesTotal ? Number(openShift.salesTotal) : 0,
+        salesTotal: sumAmount(sales),
+        salesToday: sumAmount(salesToday),
+        salesMonth: sumAmount(salesMonth),
+        salesCount: sales.length,
+        salesCountToday: salesToday.length,
+        salesCountMonth: salesMonth.length,
+        shiftsWithSales: closedShiftsCount,
+      },
+      workspace: {
+        promptChars: String(workspace?.prompt || '').length,
+        documentsCount: Array.isArray(workspace?.documents) ? workspace.documents.length : 0,
+        hasPrompt: Boolean(workspace?.prompt && String(workspace.prompt).length >= 200),
+      },
+      audit: {
+        last2000: audits.length,
+        logins24h: login24h,
+        salesCreated: audits.filter(a => a?.kind === 'sale_create').length,
+        shiftsOpened: audits.filter(a => a?.kind === 'shift_open').length,
+        shiftsClosed: audits.filter(a => a?.kind === 'shift_close').length,
+        withdrawals: audits.filter(a => a?.kind === 'cash_withdrawal').length,
+      },
+      autocurador: {
+        ...evalCategorized,
+      },
+    }
+
+    const quick = [
+      { key: 'mensajes_hoy', label: 'Mensajes hoy', value: todayMsgs.length, tone: 'info' as const },
+      { key: 'chats_sin_leer', label: 'Chats sin leer', value: unreadChats, tone: unreadChats > 0 ? ('warn' as const) : ('ok' as const) },
+      { key: 'ventas_hoy', label: 'Ventas hoy $', value: Math.round(sumAmount(salesToday)), prefix: '$', tone: 'ok' as const },
+      { key: 'turno_abierto', label: 'Turno abierto', value: openShift?.id ? 1 : 0, tone: openShift?.id ? ('ok' as const) : ('warn' as const) },
+    ]
+
+    res.status(200).json({
+      generatedAt: new Date().toISOString(),
+      stats,
+      quick,
+    })
+    return
+  } catch (e) {
+    next(e)
+  }
 })
 
 // ============================================
@@ -212,6 +677,8 @@ app.get('/api/webhooks/facebook/oauth/callback', async (req: Request, res: Respo
       error?: string
       fbpages?: string
       llt_ok?: '1'
+      pages_error?: string
+      pages_empty?: '1'
       tenantId?: string
     }
     let payload: Payload
@@ -237,14 +704,24 @@ app.get('/api/webhooks/facebook/oauth/callback', async (req: Request, res: Respo
           userLongLivedToken: finalLLT,
           userLLExtendsAt: finalExpiry,
         })
-        const pages = await listUserPages(finalLLT)
-        const pagesB64 = Buffer.from(JSON.stringify(pages || [])).toString('base64url')
+        const pagesResult = await listUserPages(finalLLT)
+        console.log('[fb_oauth_callback] listUserPages result:', {
+          success: pagesResult.success,
+          count: Array.isArray(pagesResult.pages) ? pagesResult.pages.length : -1,
+          error: pagesResult.error || null,
+        })
+        const pagesB64 = Buffer.from(JSON.stringify(pagesResult.pages || [])).toString('base64url')
         payload = {
           source: 'smartbis_fb_oauth',
           ok: 1,
           fbpages: pagesB64,
           llt_ok: '1',
           tenantId,
+        }
+        if (!pagesResult.success) {
+          payload.pages_error = String(pagesResult.error || 'Error consultando páginas').slice(0, 400)
+        } else if (!Array.isArray(pagesResult.pages) || pagesResult.pages.length === 0) {
+          payload.pages_empty = '1'
         }
       }
     }
@@ -320,7 +797,7 @@ a{color:#60a5fa;text-decoration:none;font-weight:600}
 // ============================================
 // META MESSENGER: Admin API (requireAuth)
 // ============================================
-app.get('/api/meta/status', requireAuth, async (_req: Request, res: Response) => {
+app.get('/api/meta/status', requireAuth, csGuard(CS_AGENT_ROLES), async (_req: Request, res: Response) => {
   const user = res.locals.user as DbAuthUser
   // Health-check preventivo: renovar tokens, validar, re-suscribir webhook y
   // SI EL PAGE TOKEN ES INVÁLIDO, limpiarlo para que frontend muestre desconectado honesto.
@@ -342,13 +819,13 @@ app.get('/api/meta/status', requireAuth, async (_req: Request, res: Response) =>
   res.status(200).json(safe)
 })
 
-app.get('/api/meta/oauth/url', requireAuth, async (_req: Request, res: Response) => {
+app.get('/api/meta/oauth/url', requireAuth, csGuard(CS_ADMIN_ROLES), async (_req: Request, res: Response) => {
   const user = res.locals.user as DbAuthUser
   const url = buildOAuthLoginURL(user.tenantId, '/settings?meta=1')
   res.status(200).json({ url })
 })
 
-app.post('/api/meta/linkPage', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/meta/linkPage', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const pageId = String(req.body?.pageId || '')
@@ -386,7 +863,7 @@ app.post('/api/meta/linkPage', requireAuth, async (req: Request, res: Response, 
 })
 
 // Modo MANUAL rápido (para empezar HOY): pegar token y page_id directamente en Settings
-app.post('/api/meta/configureManual', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/meta/configureManual', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const pageId = String(req.body?.pageId || '')
@@ -410,7 +887,7 @@ app.post('/api/meta/configureManual', requireAuth, async (req: Request, res: Res
   } catch (e) { next(e) }
 })
 
-app.post('/api/meta/setState', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/meta/setState', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const stateRaw = String(req.body?.state || '')
@@ -424,21 +901,21 @@ app.post('/api/meta/setState', requireAuth, async (req: Request, res: Response, 
   } catch (e) { next(e) }
 })
 
-app.get('/api/meta/chats', requireAuth, async (req: Request, res: Response) => {
+app.get('/api/meta/chats', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response) => {
   const user = res.locals.user as DbAuthUser
   const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)))
   const list = await listChats(user.tenantId, limit)
   res.status(200).json({ chats: list })
 })
 
-app.get('/api/meta/chats/:psid', requireAuth, async (req: Request, res: Response) => {
+app.get('/api/meta/chats/:psid', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response) => {
   const user = res.locals.user as DbAuthUser
   const psid = decodeURIComponent(String(req.params.psid || ''))
   const msgs = await getMessagesByPSID(user.tenantId, psid)
   res.status(200).json({ psid, messages: msgs })
 })
 
-app.post('/api/meta/chats/:psid/read', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/meta/chats/:psid/read', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const psid = decodeURIComponent(String(req.params.psid || ''))
@@ -447,7 +924,7 @@ app.post('/api/meta/chats/:psid/read', requireAuth, async (req: Request, res: Re
   } catch (e) { next(e) }
 })
 
-app.delete('/api/meta/chats/:psid', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/api/meta/chats/:psid', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const psid = decodeURIComponent(String(req.params.psid || ''))
@@ -456,7 +933,7 @@ app.delete('/api/meta/chats/:psid', requireAuth, async (req: Request, res: Respo
   } catch (e) { next(e) }
 })
 
-app.post('/api/meta/send/:psid', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/meta/send/:psid', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const psid = decodeURIComponent(String(req.params.psid || ''))
@@ -470,7 +947,7 @@ app.post('/api/meta/send/:psid', requireAuth, async (req: Request, res: Response
 // ================================================
 // AUTO-EVALS · Auto-curado (panel de auditoría)
 // ================================================
-app.get('/api/meta/auto-evals', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/meta/auto-evals', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const result = await listAutoEvals(user.tenantId, {
@@ -484,7 +961,7 @@ app.get('/api/meta/auto-evals', requireAuth, async (req: Request, res: Response,
   } catch (e) { next(e) }
 })
 
-app.get('/api/meta/auto-evals/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/meta/auto-evals/:id', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const d = await getAutoEval(user.tenantId, String(req.params.id))
@@ -549,7 +1026,7 @@ app.get('/api/workspace', requireAuth, async (_req: Request, res: Response, next
   }
 })
 
-app.put('/api/prompt', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.put('/api/prompt', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : ''
     const user = res.locals.user as DbAuthUser
@@ -563,7 +1040,7 @@ app.put('/api/prompt', requireAuth, async (req: Request, res: Response, next: Ne
   }
 })
 
-app.post('/api/documents', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/documents', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName : ''
     const content = typeof req.body?.content === 'string' ? req.body.content : ''
@@ -572,16 +1049,18 @@ app.post('/api/documents', requireAuth, async (req: Request, res: Response, next
       fileName,
       content,
     })
+    const ingestion = await ingestDbTenantDocuments(user.tenantId)
 
     res.status(201).json({
       document,
+      ingestion,
     })
   } catch (error) {
     next(error)
   }
 })
 
-app.put('/api/documents/:fileName', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.put('/api/documents/:fileName', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const currentFileName = typeof req.params.fileName === 'string' ? decodeURIComponent(req.params.fileName) : ''
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName : ''
@@ -591,6 +1070,7 @@ app.put('/api/documents/:fileName', requireAuth, async (req: Request, res: Respo
       fileName,
       content,
     })
+    const ingestion = await ingestDbTenantDocuments(user.tenantId)
 
     await appendAudit(user.tenantId, {
       userEmail: user.email,
@@ -606,6 +1086,7 @@ app.put('/api/documents/:fileName', requireAuth, async (req: Request, res: Respo
 
     res.status(200).json({
       document,
+      ingestion,
     })
   } catch (error) {
     next(error)
@@ -615,26 +1096,6 @@ app.put('/api/documents/:fileName', requireAuth, async (req: Request, res: Respo
 // ============================================
 // POS: Punto de Venta · Inventario · Sucursales · Compras · Turnos · Auditoría · Subusuarios
 // ============================================
-
-// Middleware requireRole(opcional). Si rol=owner/admin permite TODO. Si cashier: solo lo suyo.
-function cashierGuard(allowed: PosRole[]) {
-  return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
-    const user = res.locals.user as DbAuthUser & { posRole?: PosRole; posBranchId?: string }
-    if (!user) {
-      res.status(401).json({ error: 'Sesion inválida' })
-      return
-    }
-    // Owner (creador del tenant) == admin para efectos de permisos
-    const rawRole = (user.posRole as PosRole) || undefined
-    const effectiveRole: PosRole =
-      rawRole === 'owner' ? 'admin' : rawRole || 'admin'
-    if (!allowed.includes(effectiveRole) && effectiveRole !== 'admin') {
-      res.status(403).json({ error: 'No tienes permiso para realizar esta acción' })
-      return
-    }
-    next()
-  }
-}
 
 // --- BRANCHES / Sucursales (IVA por sucursal configurable aquí) ---
 app.get('/api/pos/branches', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
@@ -646,7 +1107,7 @@ app.get('/api/pos/branches', requireAuth, async (req: Request, res: Response, ne
     next(e)
   }
 })
-app.post('/api/pos/branches', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/branches', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const body = req.body || {}
@@ -670,7 +1131,7 @@ app.post('/api/pos/branches', requireAuth, cashierGuard(['admin']), async (req: 
     next(e)
   }
 })
-app.delete('/api/pos/branches/:id', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/api/pos/branches/:id', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const ok = await deleteBranch(user.tenantId, String(req.params.id), user.email)
@@ -688,14 +1149,47 @@ app.get('/api/pos/catalog', requireAuth, async (req: Request, res: Response, nex
     const kinds: any = typeof req.query.kinds === 'string' ? req.query.kinds.split(',') : undefined
     const search = typeof req.query.search === 'string' ? req.query.search : undefined
     const activeOnly = req.query.activeOnly !== '0'
-    const list = await listCatalog(user.tenantId, { kinds, activeOnly, search })
-    res.json({ items: list })
+    let list = await listCatalog(user.tenantId, { kinds, activeOnly, search })
+
+    if (list.length === 0) {
+      try {
+        const mdFiles = await listTenantMdFiles(user.tenantId)
+        const docs = await Promise.all(
+          mdFiles.map(async (file) => {
+            const content = await readTenantMdFile(user.tenantId, file.fileName)
+            if (!content?.content) return null
+            const section = /producto|product|catalog/.test(file.fileName)
+              ? 'products'
+              : /curso|curso|clase|taller/.test(file.fileName)
+                ? 'courses'
+                : /servicio|service/.test(file.fileName)
+                  ? 'services'
+                  : 'docs'
+            return {
+              id: file.fileName,
+              title: file.fileName,
+              contentMarkdown: content.content,
+              section,
+            }
+          }),
+        )
+        const candidates = docs.filter(Boolean)
+        if (candidates.length) {
+          await syncCatalogFromDocuments(user.tenantId, candidates as Array<{ id: string; title?: string; contentMarkdown?: string; section?: string }>, user.email)
+          list = await listCatalog(user.tenantId, { kinds, activeOnly, search })
+        }
+      } catch {
+        // El catálogo ocupa un fallback suave; si el documento no está listo, la ruta sigue serviendo la respuesta base.
+      }
+    }
+
+    res.json({ items: list, promoGroups: await listPromoGroups(user.tenantId) })
   } catch (e) {
     next(e)
   }
 })
 
-app.get('/api/pos/catalog/export.xlsx', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/pos/catalog/export.xlsx', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const XLSX = await import('xlsx')
@@ -775,7 +1269,7 @@ app.get('/api/pos/catalog/export.xlsx', requireAuth, cashierGuard(['admin', 'cas
     next(e)
   }
 })
-app.post('/api/pos/catalog', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/catalog', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -783,7 +1277,18 @@ app.post('/api/pos/catalog', requireAuth, cashierGuard(['admin']), async (req: R
     if (typeof b.salePrice !== 'number' || !(b.salePrice >= 0)) { res.status(400).json({ error: 'Precio venta inválido' }); return }
     const syncToMdDoc = b.syncToMdDoc === null ? null : (typeof b.syncToMdDoc === 'string' ? b.syncToMdDoc : undefined)
     const volumePriceTiers = Array.isArray(b.volumePriceTiers)
-      ? b.volumePriceTiers.filter((t: any) => t && typeof t.minQty === 'number' && typeof t.price === 'number').map((t: any) => ({ minQty: Math.max(1, Math.floor(t.minQty)), price: Math.max(0, Number(t.price)) }))
+      ? b.volumePriceTiers
+        .map((t: any) => {
+          if (!t || typeof t !== 'object') return null
+          const minQtyRaw = Number(t.minQty)
+          const priceRaw = Number(t.price)
+          if (!Number.isFinite(minQtyRaw) || !Number.isFinite(priceRaw)) return null
+          const minQty = Math.max(1, Math.floor(minQtyRaw))
+          const price = Math.max(0, priceRaw)
+          if (minQty < 2 || price <= 0) return null
+          return { minQty, price }
+        })
+        .filter((t): t is { minQty: number; price: number } => Boolean(t))
       : undefined
     const it = await upsertCatalogItem(user.tenantId, {
       id: typeof b.id === 'string' ? b.id : undefined,
@@ -811,7 +1316,7 @@ app.post('/api/pos/catalog', requireAuth, cashierGuard(['admin']), async (req: R
     next(e)
   }
 })
-app.delete('/api/pos/catalog/:id', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/api/pos/catalog/:id', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const ok = await deleteCatalogItem(user.tenantId, String(req.params.id), user.email)
@@ -821,7 +1326,49 @@ app.delete('/api/pos/catalog/:id', requireAuth, cashierGuard(['admin']), async (
     next(e)
   }
 })
-app.post('/api/pos/catalog/sync-from-documents', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+
+// --- GRUPOS DE PROMOCIÓN (mix cantidades de productos distintos) ---
+app.get('/api/pos/promo-groups', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    res.json({ groups: await listPromoGroups(user.tenantId) })
+  } catch (e) {
+    next(e)
+  }
+})
+app.post('/api/pos/promo-groups', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const b = req.body || {}
+    if (!b.name || !String(b.name).trim()) {
+      res.status(400).json({ error: 'Nombre del grupo es obligatorio' })
+      return
+    }
+    const g = await upsertPromoGroup(user.tenantId, {
+      id: typeof b.id === 'string' ? b.id : undefined,
+      name: String(b.name).trim(),
+      productIds: Array.isArray(b.productIds) ? b.productIds : undefined,
+      volumePriceTiers: Array.isArray(b.volumePriceTiers) ? b.volumePriceTiers : undefined,
+      active: typeof b.active === 'boolean' ? b.active : undefined,
+      userEmail: user.email,
+    })
+    res.json({ group: g })
+  } catch (e) {
+    next(e)
+  }
+})
+app.delete('/api/pos/promo-groups/:id', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const ok = await deletePromoGroup(user.tenantId, String(req.params.id), user.email)
+    if (!ok) { res.status(404).json({ error: 'Grupo no encontrado' }); return }
+    res.json({ ok: true })
+  } catch (e) {
+    next(e)
+  }
+})
+
+app.post('/api/pos/catalog/sync-from-documents', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const fs = await import('node:fs')
@@ -881,13 +1428,13 @@ app.post('/api/pos/catalog/sync-from-documents', requireAuth, cashierGuard(['adm
 })
 
 // ============ POS DOCS (MD FILES) TENANT ============
-app.get('/api/pos/docs', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/pos/docs', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     res.json({ files: await listTenantMdFiles(user.tenantId) })
   } catch (e) { next(e) }
 })
-app.get('/api/pos/docs/:name', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/pos/docs/:name', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const r = await readTenantMdFile(user.tenantId, String(req.params.name || ''))
@@ -895,7 +1442,7 @@ app.get('/api/pos/docs/:name', requireAuth, cashierGuard(['admin', 'cashier']), 
     res.json(r)
   } catch (e) { next(e) }
 })
-app.post('/api/pos/docs', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/docs', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -905,7 +1452,7 @@ app.post('/api/pos/docs', requireAuth, cashierGuard(['admin', 'cashier']), async
     res.json(r)
   } catch (e) { next(e) }
 })
-app.post('/api/pos/docs/:name/upsert-item-block', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/docs/:name/upsert-item-block', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -915,7 +1462,7 @@ app.post('/api/pos/docs/:name/upsert-item-block', requireAuth, cashierGuard(['ad
     res.json({ ok })
   } catch (e) { next(e) }
 })
-app.post('/api/pos/docs/:name/remove-item-block', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/docs/:name/remove-item-block', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -925,7 +1472,7 @@ app.post('/api/pos/docs/:name/remove-item-block', requireAuth, cashierGuard(['ad
     res.json({ ok })
   } catch (e) { next(e) }
 })
-app.post('/api/pos/catalog/import', requireAuth, cashierGuard(['admin', 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/catalog/import', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -1032,7 +1579,7 @@ app.post('/api/pos/catalog/import', requireAuth, cashierGuard(['admin', 'cashier
 function guessTargetDoc(kind: any): string {
   return 'productos.md'
 }
-app.post('/api/pos/catalog/:id/stock', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/catalog/:id/stock', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -1055,21 +1602,50 @@ app.get('/api/pos/purchases', requireAuth, async (req: Request, res: Response, n
     next(e)
   }
 })
-app.post('/api/pos/purchases', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/purchases', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
-    if (!b.providerName) { res.status(400).json({ error: 'Nombre proveedor obligatorio' }); return }
+    if (typeof b.providerName !== 'string' || !b.providerName.trim()) { res.status(400).json({ error: 'Nombre proveedor obligatorio' }); return }
     if (!b.branchId) { res.status(400).json({ error: 'Sucursal es obligatoria' }); return }
     if (!Array.isArray(b.lines) || b.lines.length < 1) { res.status(400).json({ error: 'Agrega por lo menos una línea' }); return }
+    const lines: PosPurchaseLine[] = []
+    for (const [index, rawLine] of b.lines.entries()) {
+      if (!rawLine || typeof rawLine !== 'object') {
+        res.status(400).json({ error: `La línea ${index + 1} no es válida` })
+        return
+      }
+      const qty = Number(rawLine.qty)
+      const unitCost = Number(rawLine.unitCost)
+      const shippingCost = Number(rawLine.shippingCost ?? 0)
+      const isNewItem = Boolean(rawLine.isNewItem)
+      const newItemName = typeof rawLine.newItemName === 'string' ? rawLine.newItemName.trim() : ''
+      if (!Number.isInteger(qty) || qty < 1) { res.status(400).json({ error: `La cantidad de la línea ${index + 1} debe ser un entero mayor a cero` }); return }
+      if (typeof rawLine.unitCost === 'boolean' || String(rawLine.unitCost ?? '').trim() === '') { res.status(400).json({ error: `Escribe el costo unitario de la línea ${index + 1}` }); return }
+      if (!Number.isFinite(unitCost) || unitCost < 0) { res.status(400).json({ error: `El costo unitario de la línea ${index + 1} no es válido` }); return }
+      if (rawLine.shippingCost !== undefined && rawLine.shippingCost !== null && (typeof rawLine.shippingCost === 'boolean' || String(rawLine.shippingCost).trim() === '')) { res.status(400).json({ error: `Escribe el costo de envío de la línea ${index + 1}` }); return }
+      if (!Number.isFinite(shippingCost) || shippingCost < 0) { res.status(400).json({ error: `El envío de la línea ${index + 1} no es válido` }); return }
+      if (isNewItem && !newItemName) { res.status(400).json({ error: `Escribe el nombre del producto nuevo en la línea ${index + 1}` }); return }
+      if (!isNewItem && (typeof rawLine.itemId !== 'string' || !rawLine.itemId.trim())) { res.status(400).json({ error: `Selecciona un producto en la línea ${index + 1}` }); return }
+      lines.push({
+        itemId: typeof rawLine.itemId === 'string' ? rawLine.itemId : '',
+        qty,
+        unitCost,
+        shippingCost,
+        isNewItem,
+        newItemKind: 'product',
+        newItemName: isNewItem ? newItemName : undefined,
+        newItemSku: typeof rawLine.newItemSku === 'string' ? rawLine.newItemSku : undefined,
+      })
+    }
     const p = await createPurchase(user.tenantId, {
       branchId: String(b.branchId),
       date: b.date ? String(b.date) : undefined,
-      providerName: String(b.providerName),
+      providerName: b.providerName.trim(),
       folio: typeof b.folio === 'string' ? b.folio : undefined,
       total: Number(b.total) || 0,
       currency: typeof b.currency === 'string' ? b.currency : undefined,
-      lines: b.lines,
+      lines,
       notes: typeof b.notes === 'string' ? b.notes : undefined,
       userEmail: user.email,
       createdBy: user.id,
@@ -1176,7 +1752,7 @@ app.post('/api/pos/sales', requireAuth, async (req: Request, res: Response, next
       userId: user.id,
       userEmail: user.email,
       customerName: typeof b.customerName === 'string' ? b.customerName : undefined,
-      requiresFactura: Boolean(b.requiresFactura),
+      requiresFactura: b.requiresFactura === true,
       status: b.status || 'paid',
       lines: b.lines.map((l: any) => ({
         itemId: String(l.itemId),
@@ -1211,7 +1787,7 @@ app.post('/api/pos/sales/:id/cancel', requireAuth, async (req: Request, res: Res
 })
 
 // --- SUBUSERS / CUENTAS ---
-app.get('/api/pos/subusers', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.get('/api/pos/subusers', requireAuth, cashierGuard(ANY_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     res.json({ users: await listSubusers(user.tenantId) })
@@ -1219,7 +1795,7 @@ app.get('/api/pos/subusers', requireAuth, cashierGuard(['admin']), async (req: R
     next(e)
   }
 })
-app.post('/api/pos/subusers', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/pos/subusers', requireAuth, cashierGuard(ANY_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
@@ -1227,7 +1803,7 @@ app.post('/api/pos/subusers', requireAuth, cashierGuard(['admin']), async (req: 
       res.status(400).json({ error: 'Nombre, email, contraseña y sucursal son obligatorios' })
       return
     }
-    const role = b.role === 'cashier' || b.role === 'admin' ? b.role : 'cashier'
+    const role = ASSIGNABLE_SUBUSER_ROLES.includes(b.role) ? (b.role as PosRole) : 'cashier'
     try {
       const u = await createSubuser(user.tenantId, {
         name: String(b.name),
@@ -1246,13 +1822,13 @@ app.post('/api/pos/subusers', requireAuth, cashierGuard(['admin']), async (req: 
     next(e)
   }
 })
-app.put('/api/pos/subusers/:id', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.put('/api/pos/subusers/:id', requireAuth, cashierGuard(ANY_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
     const u = await updateSubuser(user.tenantId, String(req.params.id), {
       name: typeof b.name === 'string' ? b.name : undefined,
-      role: b.role === 'cashier' || b.role === 'admin' ? b.role : undefined,
+      role: ASSIGNABLE_SUBUSER_ROLES.includes(b.role) ? (b.role as PosRole) : undefined,
       branchId: typeof b.branchId === 'string' ? b.branchId : undefined,
       active: typeof b.active === 'boolean' ? b.active : undefined,
       newPassword: typeof b.newPassword === 'string' ? b.newPassword : undefined,
@@ -1263,7 +1839,7 @@ app.put('/api/pos/subusers/:id', requireAuth, cashierGuard(['admin']), async (re
     next(e)
   }
 })
-app.delete('/api/pos/subusers/:id', requireAuth, cashierGuard(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/api/pos/subusers/:id', requireAuth, cashierGuard(ANY_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
     const ok = await deleteSubuser(user.tenantId, String(req.params.id), user.email)
@@ -1296,17 +1872,18 @@ app.use((error: Error, _req: Request, res: Response, next: NextFunction) => {
     /jwt|token|sesion|session|expired|unauthorized|auth/i.test(message) &&
     !/obligatorio|registrado|existe|encontrado/i.test(message)
   const isValidationError =
-    /invalido|obligatorio|incorrect|vacio|registrado|existe|encontrado|valid/i.test(message)
+    /invalido|obligatorio|incorrect|vacio|registrado|existe|encontrad[oa]|valid/i.test(message)
   const statusCode = isAuthError ? 401 : isValidationError ? 400 : 500
   res.status(statusCode).json({ error: message })
 })
 
-app.delete('/api/documents/:fileName', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.delete('/api/documents/:fileName', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const fileName = typeof req.params.fileName === 'string' ? decodeURIComponent(req.params.fileName) : ''
     const user = res.locals.user as DbAuthUser
     await deleteDbDocument(user.tenantId, fileName)
-    res.status(204).send()
+    const ingestion = await ingestDbTenantDocuments(user.tenantId)
+    res.status(200).json({ ingestion })
   } catch (error) {
     next(error)
   }
@@ -1427,7 +2004,7 @@ function enforceSalubelGroundTruth(userMessage: string, llmAnswer: string): stri
   return text.trim()
 }
 
-app.post('/api/chat', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+app.post('/api/chat', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : ''
     const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''

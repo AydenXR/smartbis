@@ -31,5 +31,34 @@ Lunes a viernes de 9:00 AM a 6:00
 Sabados de 9:00 AM a 5:00 PM
 Domingo descansamos
 
+[WHATSAPP_OFICIAL]
++52 1 662 335 8779. Atendido por equipo de Atencion a Clientes y Asesores Oficiales de Salubel Institute. Canal oficial para consultas, cursos, productos, pagos, inscripciones y citas.
+
 [TELEFONO_OFICIAL]
 (662) 335-8779
+
+[CANALES_DE_PAGO_ACEPTADOS]
+Cursos: Transferencia bancaria SPEI, tarjeta de credito o debito, efectivo en sucursal, meses sin intereses, apartado con 500 MXN para presenciales (liquidar un dia antes).
+Productos: Efectivo en sucursal, tarjeta de credito/debito en sede, o coordinar por WhatsApp.
+Moneda oficial: Peso mexicano MXN. No hay cargos ocultos.
+
+[PROCESO_DE_INSCRIPCION_CURSO]
+1. Enviar mensaje al WhatsApp oficial +52 1 662 335 8779 con nombre completo, curso de interes y modalidad.
+2. Verificar disponibilidad con el asesor.
+3. Realizar pago (transferencia SPEI, tarjeta, efectivo o meses sin intereses).
+4. Enviar comprobante para recibir confirmacion y acceso (cursos online videos disponibles 1 mes a partir del lunes mas proximo).
+Datos necesarios para inscripcion: nombre completo, telefono, correo electronico.
+
+[ACCESO_CURSO_ONLINE]
+Videos disponibles durante un periodo de 1 mes a partir del lunes mas proximo a la inscripcion. Incluyen practica demostrativa guiada por instructora.
+
+[CURSOS_SUCURSALES]
+Cursos presenciales: Unicamente en sede Hermosillo (P.º del Arroyo 38a, Valle Verde, 83200 Hermosillo, Sonora). No hay otras sucursales.
+Alumnos de otras ciudades: Cursos online disponibles desde cualquier parte del mundo.
+Transporte y estacionamiento: Zona Valle Verde sobre P.º del Arroyo, rutas urbanas disponibles y estacionamiento alrededor.
+
+[COMPRA_Y_ENVIO_PRODUCTOS]
+Como comprar: Por WhatsApp oficial +52 1 662 335 8779 o en la sede fisica.
+Pagos en sede: Efectivo y tarjeta de credito/debito aceptados.
+Envios: Si se hacen envios a gran parte de la Republica Mexicana por paqueteria confiable (2 a 5 dias habiles). Envios internacionales / Estados Unidos consultar restricciones por WhatsApp. Costo de envio y promociones de envio gratis segun volumen a confirmar con asesor.
+Garantia productos: Todos los productos Stayve y lineas distribuidas son 100% originales.

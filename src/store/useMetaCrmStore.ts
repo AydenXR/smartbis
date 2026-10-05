@@ -6,7 +6,7 @@ import type {
   MetaStatusResponse,
 } from '@/lib/api'
 
-export type CrmPage = 'chats' | 'docs' | 'settings' | 'operations' | 'myprofile' | 'accounts' | 'records'
+export type CrmPage = 'chats' | 'docs' | 'settings' | 'operations' | 'myprofile' | 'accounts' | 'records' | 'notifications'
 
 export interface MetaStoreState {
   page: CrmPage

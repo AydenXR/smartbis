@@ -14,6 +14,27 @@ import {
 
 type ModalMode = 'create' | 'edit' | null
 
+// Solo 'cashier' requiere estar amarrado a una sucursal específica; el resto de roles
+// (incluyendo el nuevo 'cs_agent') no tiene relación con sucursales/cajas.
+function roleRequiresBranch(role: PosRole): boolean {
+  return role === 'cashier'
+}
+
+// Zona de la cuenta: Punto de Venta (inventario/ventas/compras) o Atención al Cliente
+// (chats/documentos/prompt). Los roles de una zona nunca se mezclan con los de la otra.
+type RoleZone = 'pv' | 'cs'
+function zoneOfRole(role: PosRole): RoleZone {
+  return role === 'admin_cs' || role === 'cs_agent' ? 'cs' : 'pv'
+}
+
+const ROLE_META: Record<PosRole, { label: string; badgeClass: string }> = {
+  admin: { label: 'Admin (general)', badgeClass: 'border-violet-400/30 bg-violet-500/15 text-violet-200' },
+  admin_pv: { label: 'Admin PV', badgeClass: 'border-sky-400/30 bg-sky-500/15 text-sky-200' },
+  admin_cs: { label: 'Admin CS', badgeClass: 'border-amber-400/30 bg-amber-500/15 text-amber-200' },
+  cashier: { label: 'Caja', badgeClass: 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200' },
+  cs_agent: { label: 'Agente CS', badgeClass: 'border-teal-400/30 bg-teal-500/15 text-teal-200' },
+}
+
 type FormState = {
   id?: string
   name: string
@@ -96,9 +117,9 @@ export default function CrmAccountsView() {
   }
 
   async function handleSave() {
-    const isAdminRole = form.role === 'admin'
+    const needsBranch = roleRequiresBranch(form.role)
     if (!form.name.trim() || !form.email.trim()) return
-    if (!isAdminRole && !form.branchId) return
+    if (needsBranch && !form.branchId) return
     if (modalMode === 'create' && !form.password.trim()) return
     setSaving(true)
     setError('')
@@ -149,6 +170,8 @@ export default function CrmAccountsView() {
       setError(e?.message || 'No se pudo eliminar')
     }
   }
+
+  const isAdminRoleForm = !roleRequiresBranch(form.role)
 
   return (
     <section className="flex min-h-0 w-full flex-col overflow-hidden bg-[#0c2a47] px-6 py-6 text-white">
@@ -227,17 +250,13 @@ export default function CrmAccountsView() {
                   </td>
                   <td className="px-5 py-3 text-slate-200">{u.email}</td>
                   <td className="px-5 py-3">
-                    {u.role === 'admin' ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-violet-200">
-                        <Shield className="h-3 w-3" />
-                        Admin
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-                        <Shield className="h-3 w-3" />
-                        Caja
-                      </span>
-                    )}
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider',
+                      ROLE_META[u.role]?.badgeClass || ROLE_META.cashier.badgeClass,
+                    )}>
+                      <Shield className="h-3 w-3" />
+                      {ROLE_META[u.role]?.label || 'Caja'}
+                    </span>
                   </td>
                   <td className="px-5 py-3">
                     <div className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#0b2641]/60 px-2.5 py-1 text-[12px] text-slate-200">
@@ -363,40 +382,127 @@ export default function CrmAccountsView() {
 
                 <div>
                   <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    Rol
+                    Zona
                   </label>
                   <div className="flex gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] p-1.5">
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, role: 'admin' })}
+                      onClick={() => setForm({ ...form, role: 'admin_pv' })}
                       className={cn(
                         'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
-                        form.role === 'admin'
-                          ? 'bg-violet-500/85 text-white shadow-inner'
+                        zoneOfRole(form.role) === 'pv' && form.role !== 'admin'
+                          ? 'bg-[#1090D0]/85 text-white shadow-inner'
                           : 'text-slate-300 hover:text-white',
                       )}
                     >
-                      Admin
+                      Punto de Venta
                     </button>
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, role: 'cashier' })}
+                      onClick={() => setForm({ ...form, role: 'admin_cs' })}
                       className={cn(
                         'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
-                        form.role === 'cashier'
-                          ? 'bg-emerald-500/85 text-white shadow-inner'
+                        zoneOfRole(form.role) === 'cs' && form.role !== 'admin'
+                          ? 'bg-[#1090D0]/85 text-white shadow-inner'
                           : 'text-slate-300 hover:text-white',
                       )}
                     >
-                      Caja
+                      Atención al Cliente
                     </button>
                   </div>
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    Cada zona tiene sus propios permisos: Punto de Venta no puede ver Atención al cliente, y viceversa.
+                  </p>
                 </div>
 
                 <div>
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Nivel
+                  </label>
+                  <div className="flex flex-wrap gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] p-1.5">
+                    {zoneOfRole(form.role) === 'pv' ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, role: 'admin_pv' })}
+                          className={cn(
+                            'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
+                            form.role === 'admin_pv'
+                              ? 'bg-sky-500/85 text-white shadow-inner'
+                              : 'text-slate-300 hover:text-white',
+                          )}
+                        >
+                          Admin PV
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, role: 'cashier' })}
+                          className={cn(
+                            'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
+                            form.role === 'cashier'
+                              ? 'bg-emerald-500/85 text-white shadow-inner'
+                              : 'text-slate-300 hover:text-white',
+                          )}
+                        >
+                          Caja
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, role: 'admin_cs' })}
+                          className={cn(
+                            'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
+                            form.role === 'admin_cs'
+                              ? 'bg-amber-500/85 text-white shadow-inner'
+                              : 'text-slate-300 hover:text-white',
+                          )}
+                        >
+                          Admin CS
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, role: 'cs_agent' })}
+                          className={cn(
+                            'flex-1 rounded-[10px] px-3 py-2 text-[12px] font-bold transition',
+                            form.role === 'cs_agent'
+                              ? 'bg-teal-500/85 text-white shadow-inner'
+                              : 'text-slate-300 hover:text-white',
+                          )}
+                        >
+                          Agente CS
+                        </button>
+                      </>
+                    )}
+                    {form.role === 'admin' ? (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, role: 'admin' })}
+                        className="flex-1 rounded-[10px] bg-violet-500/85 px-3 py-2 text-[12px] font-bold text-white shadow-inner"
+                        title="Rol heredado. Cambia a Admin PV o Admin CS para migrarlo."
+                      >
+                        Admin (general)
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    {zoneOfRole(form.role) === 'pv'
+                      ? 'Admin PV: modifica inventario, compras y productos. Caja: solo realiza ventas en el POS.'
+                      : 'Admin CS: administra prompt, documentos, chats y pruebas. Agente CS: solo chats y documentos (incluye auto-ingesta).'}
+                  </p>
+                  {form.role === 'admin' ? (
+                    <p className="mt-1.5 text-[11px] text-violet-300/80">
+                      Este usuario tiene el rol heredado "Admin (general)" con acceso total a Punto de Venta y Atención al cliente. Cámbialo a Admin PV o Admin CS para limitar su acceso.
+                    </p>
+                  ) : null}
+                </div>
+
+                {zoneOfRole(form.role) === 'pv' ? (
+                <div>
                   <label className="mb-1.5 flex items-center justify-between text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                     <span>Sucursal</span>
-                    {form.role === 'admin' ? (
+                    {isAdminRoleForm ? (
                       <span className="normal-case tracking-normal text-[10.5px] text-violet-300/90">
                         Admin: controla todas las cajas
                       </span>
@@ -405,17 +511,17 @@ export default function CrmAccountsView() {
                   <div
                     className={cn(
                       'flex items-center gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5 focus-within:border-[#1090D0]/50',
-                      form.role === 'admin' ? 'opacity-60' : '',
+                      isAdminRoleForm ? 'opacity-60' : '',
                     )}
                   >
                     <Building2 className="h-4 w-4 text-slate-400" />
                     <select
                       value={form.branchId}
                       onChange={(e) => setForm({ ...form, branchId: e.target.value })}
-                      disabled={form.role === 'admin'}
+                      disabled={isAdminRoleForm}
                       className="flex-1 bg-transparent text-[13.5px] text-slate-100 focus:outline-none disabled:cursor-not-allowed disabled:opacity-80"
                     >
-                      {form.role === 'admin' ? (
+                      {isAdminRoleForm ? (
                         <option value="" className="bg-[#0f3151]">
                           (Todas · Control total)
                         </option>
@@ -432,6 +538,11 @@ export default function CrmAccountsView() {
                     </select>
                   </div>
                 </div>
+                ) : (
+                  <div className="rounded-[14px] border border-dashed border-[#1a3a5a] bg-[#0b2641]/40 px-3.5 py-3 text-[11.5px] text-slate-400">
+                    Este rol pertenece a la zona de Atención al cliente y no requiere sucursal: no tiene relación con el punto de venta ni con las cajas.
+                  </div>
+                )}
 
                 {modalMode === 'edit' ? (
                   <div className="sm:col-span-2">

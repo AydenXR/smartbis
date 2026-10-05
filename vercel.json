@@ -8,5 +8,11 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/document-ingestion",
+      "schedule": "0 6 * * *"
+    }
   ]
 }

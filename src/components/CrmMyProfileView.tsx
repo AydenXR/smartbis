@@ -6,9 +6,18 @@ type CrmMyProfileViewProps = {
   userEmail: string
   userName?: string
   displayName?: string
-  userRole?: 'admin' | 'cashier'
+  userRole?: 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
   branchName?: string
   memberSince?: string
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Propietario',
+  admin: 'Administrador',
+  admin_pv: 'Admin PV',
+  admin_cs: 'Admin CS',
+  cashier: 'Caja',
+  cs_agent: 'Agente CS',
 }
 
 export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
@@ -125,7 +134,7 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
                 <div className="flex items-center gap-2 rounded-[14px] border border-[#1090D0]/30 bg-[#1090D0]/10 px-3 py-2">
                   <Shield className="h-4 w-4 text-[#5bbfe5]" />
                   <span className="text-[12.5px] font-semibold uppercase tracking-wider text-[#5bbfe5]">
-                    {userRole === 'admin' ? 'Administrador' : 'Caja'}
+                    {ROLE_LABELS[userRole] || 'Administrador'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#11375a] px-3 py-2">

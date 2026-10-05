@@ -1,5 +1,5 @@
-import { createSearchIndex, searchIndex } from './searchIndex.js'
-import { loadDbAgentDocuments } from './dbWorkspace.js'
+import { normalizeText, searchIndex, type IndexedBlock } from './searchIndex.js'
+import { getDbTenantSearchIndex } from './dbWorkspace.js'
 import {
   createAutoEval,
   type AutoEvalCategory,
@@ -65,44 +65,28 @@ function getConfiguredFallbackModel(): string {
   return process.env.LLM_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL_IF_NO_ENV
 }
 
-const FECHAS_OFICIALES_CALENDARIO = `### FECHAS OFICIALES DE CURSOS Salubel Institute (CALENDARIO OFICIAL 2026 — VERDAD ABSOLUTA, ESTOS DATOS GANAN SIEMPRE SOBRE CUALQUIER OTRO TEXTO EN "Fuentes de verdad" O EN CUALQUIER OTRO LUGAR):
-NUNCA uses fechas inventadas, NUNCA uses fechas del Temario que no estén en esta lista, NUNCA asocies una fecha de otro curso por parecido. SOLO respondes con esta lista. Si un curso no está aquí, respondes "Consultar disponibilidad por WhatsApp al +52 1 662 335 8779."
+const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const DIAS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
-FECHAS EN LÍNEA (ONLINE) — SOLAMENTE 11:
-1. 05 Agosto: Rejuvenecimiento y eliminación de manchas con Dermapen.
-2. 11 Agosto: Russian lips.
-3. 12 Agosto: Hidrofacial.
-4. 19 Agosto: Mesobotox.
-5. 26 Agosto: Limpieza facial.
-6. 01 Septiembre: Aplicación de toxina botulínica en tercio superior.
-7. 02 Septiembre: Bioestimulación con PDRN.
-8. 09 Septiembre: Limpomodelación con enzimas (también llamado Lipoenzimas en variante de nombre).
-9. 22 Septiembre: Aplicación de toxina botulínica en tercio inferior.
-10. 23 Septiembre: Eliminación de verrugas y manchas con Plasma Pen / Fibroblast.
-11. 29 Septiembre: Aumento de glúteos con peptonas.
-
-FECHAS PRESENCIAL — SOLAMENTE 7:
-1. 15 Agosto: Rejuvenecimiento y eliminación de manchas con Dermapen.
-2. 20 Agosto: Lipoenzimas (también llamado Limpomodelación con enzimas en variante de nombre).
-3. 27 Agosto: Eliminación de verrugas y manchas con plasma pen / Fibroblast.
-4. 03 Septiembre: Bioestimulación con PDRN.
-5. 10 Septiembre: Relleno de labios con Hyaluron Pen / HP.
-6. 17 Septiembre: Aumento de glúteos con peptonas.
-7. 24 Septiembre: Limpieza facial.
-
-MAPA DE ASOCIACIONES OBLIGATORIAS (nunca cambias esto):
-- Limpiezas faciales → ONLINE = 26 Agosto, PRESENCIAL = 24 Septiembre. NUNCA 27 Agosto (27 Agosto es VERUGAS Y MANCHAS), NUNCA 12 Agosto (12 Agosto es HIDROFACIAL).
-- Eliminación de verrugas y manchas (Plasma Pen / Fibroblast, verrugas, manchas, verruga, pp, plasma pen) → ONLINE = 23 Septiembre, PRESENCIAL = 27 Agosto. NUNCA 24 Septiembre para verrugas.
-- Bioestimulación con PDRN / PDRN de salmón / pdrn → ONLINE 02 Septiembre, PRESENCIAL 03 Septiembre.
-- Dermapen manchas (Rejuvenecimiento y eliminación de manchas con Dermapen, manchas dermapen, dermapen manchas) → ONLINE 05 Agosto, PRESENCIAL 15 Agosto.
-- Hidrofacial / hidro facial / hidro → SOLO ONLINE 12 Agosto. NUNCA inventar presencial.
-- Peptonas glúteos / Aumento de glúteos con peptonas / gluteos peptonas → ONLINE 29 Septiembre, PRESENCIAL 17 Septiembre.
-- Relleno de labios con Hyaluron Pen / HP / Relleno HP / hyaluron pen / relleno labios / hp labial → SOLO PRESENCIAL 10 Septiembre. NUNCA inventar fecha online para éste.
-- Russian lips / rusas → ONLINE 11 Agosto.
-- Mesobotox / meso botox → ONLINE 19 Agosto.
-- Toxina botulínica tercio superior / toxina superior / botox frente → ONLINE 01 Septiembre.
-- Toxina botulínica tercio inferior / toxina inferior / botox inferior → ONLINE 22 Septiembre.
-`
+function getCurrentDateTimeSpanish(): { fechaCompleta: string; fechaISO: string; anio: number; mes: number; dia: number } {
+  const now = new Date()
+  const options: Intl.DateTimeFormatOptions = { timeZone: 'America/Hermosillo' }
+  const zoned = new Date(now.toLocaleString('en-US', options))
+  const diaSemana = DIAS_ES[zoned.getDay()]
+  const diaNum = zoned.getDate()
+  const mesNum = zoned.getMonth()
+  const mesNombre = MESES_ES[mesNum]
+  const anio = zoned.getFullYear()
+  const horas = zoned.getHours().toString().padStart(2, '0')
+  const mins = zoned.getMinutes().toString().padStart(2, '0')
+  return {
+    fechaCompleta: `${diaSemana} ${diaNum.toString().padStart(2, '0')} de ${mesNombre} de ${anio}, ${horas}:${mins} hrs (zona horaria Arizona / Sonora, México — tiempo local Hermosillo UTC-7, sin horario de verano)`,
+    fechaISO: `${anio}-${(mesNum + 1).toString().padStart(2, '0')}-${diaNum.toString().padStart(2, '0')}`,
+    anio,
+    mes: mesNum + 1,
+    dia: diaNum,
+  }
+}
 
 function extractTenantBrandTokens(basePrompt: string, generalDocText: string = '') {
   const combined = `${basePrompt || ''}\n${generalDocText || ''}`
@@ -149,7 +133,32 @@ const ANTI_INTERNAL_REASONING_RULE = `=== PRIORIDAD 0 (NUNCA, JAMÁS, BAJO NING�
 `
 
 function buildSystemPrompt(prompt: string, contextBlock: string) {
-  return `${ANTI_INTERNAL_REASONING_RULE}${prompt}
+  const now = getCurrentDateTimeSpanish()
+  const timeAwarenessBlock = `=== PRIORIDAD 0.2 (CONCIENCIA TEMPORAL Y FECHAS — NUNCA, BAJO NINGÚN CONCEPTO, INCUMPLE ESTAS REGLAS):
+- La fecha y hora ACTUAL en que transcurre esta conversación es: ${now.fechaCompleta} (formato ISO: ${now.fechaISO}).
+- ESTA ES LA VERDAD ABSOLUTA SOBRE LA FECHA. NUNCA digas una fecha, ni hagas suposiciones, ni uses información de los documentos sin antes compararla contra HOY.
+- REGLAS OBLIGATORIAS SOBRE FECHAS DE CURSOS, EVENTOS, PROMOCIONES, RESERVAS, CUALQUIER COSA CON FECHA:
+  1) ANTES de mencionar CUALQUIER fecha que aparezca en los documentos, calcula mentalmente si ESA FECHA ya PASÓ respecto a HOY (${now.fechaCompleta}).
+  2) Si la fecha ya PASÓ (por ejemplo: es 01 de Septiembre y el documento dice "20 de Agosto"), PROHIBIDO TOTALMENTE decir que "está programada para el X día" o que "hay curso el X día" o cualquier frase que sugiera que FALTA para esa fecha. ESA FECHA YA PASÓ.
+  3) Si una fecha ya pasó, en vez de ofrecerla como disponible, dices lo siguiente (elige la variante que mejor encaje):
+     - "La fecha pasada de [nombre curso/evento] fue [fecha]. Para las próximas fechas disponibles te invitamos a consultar por WhatsApp al +52 1 662 335 8779."
+     - O si el cliente preguntó directamente por esa fecha: "Esa fecha ya pasó. Por favor contáctanos por WhatsApp para conocer las próximas fechas disponibles: +52 1 662 335 8779."
+  4) Solo mencionas como fechas VÁLIDAS y DISPONIBLES aquellas que sean IGUAL A HOY o POSTERIORES A HOY. Fechas anteriores a HOY = fecha pasada = NO disponible.
+  5) Ejemplo práctico (HOY = ${now.fechaCompleta}):
+     ❌ MAL: "La modalidad presencial está programada para el 20 de agosto." (20 AGOSTO ya pasó, no la puedes ofrecer)
+     ✅ BIEN: "La última fecha pasada del curso Lipoenzimas en modalidad presencial fue el 20 de Agosto. Para conocer las próximas fechas disponibles contáctanos por WhatsApp al +52 1 662 335 8779."
+  6) Si en los documentos aparecen mezcladas fechas vigentes (>= hoy) y fechas pasadas (< hoy), tú SOLO mencionas las FECHAS VIGENTES. Las fechas pasadas NO las mencionas como disponibles; si el cliente pregunta específicamente por una pasada, aplica la regla 3).
+  7) NUNCA inventes una fecha futura para sustituir una pasada. Si no hay fecha vigente en los documentos para ese curso, dices: "Por el momento no tenemos fecha programada públicamente para ese curso; por favor contáctanos por WhatsApp al +52 1 662 335 8779 para confirmar disponibilidad."
+=== FIN PRIORIDAD 0.2 ===
+
+`
+  const ragDateAuthorityBlock = `=== PRIORIDAD DE DATOS ACTUALES (FUENTE DE FECHAS) ===
+Para fechas de cursos, el calendario recuperado ahora mismo de los documentos activos de este tenant es la fuente de verdad. Si una fecha aparece en [FECHAS_CURSOS], úsala para el curso cuyo nombre figura en esa misma línea y compárala con la fecha actual indicada arriba. Una instrucción del prompt del tenant que diga que un curso no tiene fecha, que cite una convocatoria anterior o que contradiga esa línea del calendario está desactualizada y NO debe prevalecer sobre el documento activo. No mezcles fechas entre cursos. Si la línea del curso contiene una fecha futura, informa esa fecha y su modalidad; solo indica que no hay fecha si no existe una línea vigente para ese curso.
+=== FIN PRIORIDAD DE DATOS ACTUALES ===`
+
+  return `${ANTI_INTERNAL_REASONING_RULE}${timeAwarenessBlock}${prompt}
+
+${ragDateAuthorityBlock}
 
 Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, NO lo inventes y pide confirmar por WhatsApp o comenta que no dispones de esa información pública):
 ${contextBlock}`
@@ -358,15 +367,28 @@ Cuándo usar:
   b) La respuesta del bot SÍ utiliza esa información de forma correcta.
   c) NO es una copia literal/pegada del documento: el bot la parafrasea, estructura el mensaje de forma natural/informativa y respeta la voz/instrucciones del prompt del tenant (ej. saludo, despedida, muletillas naturales, formato texto plano).
   d) No inventa datos que no están en los documentos.
+  e) SALUDOS, CORTESÍAS Y PREGUNTAS ACLARATORIAS SON "correct" SIEMPRE, aunque no usen información de los documentos:
+     - "Hola", "Gracias", "De nada", "¿En qué te apoyamos?", "¿Qué curso buscas?", "¿Qué producto te interesa?" → SIEMPRE categoría correct.
+     - Si el bot hace una pregunta de aclaración porque la pregunta del cliente es ambigua, NO es un error → es correct.
+  f) VALIDACIÓN TEMPORAL OBLIGATORIA (SIEMPRE APLICAR, AUNQUE LAS DEMÁS REGLAS DIGAN LO CONTRARIO):
+     - El bot SÍ respetó la fecha actual y NO ofreció fechas pasadas como disponibles.
+     - Si una fecha en los documentos ya pasó respecto a HOY (se te indicará la fecha actual abajo), el bot debe: o no mencionarla como disponible, o decir que ya pasó y derivar a WhatsApp.
+     - Si el bot hace esto bien → no penaliza, sigue siendo "correct".
 
-Categoría 2) error
-Cuándo usar:
+Categoría 2) error (SOLO para ERRORES GRAVES. NUNCA marcar error por omisiones MENORES):
+Cuándo SÍ marcar "error":
   a) El sistema SÍ recuperó documentos relevantes (RAG > 0) que contienen la información necesaria para responder la pregunta.
-  b) Pero el bot:
-     - OMITIÓ datos clave que sí estaban en los documentos,
-     - INVENTÓ precios/fechas/datos que NO aparecen en los documentos,
-     - Respondió "no tengo información" / "consulta por WhatsApp" cuando SÍ tenía la respuesta en los documentos recuperados,
-     - Respondió algo completamente distinto a lo preguntado pese a tener la info.
+  b) Y el bot cometió UN ERROR GRAVE COMO UNO DE ESTOS:
+     - INVENTÓ precios, fechas, nombres, códigos, datos que NO aparecen en los documentos,
+     - DIJO "no tengo información" / "consulta por WhatsApp" cuando SÍ tenía la respuesta CLARA y EXPLÍCITA en los documentos recuperados,
+     - Respondió algo COMPLETAMENTE DISTINTO a lo preguntado,
+     - CITÓ UN PRECIO O FECHA EQUIVOCADA (no coincide con los documentos).
+     - ERROR TEMPORAL (prioridad alta): El bot PRESENTÓ COMO DISPONIBLE UNA FECHA QUE YA PASÓ respecto a la fecha actual que se te indica (ej: dice "el curso es el 20 de Agosto" cuando HOY es 01 de Septiembre). ESTO ES "error" OBLIGATORIO, sin excepciones.
+NUNCA marcar "error" por:
+     - NO mencionar stock/inventario/disponibilidad A MENOS QUE EL CLIENTE PREGUNTARA EXPLÍCITAMENTE POR ELLO (palabras: stock, inventario, existencia, disponible, hay, quedan).
+     - NO repetir TODOS los campos del documento; la información parcial correcta no es error.
+     - NO dar información que el cliente NO pidió.
+     - Preguntas de aclaración / muletillas naturales / saludos / despedidas.
 
 Categoría 3) noinfo
 Cuándo usar:
@@ -380,21 +402,45 @@ Responde ÚNICAMENTE con un bloque JSON que tenga esta estructura y NADA MÁS:
   "category": "correct | error | noinfo",
   "reason": "explicación corta en español de por qué tomaste esa decisión (máximo 2 frases)"
 }
-No escribas explicaciones fuera del JSON, no uses markdown, no agregues texto antes ni después.`
+EJEMPLO DE SALIDA VÁLIDA:
+{"category": "correct", "reason": "El bot usó la dirección del documento y pidió aclarar el precio."}
+No escribas explicaciones fuera del JSON, no uses markdown, no agregues texto antes ni después. No agregues comentarios. NADA excepto el JSON.`
 
 type JudgeOutput = { category: 'correct' | 'error' | 'noinfo'; reason: string }
 
 function safeJsonParseJudge(text: string): JudgeOutput | null {
   try {
-    const trimmed = String(text || '').trim()
-    const start = trimmed.indexOf('{')
-    const end = trimmed.lastIndexOf('}')
-    if (start < 0 || end < 0 || end <= start) return fallbackRegexJudge(trimmed)
-    const json = JSON.parse(trimmed.slice(start, end + 1))
-    if (!json || typeof json !== 'object') return fallbackRegexJudge(trimmed)
-    const category = String(json.category || '').toLowerCase() as 'correct' | 'error' | 'noinfo'
-    if (category !== 'correct' && category !== 'error' && category !== 'noinfo') return fallbackRegexJudge(trimmed)
-    const reason = String(json.reason || '').trim()
+    let cleaned = String(text || '').trim()
+    if (!cleaned) return fallbackRegexJudge('')
+    cleaned = cleaned
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start < 0 || end < 0 || end <= start) return fallbackRegexJudge(String(text || '').trim())
+    let candidate = cleaned.slice(start, end + 1)
+    let json: any = null
+    try {
+      json = JSON.parse(candidate)
+    } catch {
+      const repaired = candidate
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/:\s*"((?:[^"\\]|\\.)*)$/s, (_, p1) => `:"${p1.replace(/"/g, '\\"')}"}`)
+      try { json = JSON.parse(repaired) } catch { json = null }
+      if (!json) return fallbackRegexJudge(String(text || '').trim())
+    }
+    if (!json || typeof json !== 'object') return fallbackRegexJudge(String(text || '').trim())
+    let category = String(json.category || '').trim().toLowerCase() as 'correct' | 'error' | 'noinfo'
+    if (category !== 'correct' && category !== 'error' && category !== 'noinfo') {
+      const alt = String((json as any).cat || (json as any).categoria || '').trim().toLowerCase()
+      if (alt === 'correcto' || alt === 'ok') category = 'correct'
+      else if (alt === 'error' || alt === 'incorrecto') category = 'error'
+      else if (alt === 'noinfo' || alt === 'no_info' || alt === 'sin-info') category = 'noinfo'
+    }
+    if (category !== 'correct' && category !== 'error' && category !== 'noinfo') return fallbackRegexJudge(String(text || '').trim())
+    const reason = String(json.reason || (json as any).razon || '').trim()
     return { category, reason: reason || 'Sin justificación' }
   } catch {
     return fallbackRegexJudge(String(text || '').trim())
@@ -431,14 +477,22 @@ async function runAutocuratorJudge(args: {
   botAnswer: string
   matchedBlocksText: string
 }): Promise<JudgeOutput> {
+  const now = getCurrentDateTimeSpanish()
   const ragSummary = args.matchedBlocksText || '(NO hubo documentos recuperados por el RAG — matchedBlocks vacío)'
   const promptSnippet = (args.tenantPrompt || '').slice(0, 2500)
+  const fechaHoyBlock = `=== FECHA ACTUAL (HOY) — REFERENCIA OBLIGATORIA PARA VALIDACIÓN TEMPORAL ===
+Fecha y hora actual: ${now.fechaCompleta} (ISO: ${now.fechaISO}).
+Esto significa que CUALQUIER fecha de curso/evento/promoción ANTERIOR a ${now.fechaISO} = FECHA PASADA = NO DISPONIBLE.
+Si la respuesta del bot ofrece como disponible una fecha anterior a HOY → categoría "error" OBLIGATORIO.
+=== FIN FECHA ACTUAL ===
+
+`
   const messages = [
     { role: 'system' as const, content: AUTOJUDGE_SYSTEM_PROMPT },
     {
       role: 'user' as const,
       content:
-`=== PROMPT DEL TENANT (primeras ~2500 chars) ===
+`${fechaHoyBlock}=== PROMPT DEL TENANT (primeras ~2500 chars) ===
 ${promptSnippet || '(sin prompt del tenant)'}
 
 === DOCUMENTOS RECUPERADOS POR RAG (matchedBlocks) ===
@@ -454,16 +508,30 @@ ${args.botAnswer}
 Ahora devuelve EXCLUSIVAMENTE el JSON con "category" y "reason".`,
     },
   ]
-  const res = await requestCompletion({
-    apiKey: args.apiKey,
-    baseUrl: args.baseUrl,
-    model: args.model,
-    fallbackModel: args.fallbackModel,
-    maxTokens: Math.min(350, args.maxTokens),
-    messages,
-  })
-  const parsed = safeJsonParseJudge(res.answer)
-  if (!parsed) throw new Error('Juez no devolvió JSON válido')
+  const judgeMaxTokens = Math.min(1000, Math.max(700, args.maxTokens))
+  const userPromptHardened = [
+    { role: 'system' as const, content: AUTOJUDGE_SYSTEM_PROMPT + '\n\nREGLA FINAL INQUEBRANTABLE: DEBES terminar tu respuesta EXACTAMENTE con el cierre } del JSON. NADA después.' },
+    {
+      role: 'user' as const,
+      content: args.model.includes('openai/') || /gpt|sonar|groq/i.test(args.model + args.fallbackModel || '')
+        ? messages[1].content
+        : messages[1].content + '\n\n[CONSEJO TÉCNICO] Envía solo el JSON sin preámbulos. Empieza directamente con {"category": ... termina con }.',
+    },
+  ]
+  let parsed: JudgeOutput | null = null
+  const attempts = 3
+  for (let i = 0; i < attempts && !parsed; i++) {
+    const res = await requestCompletion({
+      apiKey: args.apiKey,
+      baseUrl: args.baseUrl,
+      model: i === 2 && args.fallbackModel ? args.fallbackModel : args.model,
+      fallbackModel: args.fallbackModel,
+      maxTokens: judgeMaxTokens,
+      messages: (i === 0 ? [messages[0], messages[1]] : userPromptHardened) as any,
+    })
+    parsed = safeJsonParseJudge(res.answer)
+  }
+  if (!parsed) throw new Error('Juez no devolvió JSON válido después de 3 intentos')
   return parsed
 }
 
@@ -494,11 +562,7 @@ function matchedBlocksToRefs(blocks: any[]): AutoEvalMatchedBlockRef[] {
 }
 
 async function buildDbDocumentsContextBlock(tenantId: string, query = '') {
-  const documents = await loadDbAgentDocuments(tenantId)
-  const index = createSearchIndex({
-    tenantId,
-    documents,
-  })
+  const index = await getDbTenantSearchIndex(tenantId)
   const result = searchIndex(index, query) as any
 
   return {
@@ -509,15 +573,227 @@ async function buildDbDocumentsContextBlock(tenantId: string, query = '') {
   }
 }
 
+function getHermosilloMonthDay(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Hermosillo',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(date)
+  return {
+    month: Number(parts.find((part) => part.type === 'month')?.value),
+    day: Number(parts.find((part) => part.type === 'day')?.value),
+  }
+}
+
+const COURSE_DATE_MONTHS = new Map([
+  ['enero', 1],
+  ['febrero', 2],
+  ['marzo', 3],
+  ['abril', 4],
+  ['mayo', 5],
+  ['junio', 6],
+  ['julio', 7],
+  ['agosto', 8],
+  ['septiembre', 9],
+  ['setiembre', 9],
+  ['octubre', 10],
+  ['noviembre', 11],
+  ['diciembre', 12],
+])
+const COURSE_QUERY_STOP_WORDS = new Set([
+  'curso', 'cursos', 'mas', 'informacion', 'info', 'detalles', 'detalle',
+  'precio', 'precios', 'costo', 'fecha', 'fechas', 'disponible', 'disponibles',
+  'online', 'presencial', 'modalidad', 'de', 'del', 'la', 'las', 'el', 'los',
+  'y', 'con', 'para', 'sobre',
+])
+
+type ScheduledCourseDate = {
+  day: number
+  month: number
+  courseName: string
+  modality: string
+}
+
+function getUpcomingCourseDates(
+  question: string,
+  matchedBlocks: IndexedBlock[],
+  now = new Date(),
+): ScheduledCourseDate[] {
+  const queryTokens = new Set(
+    normalizeText(question)
+      .split(' ')
+      .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token)),
+  )
+  if (queryTokens.size < 2) return []
+
+  const currentDate = getHermosilloMonthDay(now)
+  const matchingDates = new Map<string, ScheduledCourseDate>()
+
+  for (const block of matchedBlocks) {
+    if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) continue
+
+    let modality = 'programada'
+    for (const line of block.body.split(/\r?\n/)) {
+      if (/en\s+l[ií]nea|online/i.test(line)) {
+        modality = 'en línea'
+        continue
+      }
+      if (/presencial/i.test(line)) {
+        modality = 'presencial'
+        continue
+      }
+
+      const match = /^\s*(?:[✨*•-]\s*)?(\d{1,2})\s+([a-záéíóú]+)\s*[-–:]\s*(.+?)\s*$/i.exec(line)
+      if (!match) continue
+
+      const day = Number(match[1])
+      const month = COURSE_DATE_MONTHS.get(normalizeText(match[2]))
+      if (!month || day < 1 || day > 31) continue
+
+      const courseName = match[3].replace(/[.。]\s*$/, '').trim()
+      const courseTokens = normalizeText(courseName)
+        .split(' ')
+        .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
+      const matchedTokenCount = courseTokens.filter((token) => queryTokens.has(token)).length
+      const smallerTokenCount = Math.min(courseTokens.length, queryTokens.size)
+      if (matchedTokenCount < 2 || matchedTokenCount / smallerTokenCount < 0.8) continue
+
+      if (month < currentDate.month || (month === currentDate.month && day < currentDate.day)) continue
+
+      const scheduledDate = { day, month, courseName, modality }
+      matchingDates.set(`${day}-${month}-${normalizeText(courseName)}-${modality}`, scheduledDate)
+    }
+  }
+
+  return Array.from(matchingDates.values())
+}
+
+export function applyUpcomingCourseDateCorrection(
+  answer: string,
+  question: string,
+  matchedBlocks: IndexedBlock[],
+  now = new Date(),
+) {
+  const upcomingDates = getUpcomingCourseDates(question, matchedBlocks, now)
+  if (!upcomingDates.length) return answer
+
+  const monthFormatter = new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    timeZone: 'UTC',
+  })
+  const year = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    timeZone: 'America/Hermosillo',
+  }).format(now)
+  const dateSummary = upcomingDates
+    .map((date) => {
+      const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
+      return `${date.day} de ${monthName} de ${year} (${date.modality})`
+    })
+    .join(' y ')
+  const correction =
+    upcomingDates.length === 1
+      ? `La próxima fecha de ${upcomingDates[0].courseName} es el ${dateSummary}.`
+      : `Las próximas fechas de ${upcomingDates[0].courseName} son el ${dateSummary}.`
+  const paragraphs = answer.split(/\n{2,}/)
+  const correctedParagraphs = paragraphs.map((paragraph) => {
+    const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [paragraph]
+    const retainedSentences = sentences.filter((sentence) => {
+      const mentionsNoSchedule =
+        /(?:no\s+(?:hay|tenemos|tiene|contamos con)|sin)\s+(?:ninguna?\s+)?fecha|fecha\s+no\s+programada|no\s+hay\s+fecha|no\s+tenemos\s+fecha|sin\s+fecha\s+programada|actualmente.{0,50}fecha\s+programada/i.test(
+          sentence,
+        )
+      const mentionsPastCourseDate =
+        /(?:fecha|convocatoria)\s+pasad[ao]|[uú]ltima\s+convocatoria/i.test(sentence)
+      const redirectsForFutureDates =
+        /pr[oó]ximas?\s+fechas? disponibles.{0,100}whatsapp/i.test(sentence)
+      return !mentionsNoSchedule && !mentionsPastCourseDate && !redirectsForFutureDates
+    })
+    return retainedSentences.join('').trim()
+  })
+    .filter(Boolean)
+
+  return [...correctedParagraphs, correction].join('\n\n')
+}
+
+const RESPUESTAS_CORTAS_SIN_CONTEXTO = new Set([
+  'si', 'sí', 'sii', 'siis', 'siii', 'siiii', 'yes', 'yeah', 'yep', 'dale',
+  'no', 'nop', 'nope', 'nel', 'noo', 'nooo',
+  'ok', 'okay', 'oki', 'okey', 'vale', 'va', 'listo', 'deacuerdo', 'de acuerdo',
+  'perfecto', 'genial', 'excelente', 'bien', 'claro', 'claroquesi', 'claro que si',
+  'suena bien', 'me interesa', 'interesado', 'interesada', 'quiero', 'voy',
+  'gracias', 'muchas gracias', 'ty', 'thx',
+])
+
+function extraerNombreCursoDeMensaje(texto: string): string[] {
+  if (!texto) return []
+  const t = String(texto || '')
+  const nombres: string[] = []
+  const patrones = [
+    /curso\s+(?:de\s+)?(?:manej[ao]\s+de\s+)?([A-Za-z\u00C0-\u024F][A-Za-z\u00C0-\u024F\s\-&]{3,60}?)(?:\s*(?:en\s+linea|online|presencial|modalidad|precio|costo|$|\.|\n|,|;|:))/gim,
+    /(?:temario|taller|diplomado|capacitacion)\s+(?:de\s+)?([A-Za-z\u00C0-\u024F][A-Za-z\u00C0-\u024F\s\-&]{3,60}?)(?:\s*(?:en\s+linea|online|presencial|modalidad|precio|costo|$|\.|\n|,|;|:))/gim,
+  ]
+  for (const re of patrones) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(t)) !== null) {
+      const cand = (m[1] || '').trim().replace(/\s+/g, ' ')
+      if (cand.length >= 4) nombres.push(cand)
+    }
+  }
+  const reFicha = /(?:Nombre\s*(?:del\s+curso|curso|del\s+taller|taller|del\s+diplomado|diplomado|de\s+la\s+capacitacion|capacitacion)\s*[:：]\s*)([^\n\r]{3,120})/gim
+  let f: RegExpExecArray | null
+  while ((f = reFicha.exec(t)) !== null) {
+    const cand = (f[1] || '').trim().replace(/\s+/g, ' ').replace(/[.。]\s*$/, '')
+    if (cand.length >= 4) nombres.push(cand)
+  }
+  const unicos: string[] = []
+  const vistos = new Set<string>()
+  for (const n of nombres) {
+    const norm = n.toLowerCase().trim()
+    if (!vistos.has(norm) && norm.length >= 4) {
+      vistos.add(norm)
+      unicos.push(n)
+    }
+  }
+  return unicos
+}
+
 function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[]): string {
   const normalizedMsg = (userMessage || '').replace(/\s+/g, ' ').trim()
-  const recent = (history || []).slice(-6)
+  const recent = (history || []).slice(-8)
   const msgWords = normalizedMsg.split(/\s+/).filter((w) => w.length >= 2)
-  if (msgWords.length >= 3) return normalizedMsg
+  const msgLowerSimple = normalizedMsg.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const esRespuestaCorta =
+    msgWords.length <= 2 &&
+    RESPUESTAS_CORTAS_SIN_CONTEXTO.has(msgLowerSimple)
+
+  if (msgWords.length >= 3 && !esRespuestaCorta) return normalizedMsg
+
+  const ultimosMensajesAsesor = recent
+    .filter((m) => m.role === 'assistant')
+    .slice(-3)
+    .map((m) => String(m.content || ''))
+
+  let pistasAdicionales = ''
+  if (esRespuestaCorta && ultimosMensajesAsesor.length > 0) {
+    const candidatosCurso: string[] = []
+    for (const t of ultimosMensajesAsesor) candidatosCurso.push(...extraerNombreCursoDeMensaje(t))
+    if (candidatosCurso.length > 0) {
+      pistasAdicionales = ` [CONTEXTO RESPUESTA CORTA: el usuario está confirmando interés en el/los siguiente(s) curso(s) mencionados por el asesor en los mensajes anteriores: ${candidatosCurso.join(' | ')}. INCLUYE ESTOS NOMBRES EN LA BÚSQUEDA RAG COMO PALABRAS CLAVE PRINCIPALES, con prioridad MUY ALTA.]`
+    } else {
+      pistasAdicionales = ` [CONTEXTO RESPUESTA CORTA: el usuario está confirmando interés sobre el tema que el asesor acaba de explicar. Prioriza los documentos que aparecen en los siguientes mensajes del asesor del historial, y NO busques cursos aleatorios.]`
+    }
+  }
+
   const context = recent.map((m) => `${m.role === 'user' ? 'USUARIO' : 'ASESOR'}: ${m.content}`).join('\n')
-  if (!context) return normalizedMsg
-  const combined = `${context}\nUSUARIO ACTUAL: ${normalizedMsg}`
-  if (combined.length > 1500) return combined.slice(-1500)
+  if (!context) return normalizedMsg + pistasAdicionales
+  let combined = `${context}\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
+  if (combined.length > 1500) {
+    const tail = 1500 - pistasAdicionales.length
+    combined = context.slice(Math.max(0, context.length - tail)) + `\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
+  }
   return combined
 }
 
@@ -603,6 +879,8 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       'Por el momento tenemos dificultades técnicas temporales. Por favor contáctanos por WhatsApp y un asesor humano te atenderá de inmediato. ¡Gracias por tu comprensión!'
   }
 
+  answer = applyUpcomingCourseDateCorrection(answer, input.message, matchedBlocks)
+
   // ===== AUTO-CURADO · JUEZ SÍNCRONO (último filtro, antes de devolver respuesta) =====
   const matchedBlocksForJudge = matchedBlocks || []
   const matchedBlocksText = matchedBlocksToText(matchedBlocksForJudge)
@@ -626,9 +904,59 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     evalCategory = judgeRes.category
     evalReason = judgeRes.reason
   } catch (e: any) {
-    // Fail-closed: si el juez falla (timeout / JSON inválido / error), se bloquea.
-    evalCategory = 'judge_failed'
-    evalReason = `Juez falló: ${e?.message || String(e || 'error desconocido')}`.slice(0, 600)
+    const q = (input.message || '').trim()
+    const qLower = q.toLowerCase()
+    const a = (answer || '').trim()
+    const aLower = a.toLowerCase()
+    const ragCount = (matchedBlocksForJudge || []).length
+
+    const esSoloSaludo = /^(hola|buen[oa]s?(\s*(d[ií]as|tardes|noches))?|gracias|de\s*nada|ok|vale|bye|adi[oó]s|si|s[íi]|no|claro|quiz[áa]s|muchas\s+gracias)$/.test(qLower)
+    const esSoloCierre = /^(hasta luego|nos vemos|excelente\s*d[ií]a|cu[eé]ntame\s*luego|ok\s*gracias|gracias\s*,?\s*(bye|adi[oó]s)|de\s*nada\s*,?\s*(bye|adi|ok|claro))\s*[.!?]*$/i.test(qLower)
+
+    const tieneDatoSospechoso = /(\$|precio|fecha|disponible|stock|mxn|usd|d[ií]a\s*\d+|sep[^t]|ago|oct|nov|dic|enero|febrero|marzo|abril|mayo|junio|julio)/i.test(aLower)
+
+    const contradiceRagTeniendoDocs =
+      ragCount >= 1 &&
+      (/(?:no\s*(?:tengo|cuento|dispon(?:go|emos)?)|no\s+hay\s+(?:informaci[oó]n|datos|registros)|no\s*pod(?:emos|emos)\s+(?:ayudar|decir|responder|atender)|dificultades\s*t[eé]cnicas|problemas\s*t[eé]cnicos)/i.test(aLower) ||
+        /cont[áa]cten?(?:os)?\s*(?:al|a\s+l[oa]s?)\s*whatsapp|whatsapp\s*(?:de|por|directo|inmediato)/i.test(aLower))
+
+    const derivaWhatsAppSinInfo =
+      !esSoloSaludo &&
+      /(?:whatsapp|wa\.me|\+?\d[\d\s\-\.\(\)]{8,}\d)/i.test(aLower) &&
+      !(
+        /(?:direcci[oó]n|ubicaci[oó]n|curso|tratamiento|producto|servicio|precio|fecha|horario|costo|promoci[oó]n|paquete|cita|reserva|informaci[oó]n\s*(?:del|de\s+el?\s+|acerca\s*de))/i.test(aLower) ||
+          /(?:dudas|m[áa]s\s+informaci[oó]n|detalles|alguna\s+otra\s+duda|quieres\s+mas\s+info|necesitas\s+(?:algo\s+)?m[aá]s)/i.test(aLower)
+      )
+
+    const esAclaracion = !tieneDatoSospechoso && !contradiceRagTeniendoDocs && !derivaWhatsAppSinInfo && a.length < 320 &&
+      (a.includes('¿') || a.includes('?')) &&
+      /^(con\s*gusto|claro|por\s*supuesto|c[uú]al\s*(?:es\s*el|de\s+el|es\s*tu|de\s+tu|es\s*esta|de\s*esta)?|qu[eé]\s*(?:curso|producto|servicio|fecha|precio|informaci[oó]n)|te\s*refer[ií]a\s+a\s+(?:qu[eé]|cu[aá]l)|(?:a\s+qu[eé]|sobre\s+qu[eé])\s+(?:te\s+)?refieres?)/i.test(aLower)
+
+    const esCortesiaPura =
+      !tieneDatoSospechoso &&
+      !contradiceRagTeniendoDocs &&
+      !derivaWhatsAppSinInfo &&
+      a.length < 380 &&
+      /(de nada|fue un placer|con gusto|nos\s+alegra|excelente d[ií]a|hasta luego|un gusto|placer ayudarte|gracias a (?:ti|ustedes?)|cuenta\s+con\s+nosotros)/i.test(aLower)
+
+    const puedeAprobarPorHeuristica =
+      (esSoloSaludo || esSoloCierre || esAclaracion || esCortesiaPura) &&
+      !contradiceRagTeniendoDocs &&
+      !derivaWhatsAppSinInfo
+
+    if (puedeAprobarPorHeuristica) {
+      evalCategory = 'correct'
+      const tags = [esSoloSaludo && 'saludo', esSoloCierre && 'cierre', esAclaracion && 'aclaracion', esCortesiaPura && 'cortesia'].filter(Boolean)
+      evalReason = `Juez falló pero respuesta aprobada por heurística (${tags.join('/') || 'segura'}). Error original: ${e?.message || String(e)}`.slice(0, 600)
+    } else {
+      evalCategory = 'judge_failed'
+      const tags = [
+        contradiceRagTeniendoDocs && `contradice-RAG-${ragCount}`,
+        derivaWhatsAppSinInfo && 'deriva-WA-sin-info',
+        tieneDatoSospechoso && 'datos-sospechosos',
+      ].filter(Boolean)
+      evalReason = `Bloqueado por fail-closed (judge_failed${tags.length ? ' · ' + tags.join(' · ') : ''}). Error original: ${e?.message || String(e || 'error desconocido')}`.slice(0, 600)
+    }
   }
 
   const blocked = evalCategory !== 'correct'

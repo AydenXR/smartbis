@@ -146,7 +146,9 @@ function posPath(tenantId: string) {
 }
 
 // Tipos públicos
-export type PosRole = 'owner' | 'admin' | 'cashier'
+// 'admin' se conserva por compatibilidad con cuentas creadas antes de separar los roles
+// (equivale a control total: Admin PV + Admin CS). Las cuentas nuevas usan 'admin_pv' o 'admin_cs'.
+export type PosRole = 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
 export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
 export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
@@ -173,6 +175,16 @@ export interface PosStockMap {
 export interface VolumePriceTier {
   minQty: number
   price: number
+}
+
+export interface PromoGroup {
+  id: string
+  name: string
+  productIds: string[]
+  volumePriceTiers: VolumePriceTier[]
+  active: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface PosCatalogItem {
@@ -205,8 +217,11 @@ export interface PosPurchaseLine {
   newItemKind?: ItemKind
   newItemSku?: string
   newItemName?: string
+  productName?: string
   qty: number
   unitCost: number
+  shippingCost?: number
+  totalCost?: number
 }
 
 export interface PosPurchaseOrder {
@@ -231,7 +246,7 @@ export interface PosShift {
   openedAt: string
   closedAt?: string
   initialCash: number
-  cashWithdrawals: Array<{ id: string; amount: number; reason?: string; businessExpense: boolean; at: string; by: string }>
+  cashWithdrawals: Array<{ id: string; amount: number; reason?: string; businessExpense: boolean; at: string; by: string; kind?: 'withdrawal' | 'payment'; category?: string }>
   paymentsByMethod: Array<{ method: PaymentMethod; total: number }>
   closingCash?: number
   closingTotal?: number
@@ -239,6 +254,7 @@ export interface PosShift {
   createdAt: string
   salesCount?: number
   salesTotal?: number
+  salesLines?: Array<{ itemId: string; sku?: string; name: string; qty: number; unitPrice: number; importe: number }>
 }
 
 export interface PosSaleLine {
@@ -365,6 +381,7 @@ export interface TenantPosData {
   tenantId: string
   branches: PosBranch[]
   catalogItems: PosCatalogItem[]
+  promoGroups: PromoGroup[]
   purchases: PosPurchaseOrder[]
   shifts: PosShift[]
   sales: PosSale[]
@@ -404,6 +421,7 @@ function defaultPosData(tenantId: string): TenantPosData {
     tenantId,
     branches: [mainBranch],
     catalogItems: [],
+    promoGroups: [],
     purchases: [],
     shifts: [],
     sales: [],
@@ -452,6 +470,7 @@ export async function readPosStore(tenantId: string): Promise<TenantPosData> {
   if (!data.audit) data.audit = []
   if (!data.config) data.config = defaultPosData(tenantId).config
   if (!data.catalogItems) data.catalogItems = []
+  if (!Array.isArray(data.promoGroups)) data.promoGroups = []
   if (!data.purchases) data.purchases = []
   if (!data.shifts) data.shifts = []
   if (!data.sales) data.sales = []
@@ -642,18 +661,24 @@ export async function listCatalog(
 ): Promise<PosCatalogItem[]> {
   const s = await readPosStore(tenantId)
   const kinds = opts?.kinds
-  let list = s.catalogItems
+  let list = s.catalogItems.filter((i) => {
+    if (!i || typeof i !== 'object') return false
+    if (!i.name || !i.sku) return false
+    if (typeof i.salePrice !== 'number' || !Number.isFinite(i.salePrice) || i.salePrice <= 0) return false
+    if (typeof i.active === 'boolean' && !i.active) return false
+    return true
+  })
   if (opts?.activeOnly !== false) list = list.filter(i => i.active)
   if (kinds && kinds.length > 0) list = list.filter(i => kinds.includes(i.kind))
   if (opts?.search) {
-    const q = String(opts.search).toLowerCase()
-    list = list.filter(
-      i =>
-        i.name.toLowerCase().includes(q) ||
-        i.sku.toLowerCase().includes(q) ||
-        (i.family || '').toLowerCase().includes(q) ||
-        (i.category || '').toLowerCase().includes(q),
-    )
+    const q = String(opts.search).trim().toLowerCase()
+    list = list.filter((i) => {
+      const name = String(i.name || '').toLowerCase()
+      const sku = String(i.sku || '').toLowerCase()
+      const family = String(i.family || '').toLowerCase()
+      const category = String(i.category || '').toLowerCase()
+      return name.includes(q) || sku.includes(q) || family.includes(q) || category.includes(q)
+    })
   }
   return list.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -680,7 +705,7 @@ export async function upsertCatalogItem(
     if (typeof stocks[bid] !== 'number' || Number.isNaN(stocks[bid])) stocks[bid] = 0
   })
   const next: PosCatalogItem = exist
-    ? { ...exist, ...inp, stocks, updatedAt: nowISO() }
+    ? { ...exist, ...inp, stocks, updatedAt: nowISO(), volumePriceTiers: inp.volumePriceTiers ?? exist.volumePriceTiers ?? [] }
     : {
         id: inp.id || `cat_${uid()}`,
         kind: inp.kind || 'product',
@@ -691,6 +716,7 @@ export async function upsertCatalogItem(
         description: inp.description || '',
         costPrice: inp.costPrice,
         salePrice: inp.salePrice,
+        volumePriceTiers: inp.volumePriceTiers || [],
         currency: inp.currency || s.config.currencyDefault,
         stocks,
         location: inp.location || '',
@@ -774,6 +800,96 @@ export async function adjustStock(
   return next
 }
 
+// ============ PROMO GROUPS (GRUPOS DE PRODUCTOS PARA PROMOCIONES) ============
+export async function listPromoGroups(tenantId: string): Promise<PromoGroup[]> {
+  const s = await readPosStore(tenantId)
+  return s.promoGroups
+    .filter(g => g && typeof g === 'object' && g.id && g.name)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+}
+export async function getPromoGroup(tenantId: string, id: string): Promise<PromoGroup | undefined> {
+  const s = await readPosStore(tenantId)
+  return s.promoGroups.find(g => g.id === id)
+}
+export async function upsertPromoGroup(
+  tenantId: string,
+  inp: Partial<PromoGroup> & { name: string; userEmail: string },
+): Promise<PromoGroup> {
+  const s = await readPosStore(tenantId)
+  const exist = inp.id ? s.promoGroups.find(g => g.id === inp.id) : undefined
+  const tiers: VolumePriceTier[] = (inp.volumePriceTiers || [])
+    .map((t: any) => {
+      if (!t || typeof t !== 'object') return null
+      const minQtyRaw = Number(t.minQty)
+      const priceRaw = Number(t.price)
+      if (!Number.isFinite(minQtyRaw) || !Number.isFinite(priceRaw)) return null
+      const minQty = Math.max(1, Math.floor(minQtyRaw))
+      const price = Math.max(0, priceRaw)
+      if (minQty < 2 || price <= 0) return null
+      return { minQty, price } as VolumePriceTier
+    })
+    .filter((t): t is VolumePriceTier => Boolean(t))
+    .sort((a, b) => a.minQty - b.minQty)
+    .filter((t, i, arr) => arr.findIndex(x => x.minQty === t.minQty) === i)
+  const productIds: string[] = Array.isArray(inp.productIds)
+    ? inp.productIds.filter((id): id is string => typeof id === 'string' && Boolean(id))
+    : exist?.productIds?.slice() || []
+  const productIdSet = new Set<string>()
+  const normalizedPids: string[] = []
+  for (const pid of productIds) {
+    if (productIdSet.has(pid)) continue
+    productIdSet.add(pid)
+    normalizedPids.push(pid)
+  }
+  const next: PromoGroup = exist
+    ? {
+        ...exist,
+        ...inp,
+        productIds: normalizedPids,
+        volumePriceTiers: tiers,
+        active: typeof inp.active === 'boolean' ? inp.active : exist.active,
+        updatedAt: nowISO(),
+      }
+    : {
+        id: inp.id || `pg_${uid()}`,
+        name: String(inp.name).trim(),
+        productIds: normalizedPids,
+        volumePriceTiers: tiers,
+        active: typeof inp.active === 'boolean' ? inp.active : true,
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+      }
+  if (!exist) s.promoGroups.push(next)
+  else {
+    const idx = s.promoGroups.findIndex(g => g.id === next.id)
+    s.promoGroups[idx] = next
+  }
+  await writePosStore(tenantId, s)
+  await appendAudit(tenantId, {
+    userEmail: inp.userEmail,
+    kind: exist ? 'config_edit' : 'config_edit',
+    message: exist
+      ? `Editó grupo de promoción: ${next.name} (${next.productIds.length} productos · ${next.volumePriceTiers.length} niveles)`
+      : `Creó grupo de promoción: ${next.name} (${next.productIds.length} productos · ${next.volumePriceTiers.length} niveles)`,
+    details: next,
+  })
+  return next
+}
+export async function deletePromoGroup(tenantId: string, id: string, userEmail: string): Promise<boolean> {
+  const s = await readPosStore(tenantId)
+  const g = s.promoGroups.find(x => x.id === id)
+  if (!g) return false
+  s.promoGroups = s.promoGroups.filter(x => x.id !== id)
+  await writePosStore(tenantId, s)
+  await appendAudit(tenantId, {
+    userEmail,
+    kind: 'config_edit',
+    message: `Eliminó grupo de promoción: ${g.name}`,
+    details: { id: g.id, name: g.name },
+  })
+  return true
+}
+
 // ============ PURCHASES ============
 export async function listPurchases(tenantId: string): Promise<PosPurchaseOrder[]> {
   const s = await readPosStore(tenantId)
@@ -796,21 +912,54 @@ export async function createPurchase(
 ): Promise<PosPurchaseOrder> {
   const s = await readPosStore(tenantId)
   const branch = s.branches.find(b => b.id === inp.branchId)
-  if (!branch) throw new Error('BRANCH_NOT_FOUND')
+  if (!branch) throw new Error('Sucursal no encontrada')
+  if (!Array.isArray(inp.lines) || inp.lines.length === 0) throw new Error('Agrega al menos un producto a la compra')
+
+  const normalizedLines: PosPurchaseLine[] = inp.lines.map((line) => {
+    const qty = Number(line.qty)
+    const unitCostRaw = Number(line.unitCost)
+    const shippingCostRaw = Number(line.shippingCost ?? 0)
+    if (!Number.isInteger(qty) || qty < 1) throw new Error('La cantidad de compra no es válida')
+    if (!Number.isFinite(unitCostRaw) || unitCostRaw < 0) throw new Error('El costo unitario no es válido')
+    if (!Number.isFinite(shippingCostRaw) || shippingCostRaw < 0) throw new Error('El costo de envío no es válido')
+    const unitCost = Math.round(unitCostRaw * 100) / 100
+    const shippingCost = Math.round(shippingCostRaw * 100) / 100
+
+    const isNewItem = Boolean(line.isNewItem)
+    const item = isNewItem ? undefined : s.catalogItems.find((catalogItem) => catalogItem.id === line.itemId)
+    const newItemName = String(line.newItemName || '').trim()
+    if (isNewItem && !newItemName) throw new Error('El nombre del producto nuevo es obligatorio')
+    if (!isNewItem && !item) throw new Error('El producto seleccionado no fue encontrado')
+
+    const totalCost = Math.round((qty * unitCost + shippingCost) * 100) / 100
+    return {
+      ...line,
+      itemId: item?.id || '',
+      productName: item?.name || newItemName,
+      newItemName: isNewItem ? newItemName : undefined,
+      qty,
+      unitCost,
+      shippingCost,
+      totalCost,
+    }
+  })
+  const total = Math.round(normalizedLines.reduce((sum, line) => sum + (line.totalCost || 0), 0) * 100) / 100
+
   const created: PosPurchaseOrder = {
     id: `pur_${uid()}`,
     branchId: inp.branchId,
     date: inp.date || nowISO(),
     providerName: inp.providerName,
     folio: inp.folio,
-    total: inp.total,
+    total,
     currency: inp.currency || s.config.currencyDefault,
-    lines: inp.lines || [],
+    lines: normalizedLines,
     notes: inp.notes,
     createdBy: inp.createdBy || inp.userEmail,
     createdAt: nowISO(),
   }
   for (const l of created.lines) {
+    const landedUnitCost = Math.round(((l.totalCost || 0) / l.qty) * 100) / 100
     if (l.isNewItem && l.newItemName) {
       const newItem: PosCatalogItem = {
         id: `cat_${uid()}`,
@@ -820,14 +969,14 @@ export async function createPurchase(
         family: '',
         category: '',
         description: '',
-        costPrice: l.unitCost,
-        salePrice: l.unitCost * (s.config.priceSuggestMultiplier || 2),
+        costPrice: landedUnitCost,
+        salePrice: landedUnitCost * (s.config.priceSuggestMultiplier || 2),
         currency: s.config.currencyDefault,
         stocks: Object.fromEntries(s.branches.map(b => [b.id, 0])),
         tags: [],
         active: true,
         attrs: {},
-        lastPurchaseCost: l.unitCost,
+        lastPurchaseCost: landedUnitCost,
         createdAt: nowISO(),
         updatedAt: nowISO(),
       }
@@ -836,10 +985,10 @@ export async function createPurchase(
       l.itemId = newItem.id
     } else {
       const it = s.catalogItems.find(i => i.id === l.itemId)
-      if (!it) continue
+      if (!it) throw new Error('PURCHASE_PRODUCT_NOT_FOUND')
       it.stocks[branch.id] = (it.stocks[branch.id] || 0) + l.qty
-      it.lastPurchaseCost = l.unitCost
-      if (!it.costPrice) it.costPrice = l.unitCost
+      it.lastPurchaseCost = landedUnitCost
+      it.costPrice = landedUnitCost
       it.updatedAt = nowISO()
     }
   }
@@ -856,13 +1005,38 @@ export async function createPurchase(
 }
 
 // ============ SHIFTS ============
+function aggregateSalesLines(shiftSales: PosSale[]): NonNullable<PosShift['salesLines']> {
+  const map = new Map<string, { itemId: string; sku?: string; name: string; qty: number; unitPrice: number; importe: number }>()
+  for (const sl of shiftSales) {
+    for (const l of sl.lines || []) {
+      const key = (l.itemId || '') + '::' + String(l.name || '')
+      const existing = map.get(key)
+      if (existing) {
+        existing.qty += Number(l.qty || 0)
+        existing.importe += Number(l.importe || 0)
+        if (!existing.sku && l.sku) existing.sku = l.sku
+      } else {
+        map.set(key, {
+          itemId: l.itemId || String(l.name || l.qty || Math.random().toString(36).slice(2)),
+          sku: l.sku,
+          name: l.name || '(Sin nombre)',
+          qty: Number(l.qty || 0),
+          unitPrice: Number(l.unitPrice || 0),
+          importe: Number(l.importe || 0),
+        })
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.importe - a.importe)
+}
 function enrichShiftTotals(sh: PosShift, sales: PosSale[]): PosShift {
   const shiftSales = sales.filter(
     sl => sl.shiftId === sh.id && sl.status !== 'cancelled' && sl.status !== 'quote',
   )
   const salesCount = shiftSales.length
   const salesTotal = shiftSales.reduce((a, s) => a + (s.total || 0), 0)
-  return { ...sh, salesCount, salesTotal }
+  const salesLines = Array.isArray(sh.salesLines) && sh.salesLines.length > 0 ? sh.salesLines : aggregateSalesLines(shiftSales)
+  return { ...sh, salesCount, salesTotal, salesLines }
 }
 export async function getOpenShift(tenantId: string, userId: string): Promise<PosShift | undefined> {
   const s = await readPosStore(tenantId)
@@ -954,6 +1128,7 @@ export async function closeShift(
   sh.status = 'closed'
   sh.salesCount = shiftSales.length
   sh.salesTotal = shiftSales.reduce((a, sl) => a + (sl.total || 0), 0)
+  sh.salesLines = aggregateSalesLines(shiftSales)
   await writePosStore(tenantId, s)
   await appendAudit(tenantId, {
     userEmail,
@@ -1010,11 +1185,12 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     }
   }
   const subtotal = inp.lines.reduce((a, l) => a + l.importe, 0)
-  const discount = Math.max(0, inp.discount || 0)
+  const discount = Math.min(subtotal, Math.max(0, inp.discount || 0))
   const withDiscount = Math.max(0, subtotal - discount)
-  const ivaEnabled = branch.ivaEnabled
-  const ivaRate = branch.ivaRate || 0
-  const ivaAmount = ivaEnabled ? +(withDiscount * ivaRate).toFixed(2) : 0
+  const ivaRate = (branch.ivaRate || 0) > 1 ? (branch.ivaRate || 0) / 100 : branch.ivaRate || 0
+  const ivaAmount = inp.requiresFactura === true && branch.ivaEnabled
+    ? +(withDiscount * ivaRate).toFixed(2)
+    : 0
   const total = +(withDiscount + ivaAmount).toFixed(2)
   const paidAmount = (inp.payments || []).reduce((a, b) => a + b.amount, 0)
   const pendingAmount = +Math.max(0, total - paidAmount).toFixed(2)
@@ -1035,7 +1211,7 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     userEmail: inp.userEmail,
     createdAt: nowISO(),
     customerName: inp.customerName,
-    requiresFactura: inp.requiresFactura,
+    requiresFactura: inp.requiresFactura === true,
     status: finalStatus,
     subtotal: +subtotal.toFixed(2),
     ivaAmount,
@@ -1109,28 +1285,58 @@ export async function getFrequentProducts(
   const s = await readPosStore(tenantId)
   const qtyByItem: Record<string, number> = {}
   for (const sl of s.sales) {
-    if (sl.branchId !== branchId) continue
     if (sl.status === 'cancelled' || sl.status === 'quote') continue
     for (const l of sl.lines) qtyByItem[l.itemId] = (qtyByItem[l.itemId] || 0) + l.qty
+  }
+  if (Object.keys(qtyByItem).length === 0) {
+    const fallback = s.catalogItems
+      .filter((i) => i && typeof i === 'object' && i.id && i.active && i.name && i.sku && Number.isFinite(i.salePrice) && i.salePrice > 0)
+      .sort((a, b) => (Number(b.stocks?.[branchId] || 0) - Number(a.stocks?.[branchId] || 0)) || String(a.name).localeCompare(String(b.name)))
+      .slice(0, limit)
+    return fallback.map((it) => ({
+      itemId: it.id,
+      name: it.name,
+      sku: it.sku,
+      qty: 0,
+      salePrice: it.salePrice,
+      stock: Number(it.stocks?.[branchId] || 0),
+    }))
   }
   const top = Object.entries(qtyByItem)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-  const out = top
+  const raw = top
     .map(([id, qty]) => {
       const it = s.catalogItems.find(i => i.id === id)
       if (!it) return null
+      if (!it.active || !it.name || !it.sku || !Number.isFinite(it.salePrice) || it.salePrice <= 0) return null
       return {
         itemId: it.id,
         name: it.name,
         sku: it.sku,
         qty,
         salePrice: it.salePrice,
-        stock: it.stocks[branchId] || 0,
+        stock: Number(it.stocks?.[branchId] || 0),
       }
     })
     .filter(Boolean) as any
-  return out
+  if (raw.length >= 4) return raw
+  const existingIds = new Set(raw.map((r: any) => r.itemId))
+  const fill = s.catalogItems
+    .filter((i) => i && typeof i === 'object' && i.id && !existingIds.has(i.id) && i.active && i.name && i.sku && Number.isFinite(i.salePrice) && i.salePrice > 0)
+    .sort((a, b) => (Number(b.stocks?.[branchId] || 0) - Number(a.stocks?.[branchId] || 0)) || String(a.name).localeCompare(String(b.name)))
+    .slice(0, Math.max(0, limit - raw.length))
+    .map((it) => ({
+      itemId: it.id,
+      name: it.name,
+      sku: it.sku,
+      qty: 0,
+      salePrice: it.salePrice,
+      stock: Number(it.stocks?.[branchId] || 0),
+    }))
+  const combined = [...raw, ...fill]
+  if (combined.length > limit) return combined.slice(0, limit)
+  return combined
 }
 
 // ============ SUBUSERS ============
@@ -1168,6 +1374,20 @@ export function verifyPassword(pw: string, hashed: string): boolean {
     return false
   }
 }
+const ROLE_LABELS: Record<PosRole, string> = {
+  owner: 'Propietario',
+  admin: 'Admin (general)',
+  admin_pv: 'Admin PV',
+  admin_cs: 'Admin CS',
+  cashier: 'Caja',
+  cs_agent: 'Agente CS',
+}
+// Solo estos roles requieren estar amarrados a una sucursal específica;
+// el resto (owner/admin/admin_pv/admin_cs/cs_agent) controla todas las sucursales
+// (o, en el caso de cs_agent, simplemente no aplica el concepto de sucursal).
+function roleRequiresBranch(role: PosRole): boolean {
+  return role === 'cashier'
+}
 export async function createSubuser(
   tenantId: string,
   inp: { name: string; email: string; password: string; role: PosRole; branchId: string; byEmail: string },
@@ -1176,8 +1396,9 @@ export async function createSubuser(
   if (s.subusers.some(u => u.email.toLowerCase() === inp.email.toLowerCase())) {
     throw new Error('EMAIL_EXISTS')
   }
-  const normalizedRole = inp.role === 'owner' ? 'admin' : inp.role
-  const branchRequiredForRole = normalizedRole === 'cashier'
+  if (inp.role === 'owner') throw new Error('No se puede crear un usuario con rol de propietario')
+  const normalizedRole = inp.role
+  const branchRequiredForRole = roleRequiresBranch(normalizedRole)
   const branch = inp.branchId ? s.branches.find(b => b.id === inp.branchId) : undefined
   if (branchRequiredForRole && !branch) throw new Error('BRANCH_NOT_FOUND')
   const effectiveBranchId = branch ? branch.id : s.branches[0]?.id || ''
@@ -1198,7 +1419,7 @@ export async function createSubuser(
   await appendAudit(tenantId, {
     userEmail: inp.byEmail,
     kind: 'user_create',
-    message: `Creó cuenta sub-usuario: ${u.name} (${u.email}) · Rol ${u.role}${branch ? ` · Sucursal ${branch.name}` : u.role === 'admin' ? ' (sin sucursal, control total)' : ''}`,
+    message: `Creó cuenta sub-usuario: ${u.name} (${u.email}) · Rol ${ROLE_LABELS[u.role]}${branch ? ` · Sucursal ${branch.name}` : !branchRequiredForRole ? ' (sin sucursal, control total)' : ''}`,
     branchId: u.branchId || undefined,
     details: { role: u.role, branchId: u.branchId, email: u.email },
   })
@@ -1212,15 +1433,18 @@ export async function updateSubuser(
   const s = await readPosStore(tenantId)
   const u = s.subusers.find(x => x.id === id)
   if (!u) throw new Error('USER_NOT_FOUND')
-  if (inp.name) u.name = inp.name
-  if (inp.role) u.role = inp.role === 'owner' ? 'admin' : inp.role
+  if (u.role === 'owner') throw new Error('No se puede modificar al propietario de la cuenta')
+  if (inp.role) {
+    if (inp.role === 'owner') throw new Error('No se puede asignar el rol de propietario')
+    u.role = inp.role
+  }
   if (typeof inp.branchId === 'string') {
-    const normalizedRole = u.role
-    const branchRequiredForRole = normalizedRole === 'cashier'
+    const branchRequiredForRole = roleRequiresBranch(u.role)
     const branch = inp.branchId ? s.branches.find(b => b.id === inp.branchId) : undefined
     if (branchRequiredForRole && !branch) throw new Error('BRANCH_NOT_FOUND')
     u.branchId = branch ? branch.id : s.branches[0]?.id || ''
   }
+  if (inp.name) u.name = inp.name
   if (typeof inp.active === 'boolean') u.active = inp.active
   if (inp.newPassword) u.passwordHash = hashPassword(inp.newPassword)
   u.updatedAt = nowISO()
@@ -1228,7 +1452,7 @@ export async function updateSubuser(
   await appendAudit(tenantId, {
     userEmail: inp.byEmail,
     kind: 'user_edit',
-    message: `Editó cuenta ${u.name} (${u.email}) · rol=${u.role} activo=${u.active}`,
+    message: `Editó cuenta ${u.name} (${u.email}) · rol=${ROLE_LABELS[u.role]} activo=${u.active}`,
     branchId: u.branchId || undefined,
   })
   return u
@@ -1237,6 +1461,7 @@ export async function deleteSubuser(tenantId: string, id: string, byEmail: strin
   const s = await readPosStore(tenantId)
   const u = s.subusers.find(x => x.id === id)
   if (!u) return false
+  if (u.role === 'owner') throw new Error('No se puede eliminar al propietario de la cuenta')
   s.subusers = s.subusers.filter(x => x.id !== id)
   await writePosStore(tenantId, s)
   await appendAudit(tenantId, {
@@ -1294,6 +1519,87 @@ export async function syncCatalogFromDocuments(
   function hashBlock(text: string) {
     return crypto.createHash('sha256').update(text).digest('hex').slice(0, 12)
   }
+  const parseActive = (block: string): boolean | undefined => {
+    const activeLine = block.split('\n').find(line => /^\s*[-*]?\s*activo\s*[:：]/i.test(line.trim()))
+    if (!activeLine) return undefined
+    const value = activeLine.replace(/^\s*[-*]?\s*activo\s*[:：]\s*/i, '').trim().toLowerCase()
+    if (/^(si|sí|yes|true|1|activo|habilitado)$/i.test(value)) return true
+    if (/^(no|false|0|inactivo|deshabilitado)$/i.test(value)) return false
+    return undefined
+  }
+  const parseCostPrice = (block: string): number | undefined => {
+    const priceLine = block.split('\n').find(line => /^\s*[-*]?\s*precio\s*costo\s*[:：]/i.test(line.trim()))
+    if (!priceLine) return undefined
+    const match = priceLine.match(/precio\s*costo\s*[:：]\s*\$?\s*([0-9][0-9.,]*)/i)
+    if (!match?.[1]) return undefined
+    return Number.parseFloat(match[1].replace(/,/g, ''))
+  }
+  const parseStockMap = (block: string, branches: PosBranch[]): PosStockMap => {
+    const stocks: PosStockMap = {}
+    branches.forEach(branch => {
+      stocks[branch.id] = 0
+    })
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+    for (const line of lines) {
+      const stockMatch = line.match(/stock\s+([^:]+?)\s*:\s*([0-9][0-9.,]*)/i)
+      if (!stockMatch) continue
+      const branchName = stockMatch[1].trim().toLowerCase()
+      const quantity = Number.parseFloat(stockMatch[2].replace(/,/g, ''))
+      const branch = branches.find(b => b.name.trim().toLowerCase() === branchName)
+      if (!branch) continue
+      stocks[branch.id] = Number.isFinite(quantity) ? Math.max(0, quantity) : 0
+    }
+    return stocks
+  }
+  const parseVolumePriceTiers = (block: string): VolumePriceTier[] => {
+    const tiers: VolumePriceTier[] = []
+    const seen = new Set<string>()
+    const lines = block.split('\n')
+    const unitWords = /(?:pz|pzs|pieza|piezas|unidad|unidades|u|uds|und|unds)?/i
+    const sep = /(?:\s*(?:por|a|@|=|porPrecio|cada)\s*)?(?:\s*[:：]\s*)?(?:\s*[x×*]\s*)/i
+    const lineRegex = new RegExp(
+      `^(?:[\\-*]\\s*)?(?:(?:precio|precio\\s*de|promoc|promo|volumen|rango|cantidad|venta|costo|descuento|ahorro|especial|paquete|pack|combo)\\s*[:：]?\\s*)?([0-9]+)\\s*${unitWords.source}(?:${sep.source}|\\s*=\\s*|\\s*[:：]\\s*|\\s+por\\s+|\\s+@\\s+)\\s*\\$?\\s*([0-9][0-9.,]*)`,
+      'i',
+    )
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const m = trimmed.match(lineRegex)
+      if (!m) continue
+      const minQty = Number.parseInt(m[1], 10)
+      const price = Number.parseFloat(m[2].replace(/,/g, ''))
+      if (!Number.isFinite(minQty) || minQty < 2 || !Number.isFinite(price) || price < 0) continue
+      const key = `${minQty}:${price}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      tiers.push({ minQty, price })
+    }
+    const globalRegex = new RegExp(
+      `\\b([0-9]+)\\s*${unitWords.source}(?:${sep.source}|\\s*=\\s*|\\s+por\\s+|\\s+@\\s+)\\s*\\$?\\s*([0-9][0-9.,]*)\\b`,
+      'gi',
+    )
+    const allMatches = Array.from(block.matchAll(globalRegex))
+    for (const match of allMatches) {
+      const minQty = Number.parseInt(match[1], 10)
+      const price = Number.parseFloat(match[2].replace(/,/g, ''))
+      if (!Number.isFinite(minQty) || minQty < 2 || !Number.isFinite(price) || price < 0) continue
+      const key = `${minQty}:${price}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      tiers.push({ minQty, price })
+    }
+    const simpleFallback = Array.from(block.matchAll(/\b([2-9]|[1-9][0-9]+)\s*[x×*=]\s*\$?\s*([0-9][0-9.,]*)\b/gi))
+    for (const match of simpleFallback) {
+      const minQty = Number.parseInt(match[1], 10)
+      const price = Number.parseFloat(match[2].replace(/,/g, ''))
+      if (!Number.isFinite(minQty) || minQty < 2 || !Number.isFinite(price) || price < 0) continue
+      const key = `${minQty}:${price}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      tiers.push({ minQty, price })
+    }
+    return tiers.sort((a, b) => a.minQty - b.minQty)
+  }
   const detectKind = (title: string, section: string | undefined, block: string): ItemKind => {
     const tl = `${title} ${section || ''} ${block}`.toLowerCase()
     if (tl.includes('curso') || tl.includes('clase') || tl.includes('taller') || tl.includes('diplomado')) return 'course'
@@ -1314,12 +1620,17 @@ export async function syncCatalogFromDocuments(
     for (const blk of blocks) {
       try {
         const lines = blk.split('\n').map(l => l.trim()).filter(Boolean)
-        const blockHead = lines.slice(0, 6).join('\n')
-        if (!/(?:datos del (?:producto|servicio|curso))|(?:precio:)|(?:\$\s?\d)/i.test(blockHead)) {
+        const blockHead = lines.slice(0, 15).join('\n')
+        if (!/(?:datos del (?:producto|servicio|curso))|(?:precio\b)|(?:\$\s?\d)|\[(?:producto|curso|servicio|menú|menu)\]|(?:stock\s+\S)|(?:ubicaci[oó]n)|(?:sku\b)|(?:c[oó]digo\b)/i.test(blockHead)) {
           skipped.push(`Bloque sin datos en ${doc.title || doc.id}: ${lines[0]?.slice(0, 50)}`)
           continue
         }
         const kind = detectKind(doc.title || '', doc.section, blk)
+        const parsedActive = parseActive(blk)
+        const parsedCostPrice = parseCostPrice(blk)
+        const parsedStocks = parseStockMap(blk, store.branches)
+        const parsedVolumeTiers = parseVolumePriceTiers(blk)
+        const stockMapHasAny = Object.values(parsedStocks).some(value => value > 0)
         const get = (regexes: RegExp[]): string | undefined => {
           for (const r of regexes) {
             const m = blk.match(r)
@@ -1329,6 +1640,7 @@ export async function syncCatalogFromDocuments(
         }
         const name = get([
           /1\)\s*nombre\s*[:：]\s*([^\n]+)/i,
+          /nombre\s+del\s+(?:producto|curso|servicio|tratamiento)\s*[:：]\s*([^\n]+)/i,
           /nombre\s*[:：]\s*([^\n]+)/i,
           /producto[:：]\s*\d+\)\s*([^\n]+)/i,
           /curso[:：]\s*([^\n·|]+)/i,
@@ -1343,9 +1655,14 @@ export async function syncCatalogFromDocuments(
           name.replace(/[^A-Z0-9]/gi, '').slice(0, 10).toUpperCase()
         const family = get([/3\)\s*familia\s*[:：]\s*([^\n]+)/i, /familia\s*[:：]\s*([^\n]+)/i])
         const category = get([/4\)\s*categoría\s*[:：]\s*([^\n]+)/i, /categoría\s*[:：]\s*([^\n]+)/i])
-        const priceRaw = get([/5\)\s*precio\s*[:：]\s*\$?\s*([0-9][0-9.,]*)/i, /precio\s*[:：]\s*\$?\s*([0-9][0-9.,]*)/i])
-        const salePrice = priceRaw ? parseFloat(priceRaw.replace(/,/g, '')) : NaN
-        if (!isFinite(salePrice) || salePrice <= 0) {
+        const priceRaw = get([
+          /5\)\s*precio\s*[:：]\s*\$?\s*([+-]?[0-9][0-9.,]*)/i,
+          /precio\s*de\s*venta\s*[:：]\s*\$?\s*([+-]?[0-9][0-9.,]*)/i,
+          /precio\s*venta\s*[:：]\s*\$?\s*([+-]?[0-9][0-9.,]*)/i,
+          /precio\s*[:：]\s*\$?\s*([+-]?[0-9][0-9.,]*)/i,
+        ])
+        const salePrice = priceRaw ? Number.parseFloat(priceRaw.replace(/,/g, '')) : NaN
+        if (!Number.isFinite(salePrice) || salePrice <= 0) {
           skipped.push(`Precio inválido para ${name}`)
           continue
         }
@@ -1369,7 +1686,31 @@ export async function syncCatalogFromDocuments(
           userEmail,
         }
         if (exist) {
-          if (exist.sourceBlockHash !== bh) {
+          const changed = exist.sourceBlockHash !== bh ||
+            exist.kind !== base.kind ||
+            exist.name !== base.name ||
+            exist.family !== base.family ||
+            exist.category !== base.category ||
+            exist.description !== base.description ||
+            exist.salePrice !== base.salePrice ||
+            exist.currency !== base.currency ||
+            exist.sourceDocId !== base.sourceDocId ||
+            (parsedActive !== undefined && exist.active !== parsedActive) ||
+            (parsedCostPrice !== undefined && exist.costPrice !== parsedCostPrice) ||
+            (parsedVolumeTiers.length > 0 && JSON.stringify(exist.volumePriceTiers || []) !== JSON.stringify(parsedVolumeTiers)) ||
+            (stockMapHasAny && JSON.stringify(exist.stocks) !== JSON.stringify(parsedStocks))
+
+          if (changed) {
+            const prevTiers = exist.volumePriceTiers || []
+            const hashChanged = exist.sourceBlockHash !== bh
+            let nextTiers: VolumePriceTier[]
+            if (parsedVolumeTiers.length > 0) {
+              nextTiers = parsedVolumeTiers
+            } else if (hashChanged) {
+              nextTiers = []
+            } else {
+              nextTiers = prevTiers
+            }
             Object.assign(exist, {
               kind: base.kind,
               name: base.name,
@@ -1380,6 +1721,10 @@ export async function syncCatalogFromDocuments(
               currency: base.currency,
               sourceDocId: base.sourceDocId,
               sourceBlockHash: base.sourceBlockHash,
+              costPrice: parsedCostPrice !== undefined ? parsedCostPrice : exist.costPrice,
+              active: parsedActive !== undefined ? parsedActive : exist.active,
+              volumePriceTiers: nextTiers,
+              stocks: stockMapHasAny ? { ...exist.stocks, ...parsedStocks } : exist.stocks,
               updatedAt: nowISO(),
             })
             updated.push(`${exist.name} (${exist.sku})`)
@@ -1389,6 +1734,7 @@ export async function syncCatalogFromDocuments(
         } else {
           const brIds = store.branches.map(b => b.id)
           const initStocks: PosStockMap = Object.fromEntries(brIds.map(bid => [bid, 0]))
+          const finalStocks = stockMapHasAny ? { ...initStocks, ...parsedStocks } : initStocks
           store.catalogItems.push({
             id: `cat_${uid()}`,
             kind: base.kind!,
@@ -1397,12 +1743,13 @@ export async function syncCatalogFromDocuments(
             family: base.family || '',
             category: base.category || '',
             description: base.description || '',
-            costPrice: undefined,
+            costPrice: parsedCostPrice,
             salePrice: base.salePrice,
             currency: base.currency!,
-            stocks: initStocks,
+            stocks: finalStocks,
             tags: [],
-            active: true,
+            active: parsedActive ?? true,
+            volumePriceTiers: parsedVolumeTiers,
             attrs: {},
             sourceDocId: base.sourceDocId,
             sourceBlockHash: base.sourceBlockHash,
@@ -1502,6 +1849,15 @@ export function renderCatalogItemBlock(it: PosCatalogItem, branches?: PosBranch[
   lines.push(`- Categoría: ${it.category || ''}`)
   lines.push(`- Precio costo: ${it.costPrice ?? ''}`)
   lines.push(`- Precio venta: ${it.salePrice}`)
+  const tiers = Array.isArray(it.volumePriceTiers)
+    ? [...it.volumePriceTiers].filter(t => t && Number.isFinite(t.minQty) && t.minQty >= 2 && Number.isFinite(t.price) && t.price >= 0).sort((a, b) => a.minQty - b.minQty)
+    : []
+  for (const t of tiers) {
+    const pct = Number.isFinite(it.salePrice) && it.salePrice > 0 && t.price < it.salePrice
+      ? ` (${Math.round((1 - (t.price / it.salePrice)) * 100)}% dto.)`
+      : ''
+    lines.push(`- Promoción: ${t.minQty} x $${t.price}${pct}`)
+  }
   lines.push(`- Moneda: ${it.currency || 'MXN'}`)
   lines.push(stocks)
   if (it.location) lines.push(`- Ubicación: ${it.location}`)
