@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 import { generateDbAgentAnswer } from './dbChat.js'
 import { type DbAuthUser, loadDbWorkspace } from './dbWorkspace.js'
 import { createAutoEval } from './posStore.js'
+import { maybeAutoConfirmRegistration } from './paymentAutoConfirm.js'
 
 dotenv.config()
 dotenv.config({ path: '.env.local', override: true })
@@ -13,6 +14,7 @@ dotenv.config({ path: '.env.local', override: true })
 const APP_ID = process.env.FACEBOOK_APP_ID || ''
 const APP_SECRET = process.env.FACEBOOK_APP_SECRET || ''
 const VERIFY_TOKEN = process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN || 'smartbisfacebook_verify_token'
+const WEBHOOK_SUBSCRIPTION_VERSION = 2
 const GRAPH_VERSION = process.env.META_GRAPH_API_VERSION || 'v22.0'
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`
 const OAUTH_REDIRECT =
@@ -45,6 +47,7 @@ export interface TenantMetaConfig {
   state: MetaBotState
   testMode: boolean
   webhookSubscribed: boolean
+  webhookSubscriptionVersion?: number
   linkedAt?: string
   updatedAt: string
 }
@@ -255,12 +258,12 @@ async function storeReferral(tenantId: string, psid: string, rawReferral: any): 
 function referralContextText(referral?: MetaReferral): string {
   if (!referral) return ''
   const fields = [
+    referral.ad_id && `ID de anuncio ${referral.ad_id}`,
     referral.ads_context_data?.ad_title && `anuncio ${referral.ads_context_data.ad_title}`,
     referral.ads_context_data?.product_id && `producto ${referral.ads_context_data.product_id}`,
     referral.ref && `referencia ${referral.ref}`,
   ].filter(Boolean)
-  if (!fields.length && referral.ad_id) fields.push(`anuncio ${referral.ad_id}`)
-  return fields.length ? `Tema de anuncio referido (usar como pista de búsqueda y confirmar en catálogo): ${fields.join(' · ')}` : ''
+  return fields.length ? `El cliente llegó desde este anuncio. Usa su ID y título para buscar la ficha correspondiente en anuncios.md; interpreta preguntas breves (por ejemplo, “precio”) respecto al producto o tema anunciado y busca además en el catálogo. El anuncio sirve para identificar qué buscar, no para afirmar precio ni disponibilidad: ${fields.join(' · ')}` : ''
 }
 
 export async function getMessagesByPSID(tenantId: string, psid: string): Promise<MetaMessageRow[]> {
@@ -442,6 +445,8 @@ export async function handleWebhookPost(req: Request, res: Response, next: NextF
             ? await storeReferral(cfg.tenantId, senderPSID, eventReferral)
             : await getStoredReferral(cfg.tenantId, senderPSID)
           await processIncomingText(cfg, senderPSID, evt.message, pageId, referral)
+        } else if (evt?.customer_information || evt?.messaging_customer_information || evt?.message?.customer_information) {
+          await processCustomerInformation(cfg, senderPSID, evt.customer_information || evt.messaging_customer_information || evt.message?.customer_information)
         } else if (evt?.referral) {
           await storeReferral(cfg.tenantId, senderPSID, evt.referral)
         } else if (evt?.postback?.referral) {
@@ -452,6 +457,12 @@ export async function handleWebhookPost(req: Request, res: Response, next: NextF
           await processRead(cfg, senderPSID, evt.read)
         } else if (evt?.message?.is_echo) {
           await processEcho(cfg, senderPSID, evt.message)
+        }
+      }
+      const changes = Array.isArray(entry?.changes) ? entry.changes : []
+      for (const change of changes) {
+        if (change?.field === 'messaging_customer_information') {
+          await processCustomerInformation(cfg, '', change.value)
         }
       }
     }
@@ -516,6 +527,45 @@ async function processEcho(_cfg: TenantMetaConfig, _psid: string, _msg: any) {
   // Por ahora solo evitamos dobles
 }
 
+async function processCustomerInformation(cfg: TenantMetaConfig, eventPSID: string, value: any): Promise<void> {
+  const source = value?.customer_information || value?.customerInformation || value?.customer || value?.profile || value?.user || value || {}
+  const psid = String(eventPSID || value?.sender?.id || value?.psid || value?.user_id || value?.userId || source?.id || '')
+  if (!psid) return
+
+  const firstName = String(source?.first_name || source?.firstName || value?.first_name || value?.firstName || '').trim()
+  const lastName = String(source?.last_name || source?.lastName || value?.last_name || value?.lastName || '').trim()
+  const fullName = String(source?.name || value?.name || '').trim()
+  const pieces = fullName.split(/\s+/).filter(Boolean)
+  const resolvedFirstName = firstName || pieces.shift() || ''
+  const resolvedLastName = lastName || pieces.join(' ')
+  const profilePic = String(source?.profile_pic || source?.profilePic || value?.profile_pic || value?.profilePic || '').trim()
+  if (!resolvedFirstName && !resolvedLastName && !profilePic) return
+
+  const messages = await getAllMessages(cfg.tenantId)
+  let changed = false
+  for (const row of messages) {
+    if (row.psid !== psid) continue
+    if (resolvedFirstName) row.userFirstName = resolvedFirstName
+    if (resolvedLastName) row.userLastName = resolvedLastName
+    if (profilePic) row.userProfilePic = profilePic
+    changed = true
+  }
+  if (changed) writeJSON(messagesPath(cfg.tenantId), messages)
+}
+
+const INBOUND_BUFFER_MS = 10_000
+interface PendingInbound {
+  cfg: TenantMetaConfig
+  psid: string
+  pageId: string
+  profile: PSIDProfile
+  referral?: MetaReferral
+  items: Array<{ id: string; mid: string; text: string }>
+  timer: ReturnType<typeof setTimeout>
+}
+const pendingInbound = new Map<string, PendingInbound>()
+const processingInboundMids = new Set<string>()
+
 async function processIncomingText(
   cfg: TenantMetaConfig,
   psid: string,
@@ -527,33 +577,56 @@ async function processIncomingText(
   const attachments: any[] = Array.isArray(message?.attachments) ? message.attachments : []
   const mid = String(message?.mid || crypto.randomUUID())
   const pageId = cfg.pageId || _pageId || 'unknown-page'
+  const dedupeKey = `${cfg.tenantId}:${mid}`
+  if (processingInboundMids.has(dedupeKey)) return
+  const existing = (await getAllMessages(cfg.tenantId)).some((m) => m.direction === 'IN' && m.mid === mid)
+  if (existing) return
+  processingInboundMids.add(dedupeKey)
 
-  // 0) Pre-health: asegurar vigencia antes de guardar (si falla la conexión al menos guardamos el mensaje)
-  try { await ensureTenantFacebookConnection(cfg.tenantId) } catch {}
+  try {
+    try { await ensureTenantFacebookConnection(cfg.tenantId) } catch {}
+    let profile: PSIDProfile = {}
+    if (cfg.pageAccessToken) profile = await fetchPSIDProfile(cfg.pageAccessToken, psid)
+    const inMsg: MetaMessageRow = {
+      id: crypto.randomUUID(), tenantId: cfg.tenantId, pageId, psid, mid,
+      userFirstName: profile.first_name, userLastName: profile.last_name,
+      userProfilePic: profile.profile_pic, direction: 'IN',
+      content: text || (attachments?.length ? `[Adjunto: ${attachments[0]?.type}]` : ''),
+      attachments: attachments.length ? attachments : undefined, referral,
+      sentToUser: false, createdAt: nowISO(),
+    }
+    await saveMessage(cfg.tenantId, inMsg)
+    const customerName = [profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || `Cliente ${psid.slice(-6)}`
+    void getMessagesByPSID(cfg.tenantId, psid)
+      .then((history) => maybeAutoConfirmRegistration(cfg.tenantId, psid, customerName, history))
+      .catch((error) => console.error('[meta] payment auto-confirm failed', error))
+    if (cfg.state !== 'START') return
 
-  // 1) Perfil del PSID (si tenemos token)
-  let profile: PSIDProfile = {}
-  if (cfg.pageAccessToken) profile = await fetchPSIDProfile(cfg.pageAccessToken, psid)
-
-  // 2) Guardar mensaje IN — multi-tenant estricto: tenantId + pageId + psid
-  const inMsg: MetaMessageRow = {
-    id: crypto.randomUUID(),
-    tenantId: cfg.tenantId,
-    pageId,
-    psid,
-    mid,
-    userFirstName: profile.first_name,
-    userLastName: profile.last_name,
-    userProfilePic: profile.profile_pic,
-    direction: 'IN',
-    content: text || (attachments?.length ? `[Adjunto: ${attachments[0]?.type}]` : ''),
-    attachments: attachments.length ? attachments : undefined,
-    referral,
-    sentToUser: false,
-    createdAt: nowISO(),
+    const key = `${cfg.tenantId}:${psid}`
+    const current = pendingInbound.get(key)
+    const items = current?.items || []
+    items.push({ id: inMsg.id, mid, text: inMsg.content })
+    if (current) clearTimeout(current.timer)
+    const pending: PendingInbound = {
+      cfg, psid, pageId, profile, referral: referral || current?.referral,
+      items, timer: setTimeout(() => {
+        pendingInbound.delete(key)
+        const joined = items.map((item) => item.text).filter(Boolean).join('\n')
+        void processIncomingBatch(cfg, psid, joined, items[items.length - 1]?.mid || mid,
+          new Set(items.map((item) => item.id)), pageId, profile, referral || current?.referral)
+            .catch((error) => console.error('[meta] inbound buffer processing failed', error))
+      }, INBOUND_BUFFER_MS),
+    }
+    pendingInbound.set(key, pending)
+  } finally {
+    processingInboundMids.delete(dedupeKey)
   }
-  await saveMessage(cfg.tenantId, inMsg)
+}
 
+async function processIncomingBatch(
+  cfg: TenantMetaConfig, psid: string, text: string, mid: string,
+  batchMessageIds: Set<string>, pageId: string, profile: PSIDProfile, referral?: MetaReferral,
+): Promise<void> {
   // 3) Evaluar bot state
   if (cfg.state !== 'START') return
 
@@ -674,14 +747,14 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
     autoEval = res?.autoEval || null
   } catch (e: any) {
     console.error('[meta] LLM error', e?.message || e)
-    // Mensaje puente seguro: no afirma datos y permite que la conversación siga
-    // con un asesor, sin exponer el fallo interno ni mencionar automatización.
-    answer = 'Con gusto te apoyamos con ese tema. Escríbenos por WhatsApp y un asesor te confirma los detalles.'
+    // Fail closed: si no se pudo generar y validar una respuesta respaldada,
+    // no se envía un mensaje que pueda aparentar falta de información.
+    answer = ''
     autoEval = {
       id: '',
-      category: 'correct',
+      category: 'judge_failed',
       judgeReason: `Excepción en generateDbAgentAnswer: ${e?.message || String(e)}`.slice(0, 600),
-      blocked: false,
+      blocked: true,
     }
     try {
       const saved = await createAutoEval(cfg.tenantId, {
@@ -689,8 +762,8 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
         triggerMessageId: mid,
         triggerMessageText: text,
         botAnswerText: answer,
-        category: 'correct',
-        judgeReason: 'Se envió una respuesta puente para que un asesor confirme el detalle tras una interrupción técnica.',
+        category: 'judge_failed',
+        judgeReason: 'No se envió respuesta porque falló la generación o validación de una respuesta respaldada.',
         matchedBlocks: [],
       })
       autoEval.id = saved.id
@@ -698,9 +771,19 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
   }
 
   const blockedByAutocurator = !!autoEval?.blocked
+  const unsafeFallback = !answer.trim() || /no cuento con la información|whatsapp de mi superior/i.test(answer)
+  if (!blockedByAutocurator && unsafeFallback) {
+    autoEval = {
+      ...(autoEval || {}),
+      category: 'noinfo',
+      blocked: true,
+      judgeReason: 'Respuesta bloqueada porque no contiene información respaldada o usa una derivación de falta de información.',
+    }
+  }
   const evalCategory = autoEval?.category || undefined
   const evalId = autoEval?.id || undefined
   const evalReason = autoEval?.judgeReason || ''
+  const effectiveBlockedByAutocurator = blockedByAutocurator || unsafeFallback
 
   // Si el cliente escribió de nuevo mientras se generaba, esta respuesta ya no aplica:
   // la siguiente ronda responderá a todos los mensajes juntos.
@@ -712,7 +795,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
 
   // 7) TEST MODE: NO ENVIAR. Guardar OUT_BOT sentToUser=false
   if (cfg.testMode) {
-    const contentForLog = blockedByAutocurator
+    const contentForLog = effectiveBlockedByAutocurator
       ? `[🧪 TEST MODE · BLOQUEADO POR AUTO-CURADOR · ${String(evalCategory).toUpperCase()}]\n${evalReason}\n--- Respuesta original no enviada ---\n${answer || '(sin texto)'}`
       : answer
     const outMsg: MetaMessageRow = {
@@ -728,7 +811,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
       sentToUser: false,
       createdAt: nowISO(),
       testMode: true,
-      blockedByAutocurator,
+      blockedByAutocurator: effectiveBlockedByAutocurator,
       autoEvalId: evalId,
       autoEvalCategory: evalCategory,
     }
@@ -743,7 +826,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
   // 8) AUTO-CURADOR: si fue bloqueado (error / noinfo / judge_failed),
   //    NO ENVIAR NADA al cliente (silencio total). Guardar en el historial con
   //    etiqueta de bloqueado para que el humano lo vea y responda manualmente.
-  if (blockedByAutocurator) {
+  if (effectiveBlockedByAutocurator) {
     const visibleContent =
       `[⛔ BLOQUEADO POR AUTO-CURADOR · ${String(evalCategory).toUpperCase()}]\n`
       + `Motivo: ${evalReason || '(sin justificación)'}\n`
@@ -850,7 +933,10 @@ export async function adminSendMessage(
 // =========================
 export function buildOAuthLoginURL(tenantId: string, redirectFrontendSuccess = '/settings?meta=1'): string {
   const state = Buffer.from(JSON.stringify({ t: tenantId, n: crypto.randomBytes(6).toString('hex'), r: redirectFrontendSuccess })).toString('base64url')
-  const scope = 'pages_show_list,pages_messaging,pages_manage_metadata,public_profile'
+  // ads_management includes read access to ad accounts and ads. Meta may not
+  // expose ads_read for this app's current use case, so request the permission
+  // that is actually available and include its Page permission dependency.
+  const scope = 'pages_show_list,pages_messaging,pages_manage_metadata,pages_read_engagement,public_profile,ads_management'
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`
     + `?client_id=${encodeURIComponent(APP_ID)}`
     + `&redirect_uri=${encodeURIComponent(OAUTH_REDIRECT)}`
@@ -895,6 +981,14 @@ export async function listUserPages(longLivedUserToken: string): Promise<{ succe
     if (!r.ok || data?.error) {
       const why = String(data?.error?.message || data?.error?.error_user_msg || `HTTP ${r.status} Graph API /me/accounts`)
       console.warn('[metaMessenger] listUserPages Graph error:', why, data?.error || null)
+      const code = Number(data?.error?.code)
+      if (code === 4 || data?.error?.is_transient || r.status === 429 || r.status >= 500) {
+        return {
+          success: false,
+          pages: [],
+          error: 'Meta limitó temporalmente las consultas de la app (#4). Espera a que se libere el límite y pulsa “Reintentar consulta de páginas”; no vuelvas a iniciar sesión todavía.',
+        }
+      }
       return { success: false, pages: [], error: why }
     }
     if (!Array.isArray(data?.data)) {
@@ -910,7 +1004,7 @@ export async function listUserPages(longLivedUserToken: string): Promise<{ succe
 
 export async function subscribePageToApp(pageAccessToken: string): Promise<boolean> {
   try {
-    const url = `${GRAPH_BASE}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_optins,messaging_optouts,message_reads,message_echoes,message_deliveries,messaging_referrals&access_token=${encodeURIComponent(pageAccessToken)}`
+    const url = `${GRAPH_BASE}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks,messaging_optins,messaging_optouts,message_reads,message_echoes,message_deliveries,messaging_referrals,messaging_customer_information&access_token=${encodeURIComponent(pageAccessToken)}`
     const r = await fetch(url, { method: 'POST' })
     const data = await r.json() as any
     return Boolean(data?.success)
@@ -921,40 +1015,152 @@ export async function subscribePageToApp(pageAccessToken: string): Promise<boole
 // Token health & renovación preventiva (Solución: conexión no se pierde)
 // =========================
 
-/**
- * Valida un access_token (page o user) contra debug_token y retorna
- * su info vigente (scopes, expire_at, type). Si es inválido/expirado retorna null.
- */
-export async function debugAccessToken(accessToken: string): Promise<{
+type DebugTokenInfo = {
   isValid: boolean
   type?: string
   expires_at?: number
   scopes?: string[]
   granterScopes?: string[]
   error?: string
-} | null> {
+}
+
+const DEBUG_TOKEN_CACHE_MS = 5 * 60 * 1000
+const debugTokenCache = new Map<string, { expiresAt: number; value: DebugTokenInfo | null }>()
+
+/**
+ * Valida un access_token (page o user) contra debug_token y retorna
+ * su info vigente (scopes, expire_at, type). Si es inválido/expirado retorna null.
+ */
+export async function debugAccessToken(accessToken: string): Promise<DebugTokenInfo | null> {
   if (!accessToken) return null
   const at = String(accessToken).trim()
   if (!at) return null
+  const cached = debugTokenCache.get(at)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+  const remember = (value: DebugTokenInfo | null, ttl = DEBUG_TOKEN_CACHE_MS) => {
+    if (debugTokenCache.size > 1000) {
+      const now = Date.now()
+      for (const [key, entry] of debugTokenCache) if (entry.expiresAt <= now) debugTokenCache.delete(key)
+      if (debugTokenCache.size > 1000) debugTokenCache.clear()
+    }
+    debugTokenCache.set(at, { expiresAt: Date.now() + ttl, value })
+    return value
+  }
   try {
     const appToken = APP_ID && APP_SECRET ? `${APP_ID}|${APP_SECRET}` : ''
-    if (!appToken) return { isValid: true } // sin credenciales app-wide no podemos debug, asumir ok
+    if (!appToken) return remember({ isValid: true }) // sin credenciales app-wide no podemos debug, asumir ok
     const url = `${GRAPH_BASE}/debug_token?input_token=${encodeURIComponent(at)}&access_token=${encodeURIComponent(appToken)}`
     const r = await fetch(url)
     const data = await r.json() as any
     const d = data?.data
-    if (!d) return { isValid: false, error: 'no_data' }
-    if (d?.error) return { isValid: false, error: String(d.error?.message || 'debug error') }
-    return {
+    if (!r.ok || data?.error || !d || d?.error) {
+      const code = Number(data?.error?.code || d?.error?.code)
+      if (code === 4 || code === 17 || data?.error?.is_transient || r.status === 429 || r.status >= 500) {
+        console.warn(`[meta] debug_token temporarily unavailable (code=${code || r.status}); preserving page connection`)
+      }
+      // A failed inspection does not prove revocation; cache briefly to avoid
+      // hammering Graph API while this app is rate limited or unreachable.
+      return remember(null, code === 4 || code === 17 || r.status === 429 || r.status >= 500 ? 60_000 : 30_000)
+    }
+    return remember({
       isValid: Boolean(d.is_valid),
       type: d.type,
       expires_at: typeof d.expires_at === 'number' ? d.expires_at : undefined,
       scopes: Array.isArray(d.scopes) ? d.scopes : [],
       granterScopes: Array.isArray(d.granted_scopes) ? d.granted_scopes : [],
-    }
-  } catch (e: any) {
-    return { isValid: false, error: e?.message || 'network' }
+    })
+  } catch {
+    return remember(null, 60_000)
   }
+}
+
+export async function fetchCurrentPageAds(cfg: TenantMetaConfig): Promise<{
+  ads: Array<{ id: string; name: string; status: string; campaign?: string; title?: string; body?: string; description?: string; callToAction?: string }>
+  accountsChecked: number
+}> {
+  const token = String(cfg.userLongLivedToken || '').trim()
+  if (!token) throw new Error('Configuración inválida: vuelve a conectar Facebook para autorizar el acceso a cuentas publicitarias.')
+  const tokenInfo = await debugAccessToken(token)
+  if (tokenInfo?.isValid === false) throw new Error('Configuración inválida: la autorización de Facebook venció. Vuelve a conectar la cuenta.')
+  const adReadPermissions = new Set([...(tokenInfo?.scopes || []), ...(tokenInfo?.granterScopes || [])])
+  if (tokenInfo?.scopes && !adReadPermissions.has('ads_read') && !adReadPermissions.has('ads_management')) {
+    throw new Error('Facebook no concedió ads_management (o ads_read). Vuelve a conectar Facebook y acepta el permiso de administración de anuncios.')
+  }
+
+  async function graphGet(url: URL) {
+    let current: URL | null = url
+    const pages: any[] = []
+    for (let page = 0; current && page < 20; page += 1) {
+      if (current.hostname !== 'graph.facebook.com') throw new Error('Meta devolvió una página de resultados inválida.')
+      const response = await fetch(current)
+      const payload = await response.json() as any
+      if (!response.ok || payload?.error) {
+        const code = payload?.error?.code
+        const message = String(payload?.error?.error_user_msg || payload?.error?.message || `HTTP ${response.status}`)
+        if (code === 10 || code === 100 || /permission|ads_read|ads_management|advertising account/i.test(message)) {
+          throw new Error('Meta rechazó la consulta de anuncios. Confirma que autorizaste ads_management y que tu usuario tiene acceso a la cuenta publicitaria; después vuelve a conectar Facebook.')
+        }
+        throw new Error(`Meta no pudo consultar los anuncios: ${message.slice(0, 300)}`)
+      }
+      if (Array.isArray(payload?.data)) pages.push(...payload.data)
+      const next = payload?.paging?.next
+      current = typeof next === 'string' ? new URL(next) : null
+    }
+    return pages
+  }
+
+  const accountsUrl = new URL(`${GRAPH_BASE}/me/adaccounts`)
+  accountsUrl.searchParams.set('fields', 'id,name,account_status')
+  accountsUrl.searchParams.set('limit', '100')
+  accountsUrl.searchParams.set('access_token', token)
+  const accounts = await graphGet(accountsUrl)
+  const activeStatuses = ['ACTIVE', 'PAUSED', 'IN_PROCESS', 'WITH_ISSUES']
+  const effectiveStatuses = JSON.stringify(activeStatuses)
+  const ads: Array<{ id: string; name: string; status: string; campaign?: string; title?: string; body?: string; description?: string; callToAction?: string }> = []
+
+  for (const account of accounts) {
+    const accountId = String(account?.id || '')
+    if (!accountId) continue
+    const adsUrl = new URL(`${GRAPH_BASE}/${accountId}/ads`)
+    adsUrl.searchParams.set('fields', 'id,name,status,effective_status,campaign{name},creative{id,name,title,body,link_description,call_to_action_type,actor_id,object_story_id,effective_object_story_id,object_story_spec,asset_feed_spec}')
+    adsUrl.searchParams.set('effective_status', effectiveStatuses)
+    adsUrl.searchParams.set('limit', '100')
+    adsUrl.searchParams.set('access_token', token)
+    const accountAds = await graphGet(adsUrl)
+    for (const ad of accountAds) {
+      const creative = ad?.creative || {}
+      const storySpec = creative.object_story_spec || {}
+      const pageId = String(cfg.pageId || '')
+      const storyId = String(creative.effective_object_story_id || creative.object_story_id || '')
+      const belongsToPage = !pageId || String(creative.actor_id || '') === pageId
+        || String(storySpec.page_id || '') === pageId || storyId.startsWith(`${pageId}_`)
+      if (!belongsToPage) continue
+
+      const linkData = storySpec.link_data || {}
+      const videoData = storySpec.video_data || {}
+      const photoData = storySpec.photo_data || {}
+      const dynamic = creative.asset_feed_spec || {}
+      const collect = (values: any[]) => Array.from(new Set(values.flatMap((value) => {
+        if (typeof value === 'string') return [value.trim()]
+        if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? item.trim() : String(item?.text || '').trim())
+        return []
+      }).filter(Boolean))).join('\n')
+
+      ads.push({
+        id: String(ad?.id || ''),
+        name: String(ad?.name || creative.name || 'Anuncio sin nombre'),
+        status: String(ad?.effective_status || ad?.status || 'UNKNOWN'),
+        campaign: String(ad?.campaign?.name || ''),
+        title: collect([creative.title, linkData.name, videoData.title, photoData.title, dynamic.titles]),
+        body: collect([creative.body, linkData.message, videoData.message, photoData.caption, dynamic.bodies]),
+        description: collect([creative.link_description, linkData.description, dynamic.descriptions]),
+        callToAction: String(creative.call_to_action_type || linkData.call_to_action?.type || ''),
+      })
+    }
+  }
+
+  const uniqueAds = Array.from(new Map(ads.filter((ad) => ad.id).map((ad) => [ad.id, ad])).values())
+  return { ads: uniqueAds, accountsChecked: accounts.length }
 }
 
 /**
@@ -1089,6 +1295,9 @@ export async function ensureTenantFacebookConnection(tenantId: string): Promise<
   // 3. Validar honestamente Page Access Token con debug_token si existe
   if (cfg.pageAccessToken) {
     const dbg = await debugAccessToken(cfg.pageAccessToken)
+    // A rate limit, network failure, or app configuration error is not proof
+    // of revocation. Preserve the page connection and skip further Graph calls.
+    if (!dbg) return cfg
     const pageTokenInvalid = dbg && !dbg.isValid
     if (pageTokenInvalid) {
       console.warn(`[meta] ensureTenantFacebookConnection: tenant=${cfg.tenantId} pageAccessToken INVALIDADO: ${dbg?.error || 'revoked'}. Limpiando pageId para marcar desconectado honestamente.`)
@@ -1108,10 +1317,13 @@ export async function ensureTenantFacebookConnection(tenantId: string): Promise<
       await saveTenantMetaConfig(cfg.tenantId, cleared)
     } else {
       // El token sigue válido → asegurarse webhookSubscribed true
-      if (!cfg.webhookSubscribed) {
+      if (!cfg.webhookSubscribed || cfg.webhookSubscriptionVersion !== WEBHOOK_SUBSCRIPTION_VERSION) {
         const ok = await subscribePageToApp(cfg.pageAccessToken)
         cfg.webhookSubscribed = ok
-        if (ok) void saveTenantMetaConfig(cfg.tenantId, { webhookSubscribed: true })
+        if (ok) {
+          cfg.webhookSubscriptionVersion = WEBHOOK_SUBSCRIPTION_VERSION
+          void saveTenantMetaConfig(cfg.tenantId, { webhookSubscribed: true, webhookSubscriptionVersion: WEBHOOK_SUBSCRIPTION_VERSION })
+        }
       }
       // Propagar expires_at si debug_token nos lo dice (más preciso).
       if (dbg?.expires_at && cfg.pageTokenExpiresAt) {

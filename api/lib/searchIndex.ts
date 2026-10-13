@@ -52,7 +52,56 @@ const QUERY_STOP_WORDS = new Set([
   'las',
   'si', 'no', 'ok', 'okay', 'vale', 'perfecto', 'genial', 'bien', 'claro',
   'gracias', 'dale', 'listo',
+  'producto', 'productos', 'curso', 'cursos', 'precio', 'precios',
+  'cuanto', 'cuantos', 'cuanta', 'cuantas', 'kit', 'kits',
+  'informacion', 'info', 'detalle', 'detalles',
 ])
+
+const QUERY_ENTITY_STOP_WORDS = new Set([
+  ...QUERY_STOP_WORDS,
+  'quiero', 'necesito', 'busco', 'saber', 'dame', 'dime', 'favor',
+  'tiene', 'tienen', 'hay', 'venden', 'vendemos', 'ofrecen', 'ofrecemos',
+  'disponible', 'disponibles', 'existencia', 'existencias', 'stock',
+  'online', 'contexto', 'respuesta', 'corta', 'mencionados', 'mencionadas',
+  'asesor', 'asesora', 'mensajes', 'anteriores',
+])
+
+function queryEntityWords(query: string) {
+  return normalizeText(query)
+    .split(' ')
+    .filter((word) => word.length >= 4 && !QUERY_ENTITY_STOP_WORDS.has(word))
+}
+
+function blockMatchesEntityWord(block: IndexedBlock, word: string) {
+  const normalizedWord = normalizeText(word)
+  const compactWord = normalizedWord.replace(/\s+/g, '')
+  const compactTitle = block.normalizedTitle.replace(/\s+/g, '')
+  const compactBody = block.normalizedBody.replace(/\s+/g, '')
+  return Boolean(
+    block.titleTokens.includes(normalizedWord) ||
+    block.normalizedTitle.includes(normalizedWord) ||
+    block.bodyTokens.includes(normalizedWord) ||
+    block.normalizedBody.includes(normalizedWord) ||
+    compactTitle.includes(compactWord) ||
+    compactBody.includes(compactWord) ||
+    (block.fields.name && normalizeText(block.fields.name).includes(normalizedWord)),
+  )
+}
+
+function filterToEntityMatches(blocks: IndexedBlock[], query: string) {
+  const entities = queryEntityWords(query)
+  if (entities.length === 0) return blocks
+
+  const coveredEntities = new Set(
+    entities.filter((entity) => blocks.some((block) => blockMatchesEntityWord(block, entity))),
+  )
+
+  // Avoid returning accidental matches for generic terms when a specific
+  // entity from the query is absent from the indexed titles.
+  if (coveredEntities.size !== entities.length) return []
+
+  return blocks.filter((block) => entities.some((entity) => blockMatchesEntityWord(block, entity)))
+}
 
 function extractHintedCourseNames(query: string): { hintedNames: string[]; hasContextMarker: boolean } {
   if (!query) return { hintedNames: [], hasContextMarker: false }
@@ -745,6 +794,9 @@ export function searchIndex(index: SearchIndex, query: string): SearchContextRes
   const candidateBlocks = intent.wantsLocation
     ? rankedBlocks.filter((block) => block.document.section === 'general')
     : rankedBlocks
+  const entityMatchedBlocks = intent.wantsList
+    ? candidateBlocks
+    : filterToEntityMatches(candidateBlocks, query)
 
   if (intent.wantsList) {
     const summary = buildStructuredCatalogSummary(candidateBlocks, MAX_CONTEXT_CHARS)
@@ -766,7 +818,7 @@ export function searchIndex(index: SearchIndex, query: string): SearchContextRes
   const matchedBlocks: IndexedBlock[] = []
   const selectedBlocks: string[] = []
 
-  for (const block of candidateBlocks) {
+  for (const block of entityMatchedBlocks) {
     if (remainingChars <= 0 || selectedBlocks.length >= MAX_CONTEXT_BLOCKS) {
       break
     }

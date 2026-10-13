@@ -29,3 +29,7 @@ dist-ssr
 
 smartbis2-deploy.tar.gz
 .trae/
+
+# Local WhatsApp sessions and tenant runtime state
+clientsdata/_whatsapp_auth/
+clientsdata/_whatsapp_store/

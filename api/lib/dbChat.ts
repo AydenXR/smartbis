@@ -162,9 +162,9 @@ Para fechas de cursos, el calendario recuperado ahora mismo de los documentos ac
 ${ragDateAuthorityBlock}
 
 REGLA DE ATENCIÓN AL CLIENTE: responde como una persona del equipo, de forma cálida, directa y natural. No reveles ni insinúes que eres una IA, bot, modelo o sistema.
-Usa únicamente datos respaldados por la información disponible. Si falta un dato, no digas “no tengo información”, “no cuento con la información”, “no sé” ni “no puedo responder”. Ofrece confirmar el detalle con un asesor por WhatsApp o pregunta una aclaración concreta si el mensaje es ambiguo. No inventes el dato faltante ni detalles de contacto que no aparezcan en las fuentes.
+Usa únicamente datos respaldados por la información disponible. Si falta un dato, responde exactamente [NO_RESPONDER] para que el sistema bloquee el envío; nunca muestres al cliente una derivación automática ni inventes el dato faltante. Si el mensaje es ambiguo pero sí hay información relacionada, formula una pregunta concreta usando únicamente esa información.
 
-${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes y ofrece confirmar el detalle con un asesor):
+${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes; si no está, responde [NO_RESPONDER]):
 ${contextBlock}`
 }
 
@@ -262,23 +262,30 @@ async function requestCompletion(args: {
 
   let requestedMaxTokens = args.maxTokens
 
+  const supportsReasoningEffort = /gpt-oss|deepseek|qwq|o1|o3/i.test(args.model || '') || /groq\.com/i.test(args.baseUrl || '')
+
   for (let mi = 0; mi < modelsToTry.length; mi += 1) {
     const activeModel = modelsToTry[mi]
+    const modelSupportsReasoning = supportsReasoningEffort || /gpt-oss|deepseek|qwq|o1|o3/i.test(activeModel)
     for (let attempt = 0; attempt < 3; attempt += 1) {
       let response: Response | null = null
       try {
+        const bodyPayload: any = {
+          model: activeModel,
+          temperature: 0.2,
+          max_tokens: requestedMaxTokens,
+          messages: args.messages,
+        }
+        if (modelSupportsReasoning) {
+          bodyPayload.reasoning_effort = 'low'
+        }
         response = await fetch(args.baseUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${args.apiKey}`,
           },
-          body: JSON.stringify({
-            model: activeModel,
-            temperature: 0.2,
-            max_tokens: requestedMaxTokens,
-            messages: args.messages,
-          }),
+          body: JSON.stringify(bodyPayload),
           signal: AbortSignal.timeout(90000),
         })
       } catch (err: any) {
@@ -396,11 +403,12 @@ NUNCA marcar "error" por:
 
 Categoría 3) noinfo
 Cuándo usar:
-  a) El sistema NO recuperó ningún documento relevante (matchedBlocks vacío o 0),
-     O los documentos recuperados NO contienen la información para responder la pregunta,
+  a) Ni los documentos recuperados ni las reglas operativas autorizadas del prompt del tenant contienen la información para responder la pregunta,
      Y por lo tanto el bot tuvo que responder sin fuente, o pedir disculpas, o derivar a WhatsApp.
 
-REGLA DE ATENCIÓN SEGURA: si falta información, es CORRECT una respuesta natural que ofrezca confirmar el dato con un asesor o pida una aclaración concreta, siempre que no afirme hechos sin respaldo. No marques noinfo solo porque esa respuesta no use documentos. Son incorrectas las frases que dicen que el bot no tiene información, no sabe, o revelan que es una IA/bot.
+REGLA DE SILENCIO: si falta información para responder, la categoría DEBE ser "noinfo", aunque el bot ofrezca confirmar el dato con un asesor o derive a WhatsApp. Las respuestas que dicen que no hay información, que no se sabe el dato o que derivan una pregunta no respaldada por documentos NO son correctas: deben bloquearse para que no se envíen al cliente. Solo clasifica como "correct" una derivación cuando los documentos sí respaldan la información principal solicitada.
+
+REGLA DE FUENTE AUTORIZADA PARA PAGOS: las reglas explícitas del prompt del tenant sobre inscripción, ubicación, modalidad, métodos de pago, PayPal, Stripe, cuentas y enlaces oficiales son una fuente autorizada de primer nivel. No marques como "error" o "noinfo" una respuesta de pagos solo porque esos datos no aparezcan en matchedBlocks, siempre que la respuesta respete literalmente el bloque autorizado del prompt. Si el prompt contiene un flujo específico para la situación actual, una respuesta de falta de información es incorrecta.
 
 INSTRUCCIONES DE SALIDA (OBLIGATORIO, SIN TEXTO EXTRA):
 Responde ÚNICAMENTE con un bloque JSON que tenga esta estructura y NADA MÁS:
@@ -488,6 +496,12 @@ async function runAutocuratorJudge(args: {
   const now = getCurrentDateTimeSpanish()
   const ragSummary = args.matchedBlocksText || '(NO hubo documentos recuperados por el RAG — matchedBlocks vacío)'
   const promptSnippet = (args.tenantPrompt || '').slice(0, 2500)
+  const paymentStart =
+    /(?:===+\s*)?flujos?\s+de\s+inscripci[oó]n\s*\((?:cursos|solo)|(?:===+\s*)?flujo\s+a\)\s*inscripci[oó]n|bloque\s+m[eé]xico|(?:===+\s*)?reglas\s+(?:prioritarias\s+de\s+)?inscripci[oó]n\s+y\s+pago/i.exec(args.tenantPrompt || '')
+    || /flujos?\s+de\s+inscripci[oó]n|m[eé]todos?\s+de\s+pago|bloque\s+internacional/i.exec(args.tenantPrompt || '')
+  const paymentPolicy = paymentStart
+    ? (args.tenantPrompt || '').slice(paymentStart.index, Math.min((args.tenantPrompt || '').length, paymentStart.index + 16000)).trim()
+    : ''
   const fechaHoyBlock = `=== FECHA ACTUAL (HOY) — REFERENCIA OBLIGATORIA PARA VALIDACIÓN TEMPORAL ===
 Fecha y hora actual: ${now.fechaCompleta} (ISO: ${now.fechaISO}).
 Esto significa que CUALQUIER fecha de curso/evento/promoción ANTERIOR a ${now.fechaISO} = FECHA PASADA = NO DISPONIBLE.
@@ -502,6 +516,9 @@ Si la respuesta del bot ofrece como disponible una fecha anterior a HOY → cate
       content:
 `${fechaHoyBlock}=== PROMPT DEL TENANT (primeras ~2500 chars) ===
 ${promptSnippet || '(sin prompt del tenant)'}
+
+=== REGLAS AUTORIZADAS DE PAGOS DEL PROMPT ===
+${paymentPolicy || '(no se encontró una sección de pagos explícita)'}
 
 === DOCUMENTOS RECUPERADOS POR RAG (matchedBlocks) ===
 ${ragSummary}
@@ -575,21 +592,59 @@ function matchedBlocksToRefs(blocks: any[]): AutoEvalMatchedBlockRef[] {
   })
 }
 
-const NO_INFORMATION_REPLY = 'Con gusto te apoyamos con ese tema. Escríbenos por WhatsApp y un asesor te confirma los detalles.'
 const NO_INFORMATION_PHRASE = /(?:no\s+(?:cuento|contamos|tenemos|tengo|dispongo|disponemos)\s+(?:con\s+)?(?:esa\s+)?(?:informaci[oó]n|datos)|no\s+hay\s+(?:informaci[oó]n|datos)|no\s+(?:s[eé]|sabemos|puedo\s+responder|podemos\s+responder)|no\s+estoy\s+capacitado\s+para\s+responder|(?:soy|como)\s+(?:una?\s+)?(?:ia|inteligencia\s+artificial|bot|asistente\s+virtual))/i
 
-function replaceNoInformationReply(answer: string): string {
-  return NO_INFORMATION_PHRASE.test(answer) ? NO_INFORMATION_REPLY : answer
+const MEDICAL_ELIGIBILITY_NOTE = 'Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.'
+
+function ensureMedicalEligibilityNote(answer: string, userMessage: string): string {
+  const question = userMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const isCoveredCourse =
+    /rinomodelacion/.test(question) ||
+    /russian\s*lips?/.test(question) ||
+    /hiperhidrosis/.test(question) ||
+    /(?:botox|toxina botulinica).{0,40}tercio\s+(?:superior|inferior)/.test(question) ||
+    /tercio\s+(?:superior|inferior).{0,40}(?:botox|toxina botulinica)/.test(question)
+
+  if (!isCoveredCourse || !/curso/i.test(answer) || answer.includes(MEDICAL_ELIGIBILITY_NOTE)) return answer
+
+  // Insert it as its own paragraph before the closing question when there is one.
+  const paragraphs = answer.trim().split(/\n\s*\n/)
+  let closingIndex = -1
+  for (let index = paragraphs.length - 1; index >= 0; index -= 1) {
+    if (/\?\s*$/.test(paragraphs[index].trim()) && /(?:te gustar[ií]a|te interesa|quieres|requiere?s|tienes)/i.test(paragraphs[index])) {
+      closingIndex = index
+      break
+    }
+  }
+  paragraphs.splice(closingIndex >= 0 ? closingIndex : paragraphs.length, 0, MEDICAL_ELIGIBILITY_NOTE)
+  return paragraphs.join('\n\n')
 }
 
 async function buildDbDocumentsContextBlock(tenantId: string, query = '') {
   const index = await getDbTenantSearchIndex(tenantId)
   const result = searchIndex(index, query) as any
+  const matchedBlocks = Array.isArray(result.matchedBlocks) ? result.matchedBlocks : []
+  const queryTokens = normalizeText(query)
+    .split(' ')
+    .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
+  const scheduleBlock = index.blocks.find((block) => {
+    if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) return false
+    return queryTokens.some((token) => normalizeText(block.body).includes(token))
+  })
+  const hasScheduleBlock = matchedBlocks.some((block: IndexedBlock) => block.kind === 'schedule' || /^\[FECHAS_CURSOS\]/im.test(block.body))
+  const completeMatchedBlocks =
+    scheduleBlock && !hasScheduleBlock
+      ? [...matchedBlocks.slice(0, 3), scheduleBlock]
+      : matchedBlocks
+  const contextBlock =
+    scheduleBlock && !hasScheduleBlock
+      ? `${String(result.contextBlock || '').trim()}\n\n[Documento de calendario]\n${scheduleBlock.body}`.trim()
+      : result.contextBlock
 
   return {
     documents: result.documents,
-    contextBlock: result.contextBlock,
-    matchedBlocks: (result.matchedBlocks || []).slice(0, 4) as any[],
+    contextBlock,
+    matchedBlocks: completeMatchedBlocks.slice(0, 4) as IndexedBlock[],
     intent: (result.intent || {}) as Record<string, boolean>,
   }
 }
@@ -626,6 +681,8 @@ const COURSE_QUERY_STOP_WORDS = new Set([
   'precio', 'precios', 'costo', 'fecha', 'fechas', 'disponible', 'disponibles',
   'online', 'presencial', 'modalidad', 'de', 'del', 'la', 'las', 'el', 'los',
   'y', 'con', 'para', 'sobre',
+  'bot', 'asesor', 'usuario', 'cliente', 'instituto', 'institute', 'salubel',
+  'mexico', 'hermosillo', 'sonora', 'hora', 'horas', 'dias', 'dia', 'hola', 'gracias',
 ])
 
 type ScheduledCourseDate = {
@@ -645,7 +702,7 @@ function getUpcomingCourseDates(
       .split(' ')
       .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token)),
   )
-  if (queryTokens.size < 2) return []
+  if (!queryTokens.size) return []
 
   const currentDate = getHermosilloMonthDay(now)
   const matchingDates = new Map<string, ScheduledCourseDate>()
@@ -675,9 +732,12 @@ function getUpcomingCourseDates(
       const courseTokens = normalizeText(courseName)
         .split(' ')
         .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
-      const matchedTokenCount = courseTokens.filter((token) => queryTokens.has(token)).length
+      const matchedTokenCount = courseTokens.filter((token) =>
+        Array.from(queryTokens).some((queryToken) => queryToken === token || (queryToken.length >= 5 && token.length >= 5 && (token.startsWith(queryToken) || queryToken.startsWith(token)))),
+      ).length
       const smallerTokenCount = Math.min(courseTokens.length, queryTokens.size)
-      if (matchedTokenCount < 2 || matchedTokenCount / smallerTokenCount < 0.8) continue
+      const requiredMatches = Math.min(2, courseTokens.length, queryTokens.size)
+      if (matchedTokenCount < requiredMatches || matchedTokenCount / smallerTokenCount < 0.8) continue
 
       if (month < currentDate.month || (month === currentDate.month && day < currentDate.day)) continue
 
@@ -695,8 +755,32 @@ export function applyUpcomingCourseDateCorrection(
   matchedBlocks: IndexedBlock[],
   now = new Date(),
 ) {
+  // En mensajes de flujo de pagos autorizados, nunca agregar fechas de cursos arbitrarias
+  const isPaymentAnswer =
+    /(?:santander|clabe|oxxo|banamex|stripe|paypal)/i.test(answer) &&
+    /(?:cuenta|dep[oó]sito|transferencia|comprobante)/i.test(answer)
+  if (isPaymentAnswer) return answer
+
   const upcomingDates = getUpcomingCourseDates(question, matchedBlocks, now)
   if (!upcomingDates.length) return answer
+
+  // Agrupar fechas por curso para no mezclar nombres con fechas ajenas
+  const datesByCourse = new Map<string, ScheduledCourseDate[]>()
+  for (const date of upcomingDates) {
+    const list = datesByCourse.get(date.courseName) || []
+    list.push(date)
+    datesByCourse.set(date.courseName, list)
+  }
+
+  const normAnswer = normalizeText(answer)
+  // Filtrar solo los cursos que realmente se mencionan en la respuesta o de los que se preguntó
+  const relevantCourseEntries = Array.from(datesByCourse.entries()).filter(([cName]) => {
+    const normC = normalizeText(cName)
+    if (normAnswer.includes(normC)) return true
+    const significantTokens = normC.split(' ').filter((t) => t.length > 3 && !COURSE_QUERY_STOP_WORDS.has(t))
+    return significantTokens.length > 0 && significantTokens.every((t) => normAnswer.includes(t))
+  })
+  if (!relevantCourseEntries.length) return answer
 
   const monthFormatter = new Intl.DateTimeFormat('es-MX', {
     month: 'long',
@@ -706,20 +790,28 @@ export function applyUpcomingCourseDateCorrection(
     year: 'numeric',
     timeZone: 'America/Hermosillo',
   }).format(now)
-  const dateSummary = upcomingDates
-    .map((date) => {
-      const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
-      return `${date.day} de ${monthName} de ${year} (${date.modality})`
-    })
-    .join(' y ')
-  const correction =
-    upcomingDates.length === 1
-      ? `La próxima fecha de ${upcomingDates[0].courseName} es el ${dateSummary}.`
-      : `Las próximas fechas de ${upcomingDates[0].courseName} son el ${dateSummary}.`
+
+  const corrections = relevantCourseEntries.map(([courseName, dates]) => {
+    const dateSummary = dates
+      .map((date) => {
+        const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
+        return `${date.day} de ${monthName} de ${year} (${date.modality})`
+      })
+      .join(' y ')
+    return dates.length === 1
+      ? `La próxima fecha de ${courseName} es el ${dateSummary}.`
+      : `Las próximas fechas de ${courseName} son el ${dateSummary}.`
+  })
+
   const paragraphs = answer.split(/\n{2,}/)
   const correctedParagraphs = paragraphs.map((paragraph) => {
     const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [paragraph]
     const retainedSentences = sentences.filter((sentence) => {
+      const repeatsAuthoritativeDate = upcomingDates.some((date) => {
+        const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
+        const escapedMonth = monthName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return new RegExp(`\\b(?:el\\s+)?(?:d[ií]a\\s+)?0?${date.day}\\s+(?:de\\s+)?${escapedMonth}\\b`, 'i').test(sentence)
+      })
       const mentionsNoSchedule =
         /(?:no\s+(?:hay|tenemos|tiene|contamos con)|sin)\s+(?:ninguna?\s+)?fecha|fecha\s+no\s+programada|no\s+hay\s+fecha|no\s+tenemos\s+fecha|sin\s+fecha\s+programada|actualmente.{0,50}fecha\s+programada/i.test(
           sentence,
@@ -728,13 +820,13 @@ export function applyUpcomingCourseDateCorrection(
         /(?:fecha|convocatoria)\s+pasad[ao]|[uú]ltima\s+convocatoria/i.test(sentence)
       const redirectsForFutureDates =
         /pr[oó]ximas?\s+fechas? disponibles.{0,100}whatsapp/i.test(sentence)
-      return !mentionsNoSchedule && !mentionsPastCourseDate && !redirectsForFutureDates
+      return !repeatsAuthoritativeDate && !mentionsNoSchedule && !mentionsPastCourseDate && !redirectsForFutureDates
     })
     return retainedSentences.join('').trim()
   })
     .filter(Boolean)
 
-  return [...correctedParagraphs, correction].join('\n\n')
+  return [...correctedParagraphs, ...corrections].join('\n\n')
 }
 
 const RESPUESTAS_CORTAS_SIN_CONTEXTO = new Set([
@@ -742,7 +834,8 @@ const RESPUESTAS_CORTAS_SIN_CONTEXTO = new Set([
   'no', 'nop', 'nope', 'nel', 'noo', 'nooo',
   'ok', 'okay', 'oki', 'okey', 'vale', 'va', 'listo', 'deacuerdo', 'de acuerdo',
   'perfecto', 'genial', 'excelente', 'bien', 'claro', 'claroquesi', 'claro que si',
-  'suena bien', 'me interesa', 'interesado', 'interesada', 'quiero', 'voy',
+  'suena bien', 'me interesa', 'si me interesa', 'sí me interesa', 'me gustaría', 'me gustaria',
+  'interesado', 'interesada', 'quiero', 'voy',
   'gracias', 'muchas gracias', 'ty', 'thx',
 ])
 
@@ -779,6 +872,132 @@ function extraerNombreCursoDeMensaje(texto: string): string[] {
   return unicos
 }
 
+const ENROLLMENT_INTEREST_RESPONSES = new Set([
+  'si me interesa', 'sí me interesa', 'me interesa', 'si', 'sí', 'sii', 'siii',
+  'claro', 'claro que si', 'claro que sí', 'perfecto', 'excelente', 'quiero inscribirme',
+  'me quiero inscribir', 'quiero inscripcion', 'quiero inscripción', 'quiero entrar',
+])
+
+function normalizeConversationReply(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function buildEnrollmentInterestReply(userMessage: string, history: DbConversationMessage[]): string | null {
+  const normalizedReply = normalizeConversationReply(userMessage)
+  const isInterestConfirmation =
+    ENROLLMENT_INTEREST_RESPONSES.has(normalizedReply) ||
+    /^(?:si|claro|perfecto)?\s*(?:me\s+)?(?:interesa|gustaria|interesad[oa])$/.test(normalizedReply)
+  if (!isInterestConfirmation) return null
+
+  const lastAssistantMessage = [...(history || [])]
+    .reverse()
+    .find((message) => message.role === 'assistant' && String(message.content || '').trim())
+  if (!lastAssistantMessage) return null
+
+  const askedForEnrollment = /(?:te\s+gustar[ií]a\s+inscribirte|quieres?\s+inscribirte|avanzar\s+con\s+la\s+inscripci[oó]n|datos\s+de\s+inscripci[oó]n)/i
+    .test(lastAssistantMessage.content)
+  const courseName = extraerNombreCursoDeMensaje(lastAssistantMessage.content)[0]
+  if (!askedForEnrollment || !courseName) return null
+
+  return `¡Excelente! Para avanzar con tu inscripción al curso de ${courseName}, ¿te interesa la modalidad online o presencial?`
+}
+
+export function buildEnrollmentModalityReply(userMessage: string, history: DbConversationMessage[]): string | null {
+  const normalizedMessage = normalizeConversationReply(userMessage)
+  const modality = /\b(online|en linea|presencial)\b/.exec(normalizedMessage)?.[1]
+  if (!modality) return null
+
+  const lastAssistantMessage = [...(history || [])]
+    .reverse()
+    .find((message) => message.role === 'assistant' && String(message.content || '').trim())
+  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
+
+  const hasLocationAlready =
+    (history || []).some((message) =>
+      message.role === 'user' &&
+      /(?:soy\s+de|vivo\s+en|desde)\s+.+|(?:hermosillo|sonora|mexico|méxico|usa|estados\s+unidos|canad[aá]|espa[nñ]a)/i.test(message.content),
+    )
+  if (hasLocationAlready) return null
+
+  return `¡Perfecto! Para enviarte los datos de inscripción y las opciones de pago, ¿nos puedes indicar desde qué ciudad o país nos escribes?`
+}
+
+function normalizeEnrollmentAnswer(value: string): string {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+export function isAuthorizedEnrollmentFlowAnswer(answer: string, expectedAnswer: string | null): boolean {
+  return Boolean(expectedAnswer) && normalizeEnrollmentAnswer(answer) === normalizeEnrollmentAnswer(expectedAnswer || '')
+}
+
+const OFFICIAL_OUT_OF_SCOPE_ANSWERS = [
+  'No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?',
+  'No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.',
+]
+
+export function isAuthorizedOutOfScopeAnswer(answer: string): boolean {
+  return OFFICIAL_OUT_OF_SCOPE_ANSWERS.some((expectedAnswer) =>
+    normalizeEnrollmentAnswer(answer) === normalizeEnrollmentAnswer(expectedAnswer),
+  )
+}
+
+function normalizePaymentPolicy(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+export function isAuthorizedPaymentFlowAnswer(
+  userMessage: string,
+  history: DbConversationMessage[],
+  answer: string,
+  tenantPrompt: string,
+): boolean {
+  const previousAssistantMessage = [...(history || [])]
+    .reverse()
+    .find((message) => message.role === 'assistant' && String(message.content || '').trim())
+  if (!previousAssistantMessage) return false
+
+  const requestedLocationForPayment =
+    /(?:desde\s+qu[eé]\s+(?:ciudad|pa[ií]s)|ciudad\s+o\s+pa[ií]s|opciones?\s+de\s+pago|datos\s+de\s+inscripci[oó]n|formas?\s+de\s+pago|m[eé]todos?\s+de\s+pago)/i
+      .test(previousAssistantMessage.content)
+  const isLocationReply =
+    /(?:soy\s+de|vivo\s+en|desde)\s+.+|(?:hermosillo|sonora|mexico|méxico|usa|estados\s+unidos|canad[aá]|espa[nñ]a|colombia|per[uú]|chile|argentina)/i
+      .test(String(userMessage || ''))
+  const isPaymentFollowUp =
+    /(?:paypal|stripe|m[eé]todo[s]?\s+de\s+pago|forma[s]?\s+de\s+pago|d[oó]nde\s+(?:pago|deposito)|datos\s+de\s+pago|cuenta|banco|tarjeta)/i
+      .test(String(userMessage || ''))
+  if ((!requestedLocationForPayment && !isPaymentFollowUp) || (!isLocationReply && !isPaymentFollowUp)) return false
+
+  const hasTransferOrBank =
+    /(?:dep[oó]sito|transferencia)\s+bancaria|santander|oxxo|banamex|clabe/i.test(answer)
+  const hasCardOrOnline =
+    /(?:pago\s+con\s+tarjeta(?:\s+v[ií]a\s+stripe)?)|stripe|paypal/i.test(answer)
+  const hasClosing =
+    /una\s+vez\s+realizado\s+tu\s+pago|enviar?\s+el\s+comprobante|confirmar\s+tu\s+inscripci[oó]n|whatsapp\s+oficial/i.test(answer)
+  const hasOfficialPaymentStructure = (hasTransferOrBank || hasCardOrOnline) && hasClosing
+  if (!hasOfficialPaymentStructure) return false
+
+  const policy = normalizePaymentPolicy(tenantPrompt)
+  const answerUrls = Array.from(answer.matchAll(/https?:\/\/[^\s)\]]+/gi), (match) => match[0])
+  const answerWithoutPhones = answer.replace(/(?:whatsapp|tel[eé]fono|celular|tel|contacto)?[^\d\n]{0,10}\+?(?:52[\s-]*)?(?:1[\s-]*)?662[\s-]*335[\s-]*8779/gi, '')
+  const answerAccountNumbers = Array.from(answerWithoutPhones.matchAll(/\b(?:\d[\d\s-]{7,}\d)\b/g), (match) => match[0])
+  if (!answerUrls.length && !answerAccountNumbers.length) return false
+
+  return [...answerUrls, ...answerAccountNumbers].every((fact) => policy.includes(normalizePaymentPolicy(fact)))
+}
+
 function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[], referralContext = ''): string {
   const normalizedMsg = (userMessage || '').replace(/\s+/g, ' ').trim()
   const recent = (history || []).slice(-8)
@@ -786,9 +1005,21 @@ function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[
   const msgLowerSimple = normalizedMsg.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const esConfirmacionDeInteres =
+    /^(?:si|sí|claro|perfecto)?\s*(?:me\s+)?(?:interesa|gustar[ií]a|interesad[oa])$/.test(msgLowerSimple)
+  const isLocationReply =
+    /(?:soy\s+de|vivo\s+en|desde)\s+.+|(?:hermosillo|sonora|mexico|méxico|usa|estados\s+unidos|canad[aá]|espa[nñ]a|colombia|per[uú]|chile|argentina)/i
+      .test(normalizedMsg)
+  const previousAssistantMessage = [...recent]
+    .reverse()
+    .find((m) => m.role === 'assistant' && String(m.content || '').trim())
+  const previousAskedLocationOrPayment = previousAssistantMessage
+    ? /(?:desde\s+qu[eé]\s+(?:ciudad|pa[ií]s)|ciudad\s+o\s+pa[ií]s|opciones?\s+de\s+pago|datos\s+de\s+inscripci[oó]n|formas?\s+de\s+pago|m[eé]todos?\s+de\s+pago)/i
+        .test(previousAssistantMessage.content)
+    : false
   const esRespuestaCorta =
-    msgWords.length <= 2 &&
-    RESPUESTAS_CORTAS_SIN_CONTEXTO.has(msgLowerSimple)
+    (msgWords.length <= 4 && (RESPUESTAS_CORTAS_SIN_CONTEXTO.has(msgLowerSimple) || esConfirmacionDeInteres)) ||
+    (isLocationReply && previousAskedLocationOrPayment)
 
   if (msgWords.length >= 3 && !esRespuestaCorta) return `${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
 
@@ -816,6 +1047,31 @@ function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[
     combined = context.slice(Math.max(0, context.length - tail)) + `\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
   }
   return `${combined}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+}
+
+function buildPaymentFlowGuard(userMessage: string, history: DbConversationMessage[]): string {
+  const current = String(userMessage || '').trim().toLowerCase()
+  const recentText = (history || []).slice(-10).map((m) => String(m.content || '')).join('\n').toLowerCase()
+  const isInternationalLocation =
+    /^(?:usa|eeuu|u\.s\.a\.|estados unidos|united states|canad[aá]|espa[nñ]a|argentina|chile|colombia|per[uú]|otro pa[ií]s)\.?$/i.test(current)
+  const isMexicoLocation =
+    /^(?:hermosillo|sonora|m[eé]xico|cdmx|guadalajara|monterrey|puebla|tijuana|culiac[aá]n|mazatl[aá]n|nogales|obreg[oó]n|mexicali|quer[eé]taro|m[eé]rida|canc[uú]n|le[oó]n|toluca|chihuahua|ju[aá]rez|veracruz|acapulco|cuernavaca|saltillo|tampico|morelia|san luis potos[ií]|aguascalientes|zacatecas|durango|villahermosa|oaxaca|tuxtla|campeche|chetumal|pachuca|colima|tepic|la paz|tlaxcala)\.?$/i.test(current) ||
+    /^(?:soy\s+de|vivo\s+en|desde)\s+.+/i.test(current)
+  const isPaymentFollowUp = /(?:paypal|stripe|m[eé]todo[s]?\s+de\s+pago|forma[s]?\s+de\s+pago|d[oó]nde\s+(?:pago|deposito)|datos\s+de\s+pago|cuenta)/i.test(current)
+  const paymentConversation =
+    /(?:desde\s+qu[eé]\s+(?:pa[ií]s|ciudad)|de\s+qu[eé]\s+(?:pa[ií]s|ciudad)|m[eé]todo[s]?\s+de\s+pago|forma[s]?\s+de\s+pago|datos\s+de\s+inscripci[oó]n)/i.test(recentText) &&
+    /(?:me\s+interesa|interesa|inscrib|curso|pago|paypal|stripe|cuenta|apartado)/i.test(recentText)
+
+  if (!((isInternationalLocation || isMexicoLocation || isPaymentFollowUp) && paymentConversation)) return ''
+
+  return `\n\n=== CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===
+La conversación ya está dentro del flujo de inscripción y el prompt del tenant contiene la política autorizada de pagos. No respondas con frases de falta de información, no derives al WhatsApp por no encontrar un bloque RAG y no reinicies la conversación preguntando si busca cursos o productos.
+Si el cliente confirmó una ubicación dentro de México:
+- Si el curso es modalidad presencial: entrega ÚNICAMENTE los métodos de pago en México (Santander, OXXO HSBC 4830 3045 0694 7021, autoservicio Banamex 5204 1653 7821 9095), menciona que puede apartar con $500 MXN y liquidar un día antes. NO agregues enlaces de Stripe ni PayPal.
+- Si el curso es modalidad online: entrega los métodos en México más PayPal y el enlace Stripe correspondiente al costo del curso.
+Si el cliente confirmó un país fuera de México, aplica el BLOQUE INTERNACIONAL del prompt: los cursos presenciales solo existen en Hermosillo y para el extranjero corresponde modalidad online. Si el curso y su precio ya están claros, entrega PayPal y el enlace Stripe autorizado por el prompt.
+Nunca inventes cuentas, precios ni enlaces. Cierra siempre pidiendo enviar comprobante por WhatsApp al +52 1 662 335 8779 con nombre completo y correo.
+=== FIN CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===`
 }
 
 export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerOpts = {}) {
@@ -860,21 +1116,31 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   } catch (_e) { /* no-op */ }
 
   const trimmedHistory = input.history.slice(-12)
-  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '')
+  const paymentFlowGuard = buildPaymentFlowGuard(input.message, input.history || [])
+  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '') + paymentFlowGuard
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     ...trimmedHistory.map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: String(m.content || '') })),
     { role: 'user' as const, content: input.message },
   ]
 
-  const completion = await requestCompletion({
-    apiKey,
-    baseUrl,
-    model,
-    fallbackModel,
-    maxTokens,
-    messages,
-  })
+  const enrollmentReply =
+    buildEnrollmentModalityReply(input.message, input.history || []) ||
+    buildEnrollmentInterestReply(input.message, input.history || [])
+  const completion = enrollmentReply
+    ? {
+        answer: enrollmentReply,
+        finishReason: 'enrollment-interest-flow',
+        modelUsed: 'deterministic-enrollment-flow',
+      }
+    : await requestCompletion({
+        apiKey,
+        baseUrl,
+        model,
+        fallbackModel,
+        maxTokens,
+        messages,
+      })
 
   // ===== LOG TEMPORAL respuesta cruda =====
   try {
@@ -900,15 +1166,22 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       'Por el momento tenemos dificultades técnicas temporales. Por favor contáctanos por WhatsApp y un asesor humano te atenderá de inmediato. ¡Gracias por tu comprensión!'
   }
 
-  answer = applyUpcomingCourseDateCorrection(answer, input.message, matchedBlocks)
-  // Evita que frases internas de incertidumbre lleguen al cliente. La respuesta
-  // ofrece una vía humana sin inventar datos ni revelar automatización.
-  answer = replaceNoInformationReply(answer)
+  answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks)
+  // Refuerza esta condición en el resultado: el modelo puede omitir datos de
+  // elegibilidad aunque el curso coincida y la nota esté en sus documentos.
+  answer = ensureMedicalEligibilityNote(answer, input.message)
 
   // ===== AUTO-CURADO · JUEZ SÍNCRONO (último filtro, antes de devolver respuesta) =====
   const matchedBlocksForJudge = matchedBlocks || []
   const matchedBlocksText = matchedBlocksToText(matchedBlocksForJudge)
   const matchedBlockRefs = matchedBlocksToRefs(matchedBlocksForJudge)
+  // Esta nota es una política de seguridad añadida por el sistema para ciertos
+  // cursos. Se conserva en la respuesta, pero se excluye del juicio RAG para
+  // que el autocurador no la marque como dato inventado por el modelo.
+  const answerForJudge = answer
+    .replace(MEDICAL_ELIGIBILITY_NOTE, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 
   let evalCategory: AutoEvalCategory = 'correct'
   let evalReason = ''
@@ -924,7 +1197,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       userQuestion: input.message,
       conversationContext: (input.history || []).slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'ASESOR'}: ${String(m.content || '').slice(0, 700)}`).join('\n').slice(-5000),
       referralContext: input.referralContext || '',
-      botAnswer: answer,
+      botAnswer: answerForJudge,
       matchedBlocksText,
     })
     evalCategory = judgeRes.category
@@ -985,11 +1258,24 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     }
   }
 
-  if ((evalCategory === 'noinfo' || evalCategory === 'judge_failed') && answer === NO_INFORMATION_REPLY) {
-    // Una derivación neutral y segura es una respuesta válida aunque la base no
-    // contenga el dato; así el cliente recibe una salida útil en vez de silencio.
+  if (isAuthorizedPaymentFlowAnswer(input.message, input.history || [], answer, input.prompt)) {
     evalCategory = 'correct'
-    evalReason = 'Se ofreció confirmación con un asesor porque las fuentes no respaldan el dato solicitado.'
+    evalReason = 'La respuesta de pago sigue el flujo de inscripción y sus enlaces y datos coinciden con el prompt autorizado.'
+  }
+
+  if (matchedBlocksForJudge.length === 0 && NO_INFORMATION_PHRASE.test(answer)) {
+    evalCategory = 'noinfo'
+    evalReason = 'La respuesta reconoce que no hay información respaldada por documentos.'
+  }
+
+  if (isAuthorizedEnrollmentFlowAnswer(answer, enrollmentReply)) {
+    evalCategory = 'correct'
+    evalReason = 'La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.'
+  }
+
+  if (isAuthorizedOutOfScopeAnswer(answer)) {
+    evalCategory = 'correct'
+    evalReason = 'La respuesta coincide exactamente con una frase oficial autorizada para preguntas fuera de contexto o recomendaciones personalizadas.'
   }
 
   const blocked = evalCategory !== 'correct'
