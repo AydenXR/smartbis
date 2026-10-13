@@ -14,3 +14,15 @@
 - Ubicación: hermosillo, sonora
 - Activo: Sí
 
+## Cargador Iphone
+- SKU: DB3588B2
+- Tipo: product
+- Nombre: Cargador Iphone
+- Familia: 
+- Categoría: 
+- Precio costo: 50
+- Precio venta: 50
+- Moneda: MXN
+- Stock Sucursal Principal: 0
+- Activo: Sí
+

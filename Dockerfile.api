@@ -6,7 +6,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tzdata curl \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata curl chromium \
  && rm -rf /var/lib/apt/lists/* \
  && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
  && npm config set fund false \
@@ -19,7 +19,6 @@ COPY package.json package-lock.json* ./
 
 RUN npm install --omit=dev --no-audit --no-fund || npm install --no-audit --no-fund
 
-COPY .env.local* ./
 COPY api/ ./api/
 COPY scripts/_salubel_v2_prompt.txt ./scripts/_salubel_v2_prompt.txt
 COPY src/ ./src/
