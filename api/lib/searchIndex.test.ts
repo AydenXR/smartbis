@@ -120,3 +120,60 @@ test('does not offer another course for an absent course schedule', () => {
 
   assert.doesNotMatch(result.contextBlock, /Russian Lips|Mesobotox/)
 })
+
+const treatmentDocs: WorkspaceDocument[] = [
+  {
+    id: 'trat',
+    title: 'tratamientos.md',
+    docType: 'markdown',
+    section: 'general',
+    content: [
+      '[TRATAMIENTO: Peptonas]',
+      'DURACION: 60 min',
+      'REQUIERE VALORACION: Si',
+      'PRECIO APROXIMADO: $1,200',
+      '',
+      '[TRATAMIENTO: Lipoenzimas]',
+      'DURACION: 45 min',
+      'REQUIERE VALORACION: Si',
+      'PRECIO APROXIMADO: $900',
+    ].join('\n'),
+    isActive: true,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'info',
+    title: 'infogeneral.md',
+    docType: 'markdown',
+    section: 'general',
+    content: '[TRATAMIENTOS_DIRECTOS_CON_LYDIA_CORONADO]\nLydia Coronado aplica tratamientos directos. Agenda por WhatsApp.',
+    isActive: true,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+]
+const treatmentIndex = createSearchIndex({ tenantId: 'tenant', documents: treatmentDocs })
+
+test('generic treatment question returns the treatment catalog and Lydia block', () => {
+  for (const q of ['¿ustedes aplican tratamientos?', 'que tratamientos ofrecen']) {
+    const result = searchIndex(treatmentIndex, q)
+    assert.match(result.contextBlock, /Peptonas/)
+    assert.match(result.contextBlock, /Lipoenzimas/)
+    assert.match(result.contextBlock, /LYDIA_CORONADO/)
+  }
+})
+
+test('specific treatment question finds the treatment block', () => {
+  const result = searchIndex(treatmentIndex, 'tratamiento de peptonas para reafirmar gluteos')
+  assert.match(result.contextBlock, /Peptonas/)
+  assert.match(result.contextBlock, /1,200/)
+})
+
+test('absent treatment still returns nothing', () => {
+  const result = searchIndex(treatmentIndex, 'tratamiento de botox en la frente')
+  assert.equal(result.matchedBlocks.length, 0)
+})
+
+test('corrects one-letter typos in treatment names', () => {
+  const result = searchIndex(treatmentIndex, 'tratamiento de peptomas para reafirmar gluteos')
+  assert.match(result.contextBlock, /1,200/)
+})
