@@ -64,6 +64,10 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   'disponible', 'disponibles', 'existencia', 'existencias', 'stock',
   'online', 'contexto', 'respuesta', 'corta', 'mencionados', 'mencionadas',
   'asesor', 'asesora', 'mensajes', 'anteriores',
+  // Saludos y relleno conversacional: no nombran un producto, curso ni servicio
+  'hola', 'buenas', 'buenos', 'tardes', 'dias', 'noches', 'saludos', 'oye', 'disculpa', 'disculpe',
+  'gustaria', 'quisiera', 'queria', 'podria', 'podrias', 'porfavor', 'pregunta', 'preguntar', 'informes',
+  'esta', 'estan', 'cuando', 'donde',
 ])
 
 function queryEntityWords(query: string) {
@@ -88,19 +92,53 @@ function blockMatchesEntityWord(block: IndexedBlock, word: string) {
   )
 }
 
-function filterToEntityMatches(blocks: IndexedBlock[], query: string) {
+function blockNameHasWord(block: IndexedBlock, word: string) {
+  return (
+    block.titleTokens.includes(word) ||
+    Boolean(block.fields.name && normalizeText(block.fields.name).split(' ').includes(word))
+  )
+}
+
+function filterToEntityMatches(blocks: IndexedBlock[], query: string, intent: SearchIntent) {
   const entities = queryEntityWords(query)
   if (entities.length === 0) return blocks
 
   const coveredEntities = new Set(
     entities.filter((entity) => blocks.some((block) => blockMatchesEntityWord(block, entity))),
   )
+  const matchesCovered = (block: IndexedBlock) =>
+    [...coveredEntities].some((entity) => blockMatchesEntityWord(block, entity))
 
-  // Avoid returning accidental matches for generic terms when a specific
-  // entity from the query is absent from the indexed titles.
-  if (coveredEntities.size !== entities.length) return []
+  if (coveredEntities.size === entities.length) return blocks.filter(matchesCovered)
 
-  return blocks.filter((block) => entities.some((entity) => blockMatchesEntityWord(block, entity)))
+  // Avoid returning accidental matches when the query names an absent item:
+  // an unknown word right after a word of an indexed name ("acido tranexamico"
+  // when only "Acido hialuronico" exists).
+  const tokens = normalizeText(query).split(' ')
+  const namesAbsentItem = tokens.some((token, i) =>
+    i > 0 &&
+    entities.includes(token) &&
+    !coveredEntities.has(token) &&
+    coveredEntities.has(tokens[i - 1]) &&
+    blocks.some((block) => blockNameHasWord(block, tokens[i - 1])),
+  )
+  if (namesAbsentItem) return []
+
+  // The query names an indexed item, so the unknown words are conversational
+  // ("hola buenas tardes, horario de russian lips").
+  const namesKnownItem = [...coveredEntities].some((entity) =>
+    blocks.some((block) => blockNameHasWord(block, entity)),
+  )
+  if (namesKnownItem) return blocks.filter(matchesCovered)
+
+  // Only generic words matched, so the unknown word is likely an absent item
+  // ("horario del curso de microblading"). Location, schedule and date questions
+  // can still be answered from general info blocks, never from other items.
+  if (!intent.wantsLocation && !intent.wantsSchedule && !intent.wantsDates) return []
+  return blocks.filter((block) =>
+    block.document.section === 'general' &&
+    (block.kind === 'location' || block.kind === 'contact' || block.kind === 'schedule'),
+  )
 }
 
 function extractHintedCourseNames(query: string): { hintedNames: string[]; hasContextMarker: boolean } {
@@ -796,7 +834,7 @@ export function searchIndex(index: SearchIndex, query: string): SearchContextRes
     : rankedBlocks
   const entityMatchedBlocks = intent.wantsList
     ? candidateBlocks
-    : filterToEntityMatches(candidateBlocks, query)
+    : filterToEntityMatches(candidateBlocks, query, intent)
 
   if (intent.wantsList) {
     const summary = buildStructuredCatalogSummary(candidateBlocks, MAX_CONTEXT_CHARS)
