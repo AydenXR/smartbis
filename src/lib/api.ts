@@ -319,6 +319,20 @@ export async function getMetaOAuthLoginUrl() {
   return requestJson<{ url: string }>('/api/meta/oauth/url')
 }
 
+export async function retryMetaPageList() {
+  return requestJson<{ pages: MetaPageOption[] }>('/api/meta/pages/retry', {
+    method: 'POST',
+    body: {},
+  })
+}
+
+export async function syncMetaAds() {
+  return requestJson<{ success: boolean; ads: number; accountsChecked: number; syncedAt: string; error?: string }>(
+    '/api/meta/ads/sync',
+    { method: 'POST', body: {} },
+  )
+}
+
 export async function linkMetaPage(page: MetaPageOption) {
   return requestJson<{ success: boolean; subscribed: boolean; config: any }>('/api/meta/linkPage', {
     method: 'POST',
@@ -364,6 +378,36 @@ export async function deleteMetaChat(psid: string) {
   return requestJson<null>(
     `/api/meta/chats/${encodeURIComponent(psid)}`,
     { method: 'DELETE' },
+  )
+}
+
+export interface WhatsAppNotificationStatus {
+  state: 'DISCONNECTED' | 'QR' | 'AUTHENTICATED' | 'CONNECTED' | 'AUTH_FAILURE' | 'ERROR' | string
+  qr: string
+  linkedNumber: string
+  recipient: string
+}
+
+export async function getWhatsAppNotificationStatus() {
+  return requestJson<WhatsAppNotificationStatus>('/api/whatsapp/status')
+}
+
+export async function setWhatsAppNotificationRecipient(recipient: string) {
+  return requestJson<{ success: boolean; recipient: string }>('/api/whatsapp/recipient', {
+    method: 'PUT', body: { recipient },
+  })
+}
+
+export async function sendWhatsAppNotificationTest() {
+  return requestJson<{ sent: boolean; recipient: string }>('/api/whatsapp/test', {
+    method: 'POST', body: {},
+  })
+}
+
+export async function confirmChatRegistration(psid: string, input: { customer: string; course: string; modality?: string }) {
+  return requestJson<{ success: boolean; sent: boolean; duplicate: boolean }>(
+    `/api/meta/chats/${encodeURIComponent(psid)}/confirm-registration`,
+    { method: 'POST', body: input },
   )
 }
 
