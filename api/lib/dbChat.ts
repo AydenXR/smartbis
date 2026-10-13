@@ -162,9 +162,9 @@ Para fechas de cursos, el calendario recuperado ahora mismo de los documentos ac
 ${ragDateAuthorityBlock}
 
 REGLA DE ATENCIÓN AL CLIENTE: responde como una persona del equipo, de forma cálida, directa y natural. No reveles ni insinúes que eres una IA, bot, modelo o sistema.
-Usa únicamente datos respaldados por la información disponible. Si falta un dato, no digas “no tengo información”, “no cuento con la información”, “no sé” ni “no puedo responder”. Ofrece confirmar el detalle con un asesor por WhatsApp o pregunta una aclaración concreta si el mensaje es ambiguo. No inventes el dato faltante ni detalles de contacto que no aparezcan en las fuentes.
+Usa únicamente datos respaldados por la información disponible. Si falta un dato, responde exactamente [NO_RESPONDER] para que el sistema bloquee el envío; nunca muestres al cliente una derivación automática ni inventes el dato faltante. Si el mensaje es ambiguo pero sí hay información relacionada, formula una pregunta concreta usando únicamente esa información.
 
-${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes y ofrece confirmar el detalle con un asesor):
+${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes; si no está, responde [NO_RESPONDER]):
 ${contextBlock}`
 }
 
