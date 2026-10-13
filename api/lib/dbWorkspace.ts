@@ -800,6 +800,27 @@ export async function createDbDocument(
   return mapDocument(rows[0])
 }
 
+export async function upsertDbDocument(
+  tenantId: string,
+  input: { fileName: string; content: string },
+) {
+  const fileName = normalizeDocumentFileName(input.fileName)
+  const existingRows = await restRequest<DocumentRow[]>('documents', {
+    query: {
+      select: 'id,tenant_id,title,doc_type,content_markdown,is_active,created_at,updated_at',
+      tenant_id: `eq.${tenantId}`,
+      title: `eq.${fileName}`,
+      limit: '1',
+    },
+  })
+
+  if (existingRows[0]?.id) {
+    return updateDbDocument(tenantId, fileName, { fileName, content: input.content })
+  }
+
+  return createDbDocument(tenantId, { fileName, content: input.content })
+}
+
 export async function updateDbDocument(
   tenantId: string,
   currentFileName: string,

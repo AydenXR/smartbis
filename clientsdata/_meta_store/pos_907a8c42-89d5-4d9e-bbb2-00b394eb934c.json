@@ -45,6 +45,24 @@
       "sourceDocId": "productos.md",
       "createdAt": "2026-10-05T22:02:45.255Z",
       "updatedAt": "2026-10-05T22:02:45.255Z"
+    },
+    {
+      "id": "cat_9d3aa9be142efd1d",
+      "kind": "product",
+      "sku": "DB3588B2",
+      "name": "Cargador Iphone",
+      "costPrice": 50,
+      "salePrice": 50,
+      "volumePriceTiers": [],
+      "stocks": {
+        "branch-main": 0
+      },
+      "active": true,
+      "sourceDocId": "productos.md",
+      "createdAt": "2026-10-08T02:20:45.206Z",
+      "updatedAt": "2026-10-08T03:32:37.110Z",
+      "userEmail": "manuelgamez92@gmail.com",
+      "syncToMdDoc": "productos.md"
     }
   ],
   "promoGroups": [],
@@ -92,6 +110,89 @@
   ],
   "sales": [],
   "audit": [
+    {
+      "id": "ed2658e20d3a1451",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "at": "2026-10-08T03:32:37.111Z",
+      "userEmail": "manuelgamez92@gmail.com",
+      "kind": "product_edit",
+      "message": "Editó ítem catálogo: Cargador Iphone (DB3588B2 · product)",
+      "details": {
+        "id": "cat_9d3aa9be142efd1d",
+        "kind": "product",
+        "sku": "DB3588B2",
+        "name": "Cargador Iphone",
+        "costPrice": 50,
+        "salePrice": 50,
+        "volumePriceTiers": [],
+        "stocks": {
+          "branch-main": 0
+        },
+        "active": true,
+        "sourceDocId": "productos.md",
+        "createdAt": "2026-10-08T02:20:45.206Z",
+        "updatedAt": "2026-10-08T03:32:37.110Z",
+        "userEmail": "manuelgamez92@gmail.com",
+        "syncToMdDoc": "productos.md"
+      }
+    },
+    {
+      "id": "ee742bc591d78a3c",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "at": "2026-10-08T02:38:36.950Z",
+      "userEmail": "manuelgamez92@gmail.com",
+      "kind": "product_edit",
+      "message": "Editó ítem catálogo: Cargador tipo C (DB3588B2 · product)",
+      "details": {
+        "id": "cat_9d3aa9be142efd1d",
+        "kind": "product",
+        "sku": "DB3588B2",
+        "name": "Cargador tipo C",
+        "costPrice": 50,
+        "salePrice": 50,
+        "volumePriceTiers": [],
+        "stocks": {
+          "branch-main": 0
+        },
+        "active": true,
+        "sourceDocId": "productos.md",
+        "createdAt": "2026-10-08T02:20:45.206Z",
+        "updatedAt": "2026-10-08T02:38:36.949Z",
+        "userEmail": "manuelgamez92@gmail.com",
+        "syncToMdDoc": "productos.md"
+      }
+    },
+    {
+      "id": "358f0dd0d88f6d48",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "at": "2026-10-08T02:20:45.207Z",
+      "userEmail": "manuelgamez92@gmail.com",
+      "kind": "product_create",
+      "message": "Creó ítem catálogo: Cargador (DB3588B2 · product) · Precio: $50",
+      "details": {
+        "id": "cat_9d3aa9be142efd1d",
+        "kind": "product",
+        "sku": "DB3588B2",
+        "name": "Cargador",
+        "family": "",
+        "category": "",
+        "description": "",
+        "costPrice": 50,
+        "salePrice": 50,
+        "volumePriceTiers": [],
+        "currency": "MXN",
+        "stocks": {
+          "branch-main": 0
+        },
+        "location": "",
+        "tags": [],
+        "active": true,
+        "attrs": {},
+        "sourceDocId": "productos.md",
+        "createdAt": "2026-10-08T02:20:45.206Z",
+        "updatedAt": "2026-10-08T02:20:45.206Z"
+      }
+    },
     {
       "id": "d53c2e69488953e0",
       "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
@@ -268,6 +369,742 @@
   },
   "autoEvals": [
     {
+      "id": "daff8c55d06c6c03",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-official-response-check",
+      "triggerMessageText": "Que rutina me recomiendas para piel grasa?",
+      "botAnswerText": "No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.",
+      "category": "correct",
+      "judgeReason": "La respuesta coincide exactamente con una frase oficial autorizada para preguntas fuera de contexto o recomendaciones personalizadas.",
+      "matchedBlocks": [
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:36:05.993Z"
+    },
+    {
+      "id": "9b2a500ddd41ddc1",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840767683-21",
+      "triggerMessageText": "Quiero inscribirme",
+      "botAnswerText": "¡Hola! Con gusto te apoyamos. \n\n¿En qué curso te gustaría inscribirte y prefieres la modalidad online o presencial? Además, ¿nos puedes indicar desde qué país o ciudad nos escribes para enviarte las opciones de pago correctas?",
+      "category": "correct",
+      "judgeReason": "El bot solicita aclaración sobre el curso y la modalidad, lo cual es correcto según las reglas.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:48.944Z"
+    },
+    {
+      "id": "0d0359d88c0cabac",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840765850-20",
+      "triggerMessageText": "Tienen productos para venta?",
+      "botAnswerText": "¡Hola! Sí, contamos con una amplia variedad de productos para la venta. ¿Hay algún producto o categoría en particular que te interese?",
+      "category": "correct",
+      "judgeReason": "El bot respondió con saludo y pregunta de aclaración, lo cual es correcto según las reglas.",
+      "matchedBlocks": [
+        {
+          "hash": "e49ead79ac2440ff",
+          "title": "PRODUCTOS",
+          "snippet": "[PRODUCTOS]\nAgrega aqui el catalogo de productos del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:47.682Z"
+    },
+    {
+      "id": "bc7d62118ea6f54a",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840764014-19",
+      "triggerMessageText": "Cuanto cuesta un curso que no aparece?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen precio del curso y el bot indica falta de información y deriva a WhatsApp.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:45.848Z"
+    },
+    {
+      "id": "539321413106a49f",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840761891-18",
+      "triggerMessageText": "Que rutina me recomiendas para piel grasa?",
+      "botAnswerText": "No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.",
+      "category": "error",
+      "judgeReason": "El bot alteró la frase oficial añadiendo texto extra, violando la regla de usar la frase exacta requerida.",
+      "matchedBlocks": [
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:44.013Z"
+    },
+    {
+      "id": "f5cad5d3026ec78c",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840760628-17",
+      "triggerMessageText": "Cuéntame un chiste",
+      "botAnswerText": "No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?",
+      "category": "correct",
+      "judgeReason": "Usó la frase oficial requerida para preguntas fuera de contexto y no inventó información.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:41.890Z"
+    },
+    {
+      "id": "c7835abd976c6469",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840759806-16",
+      "triggerMessageText": "Hola, buenos dias",
+      "botAnswerText": "Hola! Gracias por escribirnos a Salubel Institute. ¿En qué te podemos apoyar el día de hoy?",
+      "category": "correct",
+      "judgeReason": "El bot respondió con saludo y ofreció ayuda, lo cual es correcto según las reglas para saludos y cortesías.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:40.627Z"
+    },
+    {
+      "id": "fe86afc7c5eb4102",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840758611-15",
+      "triggerMessageText": "Cual es el WhatsApp oficial?",
+      "botAnswerText": "¡Claro! Nuestro WhatsApp oficial es +52 1 662 335 8779.",
+      "category": "correct",
+      "judgeReason": "El bot respondió con el número de WhatsApp oficial según la regla autorizada del prompt.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:39.805Z"
+    },
+    {
+      "id": "fb310e49f838f54c",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840753497-14",
+      "triggerMessageText": "Que formas de pago tienen?",
+      "botAnswerText": "Para clientes fuera de México solo disponemos de la modalidad online. Puedes pagar con tarjeta vía Stripe (te enviamos el enlace exacto según el precio del curso) o con PayPal: https://paypal.me/salubel?locale.x=es_XC\n\n¿Podrías indicarnos el nombre del curso que te interesa y la modalidad para enviarte el enlace de Stripe correspondiente?\n\nUna vez realizado tu pago por favor envía el comprobante por el WhatsApp oficial +52 1 662 335 8779 junto con tu nombre completo y correo para confirmar tu inscripción. Si tienes duda sobre qué enlace usar o la modalidad, escríbenos directamente por WhatsApp y te guiamos.",
+      "category": "correct",
+      "judgeReason": "El bot respondió con formas de pago oficiales (Stripe, PayPal) y solicitó aclaración del curso, cumpliendo reglas sin inventar datos.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:38.608Z"
+    },
+    {
+      "id": "99d26ae9c96108a7",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840751681-13",
+      "triggerMessageText": "USA",
+      "botAnswerText": "¡Perfecto! Para enviarte los datos de inscripción y las opciones de pago, ¿nos puedes indicar cuál es el curso que te interesa en modalidad online?",
+      "category": "correct",
+      "judgeReason": "El bot hace una pregunta de aclaración para obtener el nombre del curso, lo cual es correcto según las reglas.",
+      "matchedBlocks": [
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "e49ead79ac2440ff",
+          "title": "PRODUCTOS",
+          "snippet": "[PRODUCTOS]\nAgrega aqui el catalogo de productos del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:33.496Z"
+    },
+    {
+      "id": "c3a9209369e029d4",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840750298-12",
+      "triggerMessageText": "Soy de Hermosillo, Sonora",
+      "botAnswerText": "¡Perfecto! Para enviarte la información y los pasos de pago, ¿nos puedes indicar cuál es el curso que te interesa en modalidad online?",
+      "category": "correct",
+      "judgeReason": "El bot solicita aclarar el curso de interés, lo cual es una pregunta de aclaración y cumple con las reglas.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:31.680Z"
+    },
+    {
+      "id": "f02547026f3d1c36",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840749112-11",
+      "triggerMessageText": "Soy de Hermosillo, Sonora",
+      "botAnswerText": "¡Gracias! ¿Qué curso te interesa y en qué modalidad (online o presencial) te gustaría inscribirte?",
+      "category": "correct",
+      "judgeReason": "El bot formula una pregunta de aclaración sobre el curso y modalidad, lo cual es correcto según las reglas.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:30.297Z"
+    },
+    {
+      "id": "801d7b12d28ce416",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840747935-10",
+      "triggerMessageText": "La presencial",
+      "botAnswerText": "¡Perfecto! Para enviarte los datos de inscripción y las opciones de pago, ¿nos puedes indicar desde qué ciudad o país nos escribes?",
+      "category": "correct",
+      "judgeReason": "La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "e49ead79ac2440ff",
+          "title": "PRODUCTOS",
+          "snippet": "[PRODUCTOS]\nAgrega aqui el catalogo de productos del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:29.111Z"
+    },
+    {
+      "id": "cd8697362b2a0bb9",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840747155-9",
+      "triggerMessageText": "Me interesa la modalidad online",
+      "botAnswerText": "¡Perfecto! Para enviarte los datos de inscripción y las opciones de pago, ¿nos puedes indicar desde qué ciudad o país nos escribes?",
+      "category": "correct",
+      "judgeReason": "La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.",
+      "matchedBlocks": [
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:27.934Z"
+    },
+    {
+      "id": "3b523e3d089273a8",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840745899-8",
+      "triggerMessageText": "Si me interesa",
+      "botAnswerText": "¡Excelente! Para avanzar con tu inscripción al curso de Lipoenzimas tiene, ¿te interesa la modalidad online o presencial?",
+      "category": "correct",
+      "judgeReason": "La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "b0cdd90d6ca5d9e8",
+          "title": "FAQS",
+          "snippet": "[FAQS]\nAgrega aqui preguntas frecuentes y sus respuestas."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:27.152Z"
+    },
+    {
+      "id": "083a3ec96e6748db",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840742943-7",
+      "triggerMessageText": "Puedo aplicar el tratamiento de Botox si tomo el curso?",
+      "botAnswerText": "No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.",
+      "category": "correct",
+      "judgeReason": "Usó la frase oficial A para una duda externa al instituto, cumpliendo las reglas y sin inventar información.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:25.899Z"
+    },
+    {
+      "id": "dbb9ba6ef99e76ea",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840740187-6",
+      "triggerMessageText": "Necesito estudios para tomar un curso?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen la información solicitada y el bot derivó a WhatsApp.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:22.942Z"
+    },
+    {
+      "id": "c34246c2eb982ca6",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840737431-5",
+      "triggerMessageText": "Me das informacion del curso de hidrofacial?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen datos del curso de hidrofacial y el bot indica falta de información.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "e49ead79ac2440ff",
+          "title": "PRODUCTOS",
+          "snippet": "[PRODUCTOS]\nAgrega aqui el catalogo de productos del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:20.177Z"
+    },
+    {
+      "id": "4845ebb3c2e6dbe0",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840734697-4",
+      "triggerMessageText": "Que temas ven en PDRN Salmon?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen información sobre PDRN Salmon y el bot indica que no tiene datos, derivando a WhatsApp.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        },
+        {
+          "hash": "b0cdd90d6ca5d9e8",
+          "title": "FAQS",
+          "snippet": "[FAQS]\nAgrega aqui preguntas frecuentes y sus respuestas."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:17.429Z"
+    },
+    {
+      "id": "74abdbe2eae6c592",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840731897-3",
+      "triggerMessageText": "Que incluye el curso Fibroblast?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen información sobre el contenido del curso Fibroblast, por lo que la respuesta sin datos es adecuada.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:14.696Z"
+    },
+    {
+      "id": "3a74f8d601412ae8",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840724319-2",
+      "triggerMessageText": "Cuales son las fechas de lipoenzimas?",
+      "botAnswerText": "¡Hola! La fecha pasada del curso Lipoenzimas fue 09 de septiembre (online) y 20 de agosto (presencial). Para las próximas fechas disponibles te invitamos a consultar por WhatsApp al +52 1 662 335 8779.",
+      "category": "error",
+      "judgeReason": "El bot inventó fechas que no aparecen en los documentos recuperados.",
+      "matchedBlocks": [
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        },
+        {
+          "hash": "2cb38eaaa936bb2b",
+          "title": "NOTAS",
+          "snippet": "[NOTAS]\nEdita este documento con la informacion real del negocio."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:11.896Z"
+    },
+    {
+      "id": "0399f1f3cb9818dd",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840721313-1",
+      "triggerMessageText": "Cuanto cuesta el curso de lipoenzimas?",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen el precio del curso y el bot indica que no tiene la información, derivando a WhatsApp.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        },
+        {
+          "hash": "60852ad0bd580b76",
+          "title": "CONTACTO",
+          "snippet": "[CONTACTO]\nCorreo de acceso: manuelgamez92@gmail.com"
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:04.319Z"
+    },
+    {
+      "id": "2768cc13a3b2ab12",
+      "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
+      "psid": "autocurator-audit-1791840718162-0",
+      "triggerMessageText": "Mas informacion curso liponeimas",
+      "botAnswerText": "No cuento con la información en este momento, pero por favor comunícate al WhatsApp de mi superior (+52 1 662 335 8779) para que pueda resolver tu duda.",
+      "category": "noinfo",
+      "judgeReason": "Los documentos no contienen información del curso solicitado, por lo que el bot indica falta de datos y deriva a WhatsApp.",
+      "matchedBlocks": [
+        {
+          "hash": "acfa25fb1e53fbdc",
+          "title": "CURSOS",
+          "snippet": "[CURSOS]\nAgrega aqui la informacion de cursos o capacitaciones del cliente."
+        },
+        {
+          "hash": "e49ead79ac2440ff",
+          "title": "PRODUCTOS",
+          "snippet": "[PRODUCTOS]\nAgrega aqui el catalogo de productos del cliente."
+        },
+        {
+          "hash": "ad0000d316ae09ca",
+          "title": "NOMBRE_DE_EMPRESA",
+          "snippet": "[NOMBRE_DE_EMPRESA]\nNueva cuenta Smartbis"
+        },
+        {
+          "hash": "b90accbd5acabac7",
+          "title": "DESCRIPCION",
+          "snippet": "[DESCRIPCION]\nAgrega aqui la informacion general del cliente."
+        }
+      ],
+      "createdAt": "2026-10-12T21:32:01.311Z"
+    },
+    {
       "id": "b42a6b9236e3c1cd",
       "tenantId": "907a8c42-89d5-4d9e-bbb2-00b394eb934c",
       "triggerMessageText": "cuantos productos cuentas?",
@@ -393,5 +1230,5 @@
     }
   ],
   "createdAt": "2026-10-05T21:30:16.377Z",
-  "updatedAt": "2026-10-05T22:08:42.041Z"
+  "updatedAt": "2026-10-12T21:36:05.993Z"
 }

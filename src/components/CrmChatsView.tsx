@@ -33,6 +33,8 @@ import {
   Brain,
   CheckSquare,
   Square,
+  Smartphone,
+  Megaphone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -45,8 +47,12 @@ import {
   type AutoEvalCategory,
   metaAutoEvalList,
   metaAutoEvalGet,
+  getWorkspace,
+  syncMetaAds,
 } from '@/lib/api'
+import { findPaymentProofs } from '@/lib/paymentProof'
 import { useMetaCrmStore } from '@/store/useMetaCrmStore'
+import WhatsAppNotificationsPanel from '@/components/WhatsAppNotificationsPanel'
 
 type CrmChatsViewProps = {
   status: MetaStatusResponse | null
@@ -90,6 +96,22 @@ function formatTime(iso?: string) {
   }
 }
 
+function parseAdDocument(markdown: string) {
+  return markdown.split(/^## /m).slice(1).map((section) => {
+    const [title = '', ...rawLines] = section.split('\n')
+    const fields: Array<{ label: string; value: string }> = []
+    for (const line of rawLines) {
+      if (line.startsWith('- ')) {
+        const separator = line.indexOf(': ')
+        if (separator > 2) fields.push({ label: line.slice(2, separator), value: line.slice(separator + 2) })
+      } else if (line.trim() && fields.length) {
+        fields[fields.length - 1].value += `\n${line.trim()}`
+      }
+    }
+    return { title: title.trim(), fields }
+  }).filter((ad) => ad.title)
+}
+
 export default function CrmChatsView(props: CrmChatsViewProps) {
   const {
     status,
@@ -121,8 +143,40 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
   const ctxMenuRef = useRef<HTMLDivElement | null>(null)
   const [confirmDeletePSID, setConfirmDeletePSID] = useState<string | null>(null)
 
-  type ViewMode = 'conversations' | 'autocuration'
+  type ViewMode = 'conversations' | 'autocuration' | 'notifications' | 'ads'
   const [viewMode, setViewMode] = useState<ViewMode>('conversations')
+  const [adsMarkdown, setAdsMarkdown] = useState('')
+  const [adsLoading, setAdsLoading] = useState(false)
+  const [adsSyncing, setAdsSyncing] = useState(false)
+  const [adsError, setAdsError] = useState('')
+  const adEntries = useMemo(() => parseAdDocument(adsMarkdown), [adsMarkdown])
+
+  async function loadAdsDocument() {
+    setAdsLoading(true)
+    setAdsError('')
+    try {
+      const workspace = await getWorkspace()
+      const document = workspace.documents.find((item) => item.fileName.toLowerCase() === 'anuncios.md')
+      setAdsMarkdown(document?.content || '')
+    } catch (error: any) {
+      setAdsError(error?.message || 'No se pudo cargar la información de anuncios.')
+    } finally {
+      setAdsLoading(false)
+    }
+  }
+
+  async function handleSyncAds() {
+    setAdsSyncing(true)
+    setAdsError('')
+    try {
+      await syncMetaAds()
+      await loadAdsDocument()
+    } catch (error: any) {
+      setAdsError(error?.message || 'No se pudieron sincronizar los anuncios.')
+    } finally {
+      setAdsSyncing(false)
+    }
+  }
 
   // ===== AUTO-EVALS · estado del panel =====
   const [aeCategory, setAeCategory] = useState<AutoEvalCategory | 'all'>('all')
@@ -164,6 +218,11 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, aeCategory, aePage])
 
+  useEffect(() => {
+    if (viewMode === 'ads') void loadAdsDocument()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode])
+
   async function aeOpenOne(id: string) {
     setAeDetailLoading(true)
     try {
@@ -185,6 +244,9 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
   )
 
   const selectedChatMeta = chats.find((c) => c.psid === selectedPSID) || null
+
+  const pendingProofs = useMemo(() => findPaymentProofs(selectedMessages), [selectedMessages])
+  const pendingProofIds = useMemo(() => new Set(pendingProofs.map((h) => h.messageId)), [pendingProofs])
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -374,6 +436,32 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
               <Brain className="h-3.5 w-3.5" />
               Auto-curado
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('notifications')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] transition',
+                viewMode === 'notifications'
+                  ? 'bg-emerald-600 text-white shadow shadow-emerald-500/20'
+                  : 'text-slate-300 hover:text-white hover:bg-white/[0.04]',
+              )}
+            >
+              <Smartphone className="h-3.5 w-3.5" />
+              Inscripciones
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('ads')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] transition',
+                viewMode === 'ads'
+                  ? 'bg-amber-500 text-slate-950 shadow shadow-amber-500/20'
+                  : 'text-slate-300 hover:text-white hover:bg-white/[0.04]',
+              )}
+            >
+              <Megaphone className="h-3.5 w-3.5" />
+              Anuncios
+            </button>
           </div>
         </div>
 
@@ -531,6 +619,7 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
                             c.unreadCount > 0 ? 'text-slate-100' : 'text-slate-400',
                           )}
                         >
+                          {c.direction === 'IN' && /^\[Adjunto: (image|file)\]/.test(c.lastMessage || '') ? '💳 ' : ''}
                           {c.lastMessage || '(Sin mensaje)'}
                         </p>
                         <div className="mt-1 flex items-center justify-between gap-2">
@@ -578,7 +667,12 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
                     </p>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                <div className="flex flex-wrap items-center justify-end gap-2 text-[10px]">
+                  {pendingProofs.length > 0 ? (
+                    <span className="rounded-full border border-amber-300/40 bg-amber-300/15 px-2.5 py-1 font-semibold text-amber-200">
+                      💳 Pago detectado · aviso automático
+                    </span>
+                  ) : null}
                   {status?.testMode ? (
                     <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 font-semibold uppercase tracking-[0.2em] text-amber-200">
                       🧪 test mode activo
@@ -616,6 +710,7 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
                   <MessageBubble
                     key={m.id}
                     msg={m}
+                    possibleProof={pendingProofIds.has(m.id)}
                   />
                 ))}
                 {selectedMessages.length === 0 && !loadingDetail ? (
@@ -910,6 +1005,74 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
         </div>
       ) : null}
 
+      {viewMode === 'notifications' ? <WhatsAppNotificationsPanel /> : null}
+
+      {viewMode === 'ads' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[#0c2a47] px-5 py-5 tech-scrollbar">
+          <div className="mx-auto max-w-6xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#1a3a5a] bg-[#0f3151] px-5 py-4">
+              <div>
+                <h2 className="text-base font-bold text-white">Anuncios de Facebook</h2>
+                <p className="mt-1 text-xs text-slate-300">Consulta el texto sincronizado que usa el agente para reconocer el origen de una conversación.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={adsLoading || adsSyncing}
+                  onClick={() => void loadAdsDocument()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#1a3a5a] bg-[#11375a] px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-[#143f67] disabled:opacity-50"
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', adsLoading && 'animate-spin')} />
+                  Actualizar vista
+                </button>
+                <button
+                  type="button"
+                  disabled={!status?.linked || adsLoading || adsSyncing}
+                  onClick={() => void handleSyncAds()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#1090D0] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0c79ae] disabled:opacity-50"
+                >
+                  {adsSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Megaphone className="h-3.5 w-3.5" />}
+                  {adsSyncing ? 'Sincronizando…' : 'Sincronizar con Facebook'}
+                </button>
+              </div>
+            </div>
+
+            {adsError ? (
+              <div className="rounded-xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{adsError}</div>
+            ) : null}
+
+            {adsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-300"><Loader2 className="h-4 w-4 animate-spin" />Cargando anuncios…</div>
+            ) : adEntries.length ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{adEntries.length} anuncios en anuncios.md</p>
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  {adEntries.map((ad, index) => (
+                    <article key={`${ad.title}-${index}`} className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151] p-4">
+                      <h3 className="text-sm font-bold text-white">{ad.title}</h3>
+                      <div className="mt-3 space-y-2">
+                        {ad.fields.map((field, fieldIndex) => (
+                          <div key={`${field.label}-${fieldIndex}`} className="text-xs leading-relaxed">
+                            <span className="font-semibold text-sky-200">{field.label}: </span>
+                            <span className="whitespace-pre-wrap break-words text-slate-200">{field.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[#25507c] bg-white/[0.02] px-6 py-12 text-center">
+                <Megaphone className="mx-auto h-8 w-8 text-slate-500" />
+                <h3 className="mt-3 text-sm font-bold text-white">Aún no hay anuncios sincronizados</h3>
+                <p className="mx-auto mt-1 max-w-xl text-xs leading-relaxed text-slate-400">Pulsa “Sincronizar con Facebook”. Si falta autorización, vuelve a iniciar sesión en Conectar Messenger y concede acceso de lectura a anuncios.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
     </section>
   )
 }
@@ -1128,10 +1291,12 @@ function MetaKv({ label, value }: { label: string; value: string }) {
 
 type MessageBubbleProps = {
   msg: MetaMessageRow
+  possibleProof?: boolean
 }
 function MessageBubble(props: MessageBubbleProps) {
   const {
     msg,
+    possibleProof,
   } = props
   const isIn = msg.direction === 'IN'
   const isBot = msg.direction === 'OUT_BOT'
@@ -1201,6 +1366,11 @@ function MessageBubble(props: MessageBubbleProps) {
         >
           {msg.content}
         </p>
+        {possibleProof ? (
+          <span className="mt-1 inline-block rounded-full border border-amber-300/40 bg-amber-300/15 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+            💳 Posible comprobante de pago
+          </span>
+        ) : null}
         {msg.referral ? (
           <div className="mt-2 rounded-lg border border-sky-300/20 bg-sky-300/5 px-2 py-1 text-[10px] leading-snug text-sky-100/80">
             <span className="font-bold uppercase tracking-wide">Origen referido{msg.referral.source === 'ADS' ? ' · anuncio' : ''}</span>
