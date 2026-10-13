@@ -553,17 +553,6 @@ async function processCustomerInformation(cfg: TenantMetaConfig, eventPSID: stri
   if (changed) writeJSON(messagesPath(cfg.tenantId), messages)
 }
 
-const INBOUND_BUFFER_MS = 10_000
-interface PendingInbound {
-  cfg: TenantMetaConfig
-  psid: string
-  pageId: string
-  profile: PSIDProfile
-  referral?: MetaReferral
-  items: Array<{ id: string; mid: string; text: string }>
-  timer: ReturnType<typeof setTimeout>
-}
-const pendingInbound = new Map<string, PendingInbound>()
 const processingInboundMids = new Set<string>()
 
 async function processIncomingText(
@@ -602,36 +591,12 @@ async function processIncomingText(
       .catch((error) => console.error('[meta] payment auto-confirm failed', error))
     if (cfg.state !== 'START') return
 
-    const key = `${cfg.tenantId}:${psid}`
-    const current = pendingInbound.get(key)
-    const items = current?.items || []
-    items.push({ id: inMsg.id, mid, text: inMsg.content })
-    if (current) clearTimeout(current.timer)
-    const pending: PendingInbound = {
-      cfg, psid, pageId, profile, referral: referral || current?.referral,
-      items, timer: setTimeout(() => {
-        pendingInbound.delete(key)
-        const joined = items.map((item) => item.text).filter(Boolean).join('\n')
-        void processIncomingBatch(cfg, psid, joined, items[items.length - 1]?.mid || mid,
-          new Set(items.map((item) => item.id)), pageId, profile, referral || current?.referral)
-            .catch((error) => console.error('[meta] inbound buffer processing failed', error))
-      }, INBOUND_BUFFER_MS),
-    }
-    pendingInbound.set(key, pending)
+    // No responder de inmediato: esperar por si el cliente sigue escribiendo.
+    // Se agenda en cuanto llega el mensaje para invalidar cualquier respuesta en curso.
+    scheduleBotReply(cfg.tenantId, psid, { pageId, profile, referral })
   } finally {
     processingInboundMids.delete(dedupeKey)
   }
-}
-
-async function processIncomingBatch(
-  cfg: TenantMetaConfig, psid: string, text: string, mid: string,
-  batchMessageIds: Set<string>, pageId: string, profile: PSIDProfile, referral?: MetaReferral,
-): Promise<void> {
-  // 3) Evaluar bot state
-  if (cfg.state !== 'START') return
-
-  // 4) No responder de inmediato: esperar por si el cliente sigue escribiendo
-  scheduleBotReply(cfg.tenantId, psid, { pageId, profile, referral })
 }
 
 // =========================
@@ -792,6 +757,9 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
     return
   }
   pendingReplies.delete(key)
+  // Hora de la respuesta = momento de esta revisión, no el de fin del envío: un mensaje
+  // que llegue mientras se envía queda después de la respuesta y se atiende en la siguiente ronda.
+  const replyCreatedAt = nowISO()
 
   // 7) TEST MODE: NO ENVIAR. Guardar OUT_BOT sentToUser=false
   if (cfg.testMode) {
@@ -809,7 +777,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
       direction: 'OUT_BOT',
       content: contentForLog,
       sentToUser: false,
-      createdAt: nowISO(),
+      createdAt: replyCreatedAt,
       testMode: true,
       blockedByAutocurator: effectiveBlockedByAutocurator,
       autoEvalId: evalId,
@@ -843,7 +811,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
       direction: 'OUT_BOT',
       content: visibleContent,
       sentToUser: false,
-      createdAt: nowISO(),
+      createdAt: replyCreatedAt,
       blockedByAutocurator: true,
       autoEvalId: evalId,
       autoEvalCategory: evalCategory,
@@ -865,7 +833,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
       direction: 'OUT_BOT',
       content: answer,
       sentToUser: false,
-      createdAt: nowISO(),
+      createdAt: replyCreatedAt,
       blockedByAutocurator: false,
       autoEvalId: evalId,
       autoEvalCategory: evalCategory,
@@ -888,7 +856,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
     direction: 'OUT_BOT',
     content: answer,
     sentToUser: !sent.error,
-    createdAt: nowISO(),
+    createdAt: replyCreatedAt,
     blockedByAutocurator: false,
     autoEvalId: evalId,
     autoEvalCategory: evalCategory,
