@@ -557,10 +557,92 @@ async function processIncomingText(
   // 3) Evaluar bot state
   if (cfg.state !== 'START') return
 
-  // 4) Construir historial del chat para el LLM
-  const chatHistory = await getMessagesByPSID(cfg.tenantId, psid)
+  // 4) No responder de inmediato: esperar por si el cliente sigue escribiendo
+  scheduleBotReply(cfg.tenantId, psid, { pageId, profile, referral })
+}
+
+// =========================
+// Agrupación de mensajes seguidos (debounce por conversación)
+// =========================
+// Si el cliente manda varios mensajes seguidos, se espera a que deje de escribir
+// y se genera UNA sola respuesta con todos ellos
+const REPLY_DEBOUNCE_MS = (() => {
+  const parsed = Number.parseInt(process.env.META_REPLY_DEBOUNCE_MS?.trim() || '', 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 6000
+})()
+
+type PendingReply = {
+  timer: ReturnType<typeof setTimeout> | null
+  generation: number
+  pageId: string
+  profile: PSIDProfile
+  referral?: MetaReferral
+}
+
+const pendingReplies = new Map<string, PendingReply>()
+
+function pendingReplyKey(tenantId: string, psid: string) {
+  return `${tenantId}:${psid}`
+}
+
+function scheduleBotReply(
+  tenantId: string,
+  psid: string,
+  ctx: { pageId: string; profile: PSIDProfile; referral?: MetaReferral },
+) {
+  const key = pendingReplyKey(tenantId, psid)
+  const pending: PendingReply = pendingReplies.get(key) ?? { timer: null, generation: 0, ...ctx }
+  if (pending.timer) clearTimeout(pending.timer)
+
+  // Cada mensaje nuevo invalida cualquier respuesta en curso de esta conversación
+  pending.generation += 1
+  pending.pageId = ctx.pageId
+  pending.profile = ctx.profile
+  pending.referral = ctx.referral ?? pending.referral
+
+  const generation = pending.generation
+  pending.timer = setTimeout(() => {
+    pending.timer = null
+    replyToPendingMessages(tenantId, psid, generation).catch((e) => {
+      console.error('[meta] reply error', e?.message || e)
+    })
+  }, REPLY_DEBOUNCE_MS)
+  pendingReplies.set(key, pending)
+}
+
+function isReplyStale(tenantId: string, psid: string, generation: number) {
+  return pendingReplies.get(pendingReplyKey(tenantId, psid))?.generation !== generation
+}
+
+async function replyToPendingMessages(tenantId: string, psid: string, generation: number): Promise<void> {
+  const key = pendingReplyKey(tenantId, psid)
+  const pending = pendingReplies.get(key)
+  if (!pending || isReplyStale(tenantId, psid, generation)) return
+  const { pageId, profile, referral } = pending
+
+  // El bot pudo pausarse durante la espera
+  const cfg = await getTenantMetaConfig(tenantId)
+  if (cfg.state !== 'START') {
+    pendingReplies.delete(key)
+    return
+  }
+
+  // Mensajes sin responder = los IN posteriores a la última salida (bot o humano)
+  const chatHistory = await getMessagesByPSID(tenantId, psid)
+  let lastOutIndex = -1
+  chatHistory.forEach((m, i) => { if (m.direction !== 'IN') lastOutIndex = i })
+  const unanswered = chatHistory.slice(lastOutIndex + 1).filter((m) => m.direction === 'IN')
+  if (!unanswered.length) {
+    pendingReplies.delete(key)
+    return
+  }
+  const text = unanswered.map((m) => m.content.trim()).filter(Boolean).join('\n')
+  const mid = unanswered[unanswered.length - 1].mid
+
+  // Historial previo para el LLM, sin las respuestas bloqueadas que el cliente nunca recibió
   const llmHistory: Array<{ role: 'user' | 'assistant'; content: string }> = chatHistory
-    .filter((m) => m.direction !== 'IN' || m.id !== inMsg.id)
+    .slice(0, lastOutIndex + 1)
+    .filter((m) => !m.blockedByAutocurator)
     .map((m) => ({
       role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.content,
@@ -619,6 +701,14 @@ async function processIncomingText(
   const evalCategory = autoEval?.category || undefined
   const evalId = autoEval?.id || undefined
   const evalReason = autoEval?.judgeReason || ''
+
+  // Si el cliente escribió de nuevo mientras se generaba, esta respuesta ya no aplica:
+  // la siguiente ronda responderá a todos los mensajes juntos.
+  if (isReplyStale(tenantId, psid, generation)) {
+    console.log(`[meta] respuesta descartada para PSID ${psid}: llegó un mensaje nuevo durante la generación`)
+    return
+  }
+  pendingReplies.delete(key)
 
   // 7) TEST MODE: NO ENVIAR. Guardar OUT_BOT sentToUser=false
   if (cfg.testMode) {
