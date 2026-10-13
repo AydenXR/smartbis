@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Facebook,
   Plug,
@@ -68,7 +68,14 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
   const [fbPagesFetched, setFBPagesFetched] = useState<any[] | null>(null)
   const [fbPageSelectedIdx, setFBPageSelectedIdx] = useState<number | null>(null)
 
+  const callbacksRef = useRef({ onLinkManual, onRefresh, onSetState })
+  callbacksRef.current = { onLinkManual, onRefresh, onSetState }
+
   useEffect(() => {
+    const onLinkManual: typeof callbacksRef.current.onLinkManual = (inp) => callbacksRef.current.onLinkManual(inp)
+    const onRefresh = () => callbacksRef.current.onRefresh().catch(() => {})
+    const onSetState: typeof callbacksRef.current.onSetState = (inp) => callbacksRef.current.onSetState(inp)
+
     let mounted = true
     let cancelled = false
     let timer: ReturnType<typeof setInterval> | null = null
@@ -246,7 +253,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       if (timer) clearInterval(timer)
       window.removeEventListener('message', onMessage)
     }
-  }, [onLinkManual, onRefresh, onSetState])
+  }, [])
 
   function handleSelectFetchedPage(i: number) {
     if (!fbPagesFetched) return
