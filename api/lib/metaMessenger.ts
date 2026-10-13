@@ -665,14 +665,14 @@ async function processIncomingBatch(
     autoEval = res?.autoEval || null
   } catch (e: any) {
     console.error('[meta] LLM error', e?.message || e)
-    // Mensaje puente seguro: no afirma datos y permite que la conversación siga
-    // con un asesor, sin exponer el fallo interno ni mencionar automatización.
-    answer = 'Con gusto te apoyamos con ese tema. Escríbenos por WhatsApp y un asesor te confirma los detalles.'
+    // Fail closed: si no se pudo generar y validar una respuesta respaldada,
+    // no se envía un mensaje que pueda aparentar falta de información.
+    answer = ''
     autoEval = {
       id: '',
-      category: 'correct',
+      category: 'judge_failed',
       judgeReason: `Excepción en generateDbAgentAnswer: ${e?.message || String(e)}`.slice(0, 600),
-      blocked: false,
+      blocked: true,
     }
     try {
       const saved = await createAutoEval(cfg.tenantId, {
@@ -680,8 +680,8 @@ async function processIncomingBatch(
         triggerMessageId: mid,
         triggerMessageText: text,
         botAnswerText: answer,
-        category: 'correct',
-        judgeReason: 'Se envió una respuesta puente para que un asesor confirme el detalle tras una interrupción técnica.',
+        category: 'judge_failed',
+        judgeReason: 'No se envió respuesta porque falló la generación o validación de una respuesta respaldada.',
         matchedBlocks: [],
       })
       autoEval.id = saved.id
@@ -689,13 +689,23 @@ async function processIncomingBatch(
   }
 
   const blockedByAutocurator = !!autoEval?.blocked
+  const unsafeFallback = !answer.trim() || /no cuento con la información|whatsapp de mi superior/i.test(answer)
+  if (!blockedByAutocurator && unsafeFallback) {
+    autoEval = {
+      ...(autoEval || {}),
+      category: 'noinfo',
+      blocked: true,
+      judgeReason: 'Respuesta bloqueada porque no contiene información respaldada o usa una derivación de falta de información.',
+    }
+  }
   const evalCategory = autoEval?.category || undefined
   const evalId = autoEval?.id || undefined
   const evalReason = autoEval?.judgeReason || ''
+  const effectiveBlockedByAutocurator = blockedByAutocurator || unsafeFallback
 
   // 7) TEST MODE: NO ENVIAR. Guardar OUT_BOT sentToUser=false
   if (cfg.testMode) {
-    const contentForLog = blockedByAutocurator
+    const contentForLog = effectiveBlockedByAutocurator
       ? `[🧪 TEST MODE · BLOQUEADO POR AUTO-CURADOR · ${String(evalCategory).toUpperCase()}]\n${evalReason}\n--- Respuesta original no enviada ---\n${answer || '(sin texto)'}`
       : answer
     const outMsg: MetaMessageRow = {
@@ -711,7 +721,7 @@ async function processIncomingBatch(
       sentToUser: false,
       createdAt: nowISO(),
       testMode: true,
-      blockedByAutocurator,
+      blockedByAutocurator: effectiveBlockedByAutocurator,
       autoEvalId: evalId,
       autoEvalCategory: evalCategory,
     }
@@ -726,7 +736,7 @@ async function processIncomingBatch(
   // 8) AUTO-CURADOR: si fue bloqueado (error / noinfo / judge_failed),
   //    NO ENVIAR NADA al cliente (silencio total). Guardar en el historial con
   //    etiqueta de bloqueado para que el humano lo vea y responda manualmente.
-  if (blockedByAutocurator) {
+  if (effectiveBlockedByAutocurator) {
     const visibleContent =
       `[⛔ BLOQUEADO POR AUTO-CURADOR · ${String(evalCategory).toUpperCase()}]\n`
       + `Motivo: ${evalReason || '(sin justificación)'}\n`
