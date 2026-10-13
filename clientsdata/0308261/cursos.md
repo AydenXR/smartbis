@@ -589,7 +589,7 @@ Descripción: Aprendizaje de la técnica de aplicación de enzimas lipolíticas 
 
 Modalidades: Online, Presencial
 
-Precio: Online: $595 MXN ($33 USD) / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -834,6 +834,8 @@ Nombre del curso: Toxina Botulínica: Tercio inferior.
 
 Descripción: Técnica avanzada para la aplicación de toxina botulínica en el tercio inferior del rostro, enfocada en el tratamiento de bandas platismales, sonrisa gingival y líneas de marioneta para un rejuvenecimiento integral.
 
+Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.
+
 Modalidades: Online
 
 Precio: Online: $895 MXN ($48 USD)
@@ -845,6 +847,8 @@ Online: Práctica demostrativa, protocolo de procedimiento, constancia de partic
 Nombre del curso: Manejo de hiperhidrosis.
 
 Descripción: Capacitación en el protocolo de aplicación de toxina botulínica para el control de la sudoración excesiva en zonas como axilas, palmas de las manos y plantas de los pies.
+
+Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.
 
 Modalidades: Online
 
@@ -870,6 +874,8 @@ Nombre del curso: Rinomodelación.
 
 Descripción: Procedimiento no quirúrgico de armonización nasal mediante la aplicación de rellenos para corregir asimetrías, elevar la punta nasal y suavizar el dorso, ofreciendo resultados inmediatos.
 
+Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.
+
 Modalidades: Online
 
 Precio: Online: $895 MXN ($48 USD)
@@ -881,6 +887,8 @@ Online: Práctica demostrativa, protocolo de procedimiento, constancia de partic
 Nombre del curso: Russian Lips + Técnica francesa.
 
 Descripción: Especialización en técnicas de diseño labial de vanguardia, combinando la técnica "Russian" para mayor altura y definición, con la "técnica francesa" para un acabado natural y elegante.
+
+Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.
 
 Modalidades: Online
 
@@ -905,6 +913,8 @@ Online: Práctica demostrativa, protocolo de procedimiento, constancia de partic
 Nombre del curso: Toxina Botulínica: Tercio superior.
 
 Descripción: Técnica para la aplicación de toxina botulínica en el tercio superior facial para reducir arrugas dinámicas y lograr un efecto de mirada descansada.
+
+Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.
 
 Modalidades: Online
 
