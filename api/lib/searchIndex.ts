@@ -68,6 +68,9 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   'hola', 'buenas', 'buenos', 'tardes', 'dias', 'noches', 'saludos', 'oye', 'disculpa', 'disculpe',
   'gustaria', 'quisiera', 'queria', 'podria', 'podrias', 'porfavor', 'pregunta', 'preguntar', 'informes',
   'esta', 'estan', 'cuando', 'donde',
+  // Palabras de intencion sobre tratamientos: no nombran un tratamiento concreto
+  'tratamiento', 'tratamientos', 'sesion', 'sesiones', 'ustedes', 'aplican', 'aplica', 'aplicas',
+  'aplicar', 'ofrecen', 'realizan', 'hacen', 'servicio', 'servicios', 'cursos', 'agendar', 'cita', 'citas',
 ])
 
 function queryEntityWords(query: string) {
@@ -97,6 +100,38 @@ function blockNameHasWord(block: IndexedBlock, word: string) {
     block.titleTokens.includes(word) ||
     Boolean(block.fields.name && normalizeText(block.fields.name).split(' ').includes(word))
   )
+}
+
+
+function isTreatmentBlock(block: IndexedBlock) {
+  return /tratamiento/i.test(block.document.title) && block.title.trim().length > 0
+}
+
+function isTreatmentOverviewQuery(query: string) {
+  const normalized = normalizeText(query)
+  return /\btratamientos?\b|\bsesion(?:es)?\b/.test(normalized) && queryEntityWords(query).length === 0
+}
+
+function buildTreatmentOverview(index: SearchIndex) {
+  const treatmentBlocks = index.blocks.filter(isTreatmentBlock)
+  if (treatmentBlocks.length === 0) return null
+
+  const intro = index.blocks.find((block) => block.normalizedTitle.includes('tratamientos directos'))
+  const lines = treatmentBlocks.map((block) => {
+    const price = block.body.match(/PRECIO APROXIMADO:\s*(.+)/i)?.[1]?.trim() || ''
+    const shortPrice = price.length > 70 ? `${price.slice(0, 69).trim()}...` : price
+    return `- ${block.title.replace(/\.$/, '')}${shortPrice ? ` | ${shortPrice}` : ''}`
+  })
+
+  const parts = [
+    ...(intro ? [`[SECCION: GENERAL | DOCUMENTO: ${intro.document.title} | BLOQUE: ${intro.title}]\n${intro.body}`] : []),
+    `[SECCION: GENERAL | DOCUMENTO: ${treatmentBlocks[0].document.title} | BLOQUE: LISTA DE TRATAMIENTOS]\n${lines.join('\n')}`,
+  ]
+
+  return {
+    contextBlock: parts.join('\n\n'),
+    blocks: [...(intro ? [intro] : []), ...treatmentBlocks],
+  }
 }
 
 function filterToEntityMatches(blocks: IndexedBlock[], query: string, intent: SearchIntent) {
@@ -614,6 +649,10 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
     score += 6
   }
 
+  if (queryIntent.wantsServices && isTreatmentBlock(block)) {
+    score += 16
+  }
+
   if ((queryIntent.wantsLocation || queryIntent.wantsSchedule) && (block.kind === 'location' || block.kind === 'contact' || block.kind === 'schedule')) {
     score += 18
   }
@@ -819,7 +858,35 @@ export function createSearchIndex(input: { tenantId: string; documents: Workspac
   } satisfies SearchIndex
 }
 
-export function searchIndex(index: SearchIndex, query: string): SearchContextResult {
+
+function withinOneEdit(a: string, b: string) {
+  if (a === b) return true
+  if (Math.abs(a.length - b.length) > 1) return false
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1)
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1)
+}
+
+// Corrige errores de dedo de una letra (peptomas -> peptonas) usando los titulos indexados
+function correctQueryTypos(index: SearchIndex, query: string) {
+  const titleTokens = new Set<string>()
+  for (const block of index.blocks) {
+    for (const token of block.titleTokens) if (token.length >= 5) titleTokens.add(token)
+  }
+  const known = new Set(titleTokens)
+  return normalizeText(query)
+    .split(' ')
+    .map((word) => {
+      if (word.length < 5 || QUERY_ENTITY_STOP_WORDS.has(word) || known.has(word)) return word
+      for (const token of titleTokens) if (withinOneEdit(word, token)) return token
+      return word
+    })
+    .join(' ')
+}
+
+export function searchIndex(index: SearchIndex, rawQuery: string): SearchContextResult {
+  const query = correctQueryTypos(index, rawQuery)
   const intent = analyzeQuery(query)
   const rankedBlocks = [...index.blocks].sort((left, right) => {
     const scoreDiff = scoreIndexedBlock(right, query) - scoreIndexedBlock(left, query)
@@ -835,6 +902,18 @@ export function searchIndex(index: SearchIndex, query: string): SearchContextRes
   const entityMatchedBlocks = intent.wantsList
     ? candidateBlocks
     : filterToEntityMatches(candidateBlocks, query, intent)
+
+  if (isTreatmentOverviewQuery(query)) {
+    const overview = buildTreatmentOverview(index)
+    if (overview) {
+      return {
+        documents: Array.from(new Map(overview.blocks.map((block) => [block.document.id, block.document])).values()),
+        contextBlock: overview.contextBlock.slice(0, MAX_CONTEXT_CHARS * 2),
+        matchedBlocks: overview.blocks.slice(0, MAX_CONTEXT_BLOCKS),
+        intent,
+      }
+    }
+  }
 
   if (intent.wantsList) {
     const summary = buildStructuredCatalogSummary(candidateBlocks, MAX_CONTEXT_CHARS)
