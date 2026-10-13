@@ -15,9 +15,11 @@ import {
   registerDbAccount,
   saveDbPrompt,
   updateDbDocument,
+  upsertDbDocument,
   type DbAuthUser,
 } from './lib/dbWorkspace.js'
 import { generateDbAgentAnswer } from './lib/dbChat.js'
+import { getWhatsAppStatus, notifyRegistration, sendWhatsAppTest, setWhatsAppRecipient, startWhatsApp } from './lib/whatsappNotifications.js'
 import {
   adminSendMessage,
   buildOAuthLoginURL,
@@ -25,6 +27,7 @@ import {
   exchangeCodeForUserToken,
   exchangeLongLivedUserToken,
   getTenantMetaConfig,
+  fetchCurrentPageAds,
   handleWebhookGet,
   handleWebhookPost,
   listChats,
@@ -853,6 +856,67 @@ app.get('/api/meta/oauth/url', requireAuth, csGuard(CS_ADMIN_ROLES), async (_req
   res.status(200).json({ url })
 })
 
+// Reconsultar las páginas con el token de usuario que el callback OAuth ya
+// guardó. Evita repetir login cuando Meta devolvió un límite transitorio (#4).
+app.post('/api/meta/pages/retry', requireAuth, csGuard(CS_ADMIN_ROLES), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const cfg = await getTenantMetaConfig(user.tenantId)
+    if (!cfg.userLongLivedToken) {
+      res.status(409).json({ error: 'No hay una autorización de Facebook guardada. Inicia sesión con Facebook primero.' })
+      return
+    }
+    const result = await listUserPages(cfg.userLongLivedToken)
+    if (!result.success) {
+      const rateLimited = /\(#4\)/.test(result.error || '')
+      res.status(rateLimited ? 429 : 502).json({ error: result.error || 'No se pudieron consultar las páginas de Facebook.' })
+      return
+    }
+    res.status(200).json({ pages: result.pages })
+  } catch (error) { next(error) }
+})
+
+app.post('/api/meta/ads/sync', requireAuth, csGuard(CS_ADMIN_ROLES), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const cfg = await ensureTenantFacebookConnection(user.tenantId)
+    if (!cfg.pageId || !cfg.pageAccessToken) {
+      res.status(409).json({ error: 'Conecta primero la página de Facebook.' })
+      return
+    }
+    const { ads, accountsChecked } = await fetchCurrentPageAds(cfg)
+    const syncedAt = new Date().toISOString()
+    const lines = [
+      '# Anuncios actuales de Facebook',
+      '',
+      `Página: ${cfg.pageName || cfg.pageId} (ID ${cfg.pageId})`,
+      `Sincronizado: ${syncedAt}`,
+      'Usa esta ficha para reconocer el anuncio del que viene una conversación mediante su ID o título. Los textos del anuncio describen la creatividad; no garantizan precio, disponibilidad ni condiciones vigentes.',
+      '',
+    ]
+    if (!ads.length) {
+      lines.push('No se encontraron anuncios actuales asociados a esta página en las cuentas publicitarias autorizadas.')
+    } else {
+      for (const ad of ads) {
+        lines.push(`## ${ad.title || ad.name || `Anuncio ${ad.id}`}`)
+        lines.push(`- ID del anuncio: ${ad.id}`)
+        if (ad.name) lines.push(`- Nombre interno: ${ad.name}`)
+        if (ad.campaign) lines.push(`- Campaña: ${ad.campaign}`)
+        lines.push(`- Estado: ${ad.status}`)
+        if (ad.body) lines.push(`- Texto del anuncio: ${ad.body.slice(0, 5000)}`)
+        if (ad.description) lines.push(`- Descripción: ${ad.description.slice(0, 3000)}`)
+        if (ad.callToAction) lines.push(`- Llamada a la acción: ${ad.callToAction}`)
+        lines.push('')
+      }
+    }
+    await upsertDbDocument(user.tenantId, { fileName: 'anuncios.md', content: lines.join('\n') })
+    const ingestion = await ingestDbTenantDocuments(user.tenantId)
+    res.status(200).json({ success: true, ads: ads.length, accountsChecked, syncedAt, ingestion })
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/meta/linkPage', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = res.locals.user as DbAuthUser
@@ -926,6 +990,47 @@ app.post('/api/meta/setState', requireAuth, csGuard(CS_AGENT_ROLES), async (req:
     if (typeof testModeRaw === 'boolean') patch.testMode = testModeRaw
     const cfg = await saveTenantMetaConfig(user.tenantId, patch)
     res.status(200).json({ success: true, state: cfg.state, testMode: cfg.testMode })
+  } catch (e) { next(e) }
+})
+
+// WhatsApp Web notifications: connection/config are admin-only; agents can confirm signups.
+app.get('/api/whatsapp/status', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    await startWhatsApp(user.tenantId)
+    res.json(await getWhatsAppStatus(user.tenantId))
+  } catch (e) { next(e) }
+})
+
+app.put('/api/whatsapp/recipient', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const recipient = await setWhatsAppRecipient(user.tenantId, String(req.body?.recipient || ''))
+    res.json({ success: true, recipient })
+  } catch (e) { next(e) }
+})
+
+app.post('/api/whatsapp/test', requireAuth, csGuard(CS_ADMIN_ROLES), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    res.json(await sendWhatsAppTest(user.tenantId))
+  } catch (e) { next(e) }
+})
+
+app.post('/api/meta/chats/:psid/confirm-registration', requireAuth, csGuard(CS_AGENT_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const psid = decodeURIComponent(String(req.params.psid || ''))
+    const course = String(req.body?.course || '').trim()
+    if (!psid || !course) { res.status(400).json({ error: 'psid y curso obligatorios' }); return }
+    const result = await notifyRegistration(user.tenantId, {
+      psid,
+      customer: String(req.body?.customer || 'Cliente'),
+      course,
+      modality: String(req.body?.modality || ''),
+      confirmedBy: user.displayName || user.email,
+    })
+    res.json({ success: true, ...result })
   } catch (e) { next(e) }
 })
 

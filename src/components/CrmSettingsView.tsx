@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Megaphone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MetaBotState, MetaStatusResponse } from '@/lib/api'
@@ -19,8 +20,10 @@ type CrmSettingsViewProps = {
   errorStatus: string
   onRefresh: () => Promise<void>
   onGetOAuthUrl: () => Promise<string>
+  onRetryPages: () => Promise<{ pages: any[] }>
   onLinkManual: (input: { pageId: string; pageName?: string; pageAccessToken: string }) => Promise<{ success: boolean; subscribed: boolean; pageId: string; pageName: string }>
   onSetState: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>
+  onSyncAds: () => Promise<{ ads: number; accountsChecked: number }>
   APP_ID: string
   graphVersion?: string
 }
@@ -54,19 +57,23 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
     errorStatus,
     onRefresh,
     onGetOAuthUrl,
+    onRetryPages,
     onLinkManual,
     onSetState,
+    onSyncAds,
     APP_ID,
     graphVersion,
   } = props
 
-  const [fbLoginUrl, setFbLoginUrl] = useState<string>('')
   const [loadingLoginUrl, setLoadingLoginUrl] = useState(false)
-  const [form, setForm] = useState({ pageId: '', pageName: '', pageAccessToken: '' })
   const [loadingSave, setLoadingSave] = useState(false)
   const [lastSaved, setLastSaved] = useState<{ ok: boolean; text: string } | null>(null)
   const [fbPagesFetched, setFBPagesFetched] = useState<any[] | null>(null)
   const [fbPageSelectedIdx, setFBPageSelectedIdx] = useState<number | null>(null)
+  const [canRetryPages, setCanRetryPages] = useState(false)
+  const [retryingPages, setRetryingPages] = useState(false)
+  const [syncingAds, setSyncingAds] = useState(false)
+  const [adsSyncStatus, setAdsSyncStatus] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -92,10 +99,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       const pagesEmpty = raw.pages_empty === '1'
 
       if (stateSaved === '1' || selOk === '1') {
-        setLastSaved({
-          ok: true,
-          text: 'Conectado. Volviendo a Meta Developers para validar suscripcion webhook o ve directo a Chats.',
-        })
+        setLastSaved({ ok: true, text: 'Página conectada.' })
         return
       }
       const err = raw.error
@@ -109,6 +113,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         return
       }
       if (pagesErr) {
+        setCanRetryPages(lltOk === '1')
         setLastSaved({
           ok: false,
           text: '⚠️ Error de Facebook al consultar tus páginas. Detalle: ' + pagesErr,
@@ -116,9 +121,10 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         return
       }
       if (pagesEmpty) {
+        setCanRetryPages(false)
         setLastSaved({
           ok: false,
-          text: '⚠️ Tu cuenta Facebook NO tiene páginas seleccionadas para esta App. En el diálogo de inicio de sesión asegúrate de MARCAR al menos una página y autorizar los 3 permisos (Mostrar lista de páginas, Administrar páginas, Gestionar mensajes).',
+          text: '⚠️ Tu cuenta Facebook no devolvió páginas para esta App. Revisa que el perfil tenga acceso a la página y autoriza los permisos solicitados, incluido ads_management.',
         })
         return
       }
@@ -126,15 +132,11 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         try {
           const pages = decodeBase64urlJson<any[]>(pagesB64)
           if (Array.isArray(pages) && pages.length > 0) {
+            setCanRetryPages(false)
             setFBPagesFetched(pages)
             if (pages.length === 1) {
               const only = pages[0] as any
               setFBPageSelectedIdx(0)
-              setForm({
-                pageId: only?.id || '',
-                pageName: only?.name || '',
-                pageAccessToken: only?.access_token || '',
-              })
               setLoadingSave(true)
               setLastSaved(null)
               try {
@@ -163,12 +165,6 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
               }
             } else {
               setFBPageSelectedIdx(0)
-              const first = pages[0] as any
-              setForm({
-                pageId: first?.id || '',
-                pageName: first?.name || '',
-                pageAccessToken: first?.access_token || '',
-              })
             }
           } else {
             setLastSaved({
@@ -251,77 +247,98 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
   function handleSelectFetchedPage(i: number) {
     if (!fbPagesFetched) return
     setFBPageSelectedIdx(i)
-    const p: any = fbPagesFetched[i]
-    setForm({
-      pageId: p?.id || '',
-      pageName: p?.name || '',
-      pageAccessToken: p?.access_token || '',
-    })
   }
 
   async function handleOAuthUrlClick() {
     setLoadingLoginUrl(true)
     try {
       const url = await onGetOAuthUrl()
-      setFbLoginUrl(url)
       window.open(
         url,
         'smartbis_fb_oauth_popup',
         'width=880,height=760,resizable=yes,scrollbars=yes,status=no,menubar=no,toolbar=no',
       )
+    } catch (e: any) {
+      setLastSaved({ ok: false, text: e?.message || 'No se pudo iniciar la conexión con Facebook.' })
     } finally {
       setLoadingLoginUrl(false)
     }
   }
 
+  async function handleRetryPages() {
+    setRetryingPages(true)
+    try {
+      const result = await onRetryPages()
+      const pages = Array.isArray(result.pages) ? result.pages : []
+      if (pages.length === 0) {
+        setLastSaved({ ok: false, text: 'Facebook no devolvió páginas para esta cuenta. Revisa que el perfil tenga acceso a la página.' })
+        return
+      }
+      setFBPagesFetched(pages)
+      setFBPageSelectedIdx(0)
+      setCanRetryPages(false)
+      setLastSaved({ ok: true, text: `Facebook devolvió ${pages.length} página(s). Confirma la página seleccionada para conectarla.` })
+    } catch (e: any) {
+      setLastSaved({ ok: false, text: e?.message || 'No se pudieron volver a consultar las páginas.' })
+    } finally {
+      setRetryingPages(false)
+    }
+  }
+
   return (
-    <section className="flex h-full w-full min-h-0 flex-col gap-4 overflow-hidden bg-[#0c2a47] px-4 py-4">
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1 tech-scrollbar">
-        <div className="space-y-4">
-          {/* Header título sin botón refrescar (estado se actualiza auto) */}
-          <header className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] px-5 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1877F2]/20 text-[#60A5FA]">
-                <Facebook className="h-4.5 w-4.5" />
-              </div>
-              <div>
-                <h2 className="text-[15px] font-semibold text-white">
-                  Conectar Facebook Messenger
-                </h2>
-                <p className="max-w-2xl text-[11px] text-slate-300/90">
-                  Vincula tu página para que el bot responda automáticamente. El estado se
-                  actualiza en tiempo real.
-                </p>
-              </div>
+    <section className="h-full w-full overflow-y-auto bg-[radial-gradient(ellipse_at_top,_#123c61_0%,_#0c2a47_55%)] px-4 py-6 tech-scrollbar sm:px-6">
+      <div className="mx-auto w-full max-w-5xl space-y-5">
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#1877F2]/25 bg-[#1877F2]/10 text-[#60A5FA]">
+              <Facebook className="h-5 w-5" />
             </div>
-          </header>
+            <h2 className="text-lg font-semibold tracking-tight text-white">Conectar Messenger</h2>
+          </div>
+          <span className={cn(
+            'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold',
+            status?.linked
+              ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200'
+              : 'border-slate-400/20 bg-slate-400/5 text-slate-300',
+          )}>
+            {status?.linked ? 'Conectada' : 'Sin conectar'}
+          </span>
+        </header>
 
-          {errorStatus ? (
-            <div className="flex items-start gap-2 rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-[11px] text-rose-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p className="font-semibold">Error cargando estado del bot</p>
-                <p>{errorStatus}</p>
-              </div>
+        {errorStatus ? (
+          <div className="flex items-start gap-2 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-[12px] text-rose-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Error cargando estado del bot</p>
+              <p>{errorStatus}</p>
             </div>
-          ) : null}
+          </div>
+        ) : null}
 
-          {/* 1. Estados arriba */}
-          <StatusSummaryCard status={status} />
-
-          {/* 1.5 Controles rápidos (no requieren OAuth) */}
-          <QuickControls status={status} onSetState={onSetState} />
-
-          {/* 2. Sección Conectar página Facebook DEBAJO de los estados */}
-          <div className="rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] p-4">
-            <h3 className="mb-3 text-[13px] font-semibold text-white">
-              Conectar página Facebook
-            </h3>
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,0.85fr)]">
+          <div className="rounded-3xl border border-[#255078] bg-[#0f3151]/90 p-5 shadow-xl shadow-black/10 sm:p-7">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">Página de Facebook</h3>
+                {status?.linked && status.pageName ? (
+                  <p className="mt-1.5 text-sm text-slate-300">{status.pageName}</p>
+                ) : null}
+              </div>
+              <span className={cn(
+                'shrink-0 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide',
+                status?.linked
+                  ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                  : 'border-amber-400/30 bg-amber-400/10 text-amber-200',
+              )}>
+                {status?.linked ? 'Conectada' : 'Sin conectar'}
+              </span>
+            </div>
 
             {lastSaved ? (
               <div
+                role="status"
                 className={cn(
-                  'mb-3 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px]',
+                  'mb-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-[12px]',
                   lastSaved.ok
                     ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
                     : 'border-rose-400/20 bg-rose-400/10 text-rose-200',
@@ -336,11 +353,22 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
               </div>
             ) : null}
 
-            <div className="space-y-3.5">
-              {/* Selector de páginas OAuth (solo aparece tras login exitoso y hay 1+ páginas) */}
+            {canRetryPages ? (
+              <button
+                type="button"
+                onClick={() => void handleRetryPages()}
+                disabled={retryingPages}
+                className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-[#1090D0]/40 bg-[#1090D0]/10 px-4 py-2.5 text-[12px] font-semibold text-[#9bd8f5] transition hover:bg-[#1090D0]/20 disabled:opacity-50"
+              >
+                {retryingPages ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+                Reintentar consulta de páginas
+              </button>
+            ) : null}
+
+            <div className="space-y-4">
               {fbPagesFetched && fbPagesFetched.length > 0 ? (
-                <div className="rounded-xl border border-[#1090D0]/30 bg-[#1090D0]/10 px-4 py-3">
-                  <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6bb8dd]">
+                <div className="rounded-2xl border border-[#255078] bg-[#0b2945]/60 p-4">
+                  <p className="mb-3 text-[11px] font-semibold text-slate-300">
                     Selecciona la página que quieres conectar
                   </p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -348,15 +376,16 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                       <button
                         type="button"
                         key={p.id || String(i)}
+                        aria-pressed={fbPageSelectedIdx === i}
                         onClick={() => handleSelectFetchedPage(i)}
                         className={cn(
-                          'flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition',
+                          'flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition',
                           fbPageSelectedIdx === i
                             ? 'border-[#1090D0]/50 bg-[#1090D0]/15 text-white'
                             : 'border-[#1a3a5a] bg-[#11375a] text-slate-200 hover:border-[#1090D0]/40 hover:bg-[#133d61]',
                         )}
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/30 text-slate-400 overflow-hidden">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-black/30 text-slate-400">
                           {p?.picture?.data?.url ? (
                             <img
                               src={p.picture.data.url as string}
@@ -370,7 +399,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13px] font-semibold">{p?.name || `Página ${i + 1}`}</p>
                           {p?.id ? (
-                            <p className="truncate text-[10px] font-mono text-slate-400/80">
+                            <p className="truncate font-mono text-[10px] text-slate-400/80">
                               ID {String(p.id).slice(0, 8)}…
                             </p>
                           ) : null}
@@ -415,7 +444,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                         }
                       })()}
                       disabled={loadingSave}
-                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1090D0] px-4 py-2.5 text-[13px] font-semibold text-white shadow-lg transition hover:bg-[#0c79ae] disabled:opacity-50"
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1090D0] px-4 py-3 text-[13px] font-semibold text-white shadow-lg shadow-[#1090D0]/15 transition hover:bg-[#0c79ae] disabled:opacity-50"
                     >
                       {loadingSave ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                       Conectar página seleccionada
@@ -424,25 +453,57 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
                 </div>
               ) : null}
 
-              {/* Botón de Iniciar Sesión con Facebook (OAuth) */}
               <button
                 type="button"
                 onClick={handleOAuthUrlClick}
                 disabled={loadingLoginUrl}
-                className="group flex w-full items-center justify-center gap-3 rounded-xl bg-[#1877F2] px-5 py-3 text-[13px] font-semibold text-white shadow-lg transition hover:bg-[#166FE5] disabled:opacity-50"
+                className="group flex w-full items-center justify-center gap-3 rounded-xl bg-[#1877F2] px-5 py-3.5 text-[13px] font-semibold text-white shadow-lg shadow-[#1877F2]/20 transition hover:bg-[#166FE5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f3151] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Facebook className="h-4 w-4" />
-                {loadingLoginUrl ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
+                {loadingLoginUrl ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {fbPagesFetched && fbPagesFetched.length > 0 ? 'Volver a iniciar sesión con Facebook' : 'Iniciar sesión con Facebook'}
               </button>
+            </div>
+          </div>
 
-              {fbLoginUrl ? (
-                <p className="break-all rounded-xl border border-[#1a3a5a] bg-[#0b2540] px-3 py-2 font-mono text-[10px] text-slate-400">
-                  Login URL: <span className="text-[#6bb8dd]">{fbLoginUrl.slice(0, 140)}</span>…
-                </p>
-              ) : null}
+          <div className="space-y-4">
+            <StatusSummaryCard status={status} />
+            <QuickControls status={status} onSetState={onSetState} />
+
+            <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151]/80 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch">
+                <div>
+                  <h3 className="text-[13px] font-semibold text-white">Anuncios</h3>
+                  <p className="mt-1 text-[11px] text-slate-300/90">
+                    Sincroniza los anuncios de la cuenta conectada.
+                  </p>
+                  {adsSyncStatus ? (
+                    <p role="status" className={cn('mt-2 text-[11px]', adsSyncStatus.ok ? 'text-emerald-200' : 'text-rose-200')}>
+                      {adsSyncStatus.text}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  disabled={!status?.linked || syncingAds}
+                  onClick={() => void (async () => {
+                    setSyncingAds(true)
+                    setAdsSyncStatus(null)
+                    try {
+                      const result = await onSyncAds()
+                      setAdsSyncStatus({ ok: true, text: `✅ ${result.ads} anuncios sincronizados de ${result.accountsChecked} cuentas publicitarias. El documento anuncios.md ya está indexado.` })
+                    } catch (error: any) {
+                      setAdsSyncStatus({ ok: false, text: error?.message || 'No se pudieron sincronizar los anuncios.' })
+                    } finally {
+                      setSyncingAds(false)
+                    }
+                  })()}
+                  className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#1090D0] px-4 py-2.5 text-[12px] font-semibold text-white transition hover:bg-[#0c79ae] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {syncingAds ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+                  {syncingAds ? 'Sincronizando…' : 'Sincronizar anuncios'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -456,55 +517,45 @@ function StatusSummaryCard({ status }: { status: MetaStatusResponse | null }) {
   const testMode = !!status?.testMode
   const rows = [
     {
-      label: 'Página Facebook',
-      value: linked ? 'Conectado' : 'No conectado',
+      label: 'Facebook',
+      value: linked ? 'Conectada' : 'Sin conectar',
       ok: linked,
       warn: !linked,
     },
     {
-      label: 'Estado del bot',
-      value: linked ? 'Conectado' : 'No conectado',
-      ok: linked,
-      warn: !linked,
+      label: 'Bot',
+      value: status?.state === 'START' ? 'Activo' : linked ? 'Pausado' : 'Sin conectar',
+      ok: linked && status?.state === 'START',
+      warn: !linked || status?.state !== 'START',
     },
     {
-      label: 'Test Mode',
-      value: testMode ? 'ON' : 'OFF',
+      label: 'Modo de prueba',
+      value: testMode ? 'Activado' : 'Desactivado',
       ok: !testMode,
       warn: testMode,
     },
   ]
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map((r) => (
-        <div
-          key={r.label}
-          className={cn(
-            'rounded-[16px] border p-3.5',
-            r.ok
-              ? 'border-emerald-400/25 bg-emerald-400/10'
-              : r.warn
-                ? 'border-amber-400/25 bg-amber-400/10'
-                : 'border-[#1a3a5a] bg-[#0f3151]',
-          )}
-        >
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300/80">
-            {r.label}
-          </p>
-          <p
-            className={cn(
-              'mt-1 text-[13px] font-semibold leading-snug',
-              r.ok
-                ? 'text-emerald-200'
-                : r.warn
-                  ? 'text-amber-200'
-                  : 'text-slate-100',
-            )}
+    <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151]/80 p-4">
+      <h3 className="mb-3 text-[13px] font-semibold text-white">Estado de conexión</h3>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div
+            key={r.label}
+            className="flex items-center justify-between gap-3 rounded-xl border border-[#1a3a5a]/70 bg-[#0b2945]/50 px-3 py-2.5"
           >
-            {r.value}
-          </p>
-        </div>
-      ))}
+            <p className="text-[11px] font-medium text-slate-300">{r.label}</p>
+            <p
+              className={cn(
+                'text-[11px] font-semibold',
+                r.ok ? 'text-emerald-200' : r.warn ? 'text-amber-200' : 'text-slate-100',
+              )}
+            >
+              {r.value}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -517,14 +568,15 @@ function QuickControls({
   onSetState: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>
 }) {
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151]/80 p-4">
+      <h3 className="mb-3 text-[13px] font-semibold text-white">Automatización</h3>
+      <div className="grid grid-cols-1 gap-2">
         <button
           type="button"
           disabled={!status?.linked}
           onClick={() => onSetState({ state: status?.state === 'START' ? 'PAUSE' : 'START' })}
           className={cn(
-            'flex flex-col items-start gap-1 rounded-[16px] border p-3.5 text-left transition disabled:opacity-50',
+            'flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:opacity-50',
             status?.state === 'START'
               ? 'border-emerald-400/30 bg-emerald-400/10 hover:bg-emerald-400/15'
               : 'border-rose-400/30 bg-rose-400/10 hover:bg-rose-400/15',
@@ -542,8 +594,8 @@ function QuickControls({
           </div>
           <p className="text-[11px] text-white/75">
             {status?.state === 'START'
-              ? 'Dejar de contestar automáticamente'
-              : 'Empezar a contestar automáticamente'}
+              ? '              Dejar de responder automáticamente'
+              : '              Empezar a responder automáticamente'}
           </p>
         </button>
         <button
@@ -551,7 +603,7 @@ function QuickControls({
           disabled={!status?.linked}
           onClick={() => onSetState({ testMode: !status?.testMode })}
           className={cn(
-            'flex flex-col items-start gap-1 rounded-[16px] border p-3.5 text-left transition disabled:opacity-50',
+            'flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:opacity-50',
             status?.testMode
               ? 'border-amber-400/30 bg-amber-400/10 hover:bg-amber-400/15'
               : 'border-[#1a3a5a] bg-[#11375a] hover:bg-[#143f67]',

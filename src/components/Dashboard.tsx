@@ -21,6 +21,7 @@ import type { AuthUser, ChatMessage, WorkspaceDocument } from '@/types/app'
 import {
   configureMetaManual,
   getMetaOAuthLoginUrl,
+  retryMetaPageList,
   getMetaStatus,
   listMetaChats,
   getMetaChatDetail,
@@ -28,6 +29,7 @@ import {
   setMetaState,
   markMetaChatAsRead,
   deleteMetaChat,
+  syncMetaAds,
   type MetaBotState,
   type MetaStatusResponse,
   type MetaChatItem,
@@ -672,12 +674,14 @@ export default function Dashboard({
                   const r = await getMetaOAuthLoginUrl()
                   return r.url
                 }}
+                onRetryPages={retryMetaPageList}
                 onLinkManual={async (inp) => {
                   const r = await configureMetaManual(inp)
                   await handleRefreshStatus()
                   return r
                 }}
                 onSetState={handleSetMetaState}
+                onSyncAds={syncMetaAds}
                 APP_ID={APP_ID}
                 graphVersion={GRAPH_VERSION}
               />
@@ -935,12 +939,14 @@ export default function Dashboard({
                   const r = await getMetaOAuthLoginUrl()
                   return r.url
                 }}
+                onRetryPages={retryMetaPageList}
                 onLinkManual={async (inp) => {
                   const r = await configureMetaManual(inp)
                   await handleRefreshStatus()
                   return r
                 }}
                 onSetState={handleSetMetaState}
+                onSyncAds={syncMetaAds}
                 APP_ID={APP_ID}
                 graphVersion={GRAPH_VERSION}
               />
