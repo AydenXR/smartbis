@@ -3,8 +3,8 @@ import type { DocumentSection, WorkspaceDocument } from './workspace.js'
 import { createHash } from 'node:crypto'
 
 const MAX_CONTEXT_BLOCKS = 4
-const MAX_CONTEXT_CHARS = 2600
-const MAX_BLOCK_CHARS = 900
+const MAX_CONTEXT_CHARS = 3200
+const MAX_BLOCK_CHARS = 1300
 const MAX_SUMMARY_ITEMS = 12
 const NOISE_BLOCK_TITLE_MIN_SCORE = -99999
 const NOISE_TITLE_PATTERNS: readonly RegExp[] = [
@@ -184,9 +184,10 @@ export function extractQueryWords(query: string) {
 function analyzeQuery(query: string) {
   const normalizedQuery = normalizeText(query)
   const wantsLocation =
-    /\bubicacion\b|\bdireccion\b|\bdonde\b|\bsede\b|\bsucursal\b|\bclinica\b|\bcontacto\b|\btelefono\b|\bhorario\b|\bhorarios\b/.test(
+    /\bubicacion\b|\bdireccion\b|\bdonde\b|\bsede\b|\bsucursal\b|\bclinica\b|\bcontacto\b|\btelefono\b/.test(
       normalizedQuery,
     )
+  const wantsSchedule = /\bhorario\b|\bhorarios\b/.test(normalizedQuery)
   const wantsDetails =
     /\bmas\b|\binformacion\b|\bficha\b|\bdetalle\b|\bdetalles\b/.test(normalizedQuery)
   const mentionsPluralCatalog =
@@ -213,9 +214,11 @@ function analyzeQuery(query: string) {
     wantsProducts,
     wantsServices,
     wantsLocation,
+    wantsSchedule,
     wantsDates,
     wantsList:
       !wantsLocation &&
+      !wantsSchedule &&
       !wantsProducts &&
       !wantsCourses &&
       !wantsServices &&
@@ -524,7 +527,7 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
     score += 6
   }
 
-  if (queryIntent.wantsLocation && (block.kind === 'location' || block.kind === 'contact' || block.kind === 'schedule')) {
+  if ((queryIntent.wantsLocation || queryIntent.wantsSchedule) && (block.kind === 'location' || block.kind === 'contact' || block.kind === 'schedule')) {
     score += 18
   }
 
