@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import QRCode from 'qrcode'
 import type { Client as WhatsAppClient } from 'whatsapp-web.js'
+import { getTenantTimeZone } from './timeZone.js'
 
 const whatsappWeb = createRequire(import.meta.url)('whatsapp-web.js') as typeof import('whatsapp-web.js')
 const { Client, LocalAuth } = whatsappWeb
@@ -94,7 +95,7 @@ export async function sendWhatsAppTest(tenantId: string) {
   if (!state.client || state.connectionState !== 'CONNECTED') throw new Error('WhatsApp no está conectado. Enlaza el teléfono desde Inscripciones.')
   const recipient = readStore(tenantId).recipient
   if (!recipient) throw new Error('Configura y guarda primero el número que recibirá los avisos.')
-  const timestamp = new Date().toLocaleString('es-MX', { timeZone: 'America/Hermosillo' })
+  const timestamp = new Date().toLocaleString('es-MX', { timeZone: await getTenantTimeZone(tenantId) })
   await state.client.sendMessage(`${recipient}@c.us`, `🧪 PRUEBA DE NOTIFICACIONES SMARTBIS\nLa conexión de WhatsApp está funcionando.\nFecha: ${timestamp}\n\nEste mensaje es una simulación; no corresponde a una inscripción.`)
   return { sent: true, recipient }
 }
@@ -123,7 +124,7 @@ export async function notifyRegistration(tenantId: string, input: { psid: string
     modality ? `Modalidad: ${modality}` : '',
     `PSID: ${input.psid}`,
     input.auto ? 'Comprobante recibido en el chat (monto sin verificar)' : `Confirmó: ${input.confirmedBy}`,
-    `Fecha: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Hermosillo' })}`,
+    `Fecha: ${new Date().toLocaleString('es-MX', { timeZone: await getTenantTimeZone(tenantId) })}`,
   ].filter(Boolean).join('\n')
   await state.client.sendMessage(`${store.recipient}@c.us`, msg)
   store.sent[key] = { at: new Date().toISOString(), course, psid: input.psid }

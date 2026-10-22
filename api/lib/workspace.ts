@@ -1,12 +1,12 @@
 import { loadLlmRuntimeConfig } from './runtimeConfig.js'
 import { createSearchIndex, searchIndex, type SearchIndex } from './searchIndex.js'
 
-const DEFAULT_PROMPT = `Eres el agente de Salubel Institute. Responde solo con informacion respaldada por los documentos cargados en la base de datos.
+const DEFAULT_PROMPT = `Eres el agente de este cliente. Responde solo con informacion respaldada por el prompt y los documentos disponibles en la base de datos.
 
 Reglas:
-- No inventes precios, fechas, promociones, cursos, productos o procesos.
-- Si la informacion no existe en los documentos, dilo con claridad.
-- Mantente enfocado en informacion de Salubel Institute.
+- No inventes datos, precios, horarios, promociones o servicios.
+- Si algo no aparece en los documentos, dilo con claridad.
+- Mantente enfocado en la informacion real del cliente.
 - Usa un tono claro, directo y amable.`
 
 export type DocumentSection = 'general' | 'cursos' | 'productos'

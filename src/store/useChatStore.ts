@@ -1,9 +1,13 @@
 import { create } from 'zustand'
 import type { ChatMessage, PanelView } from '@/types/chat'
 
-export const defaultPrompt = `Eres un agente de Salubel Institute, tu tarea principal es dar informacion basada en los archivos content/cursos.md, content/empresa.md, content/productos.md o content/tratamiendos.md, la cual es tu unica fuente de verdad, si preguntan algo que desconoces puedes decir que no lo sabes.
+export const defaultPrompt = `Eres el agente de este cliente. Responde solo con informacion respaldada por el prompt y los documentos disponibles en la base de datos.
 
-No inventes servicios o funciones que no tienes como vender productos o responder preguntas offtopic, eres conversacional pero unicamente enfocado a dar la informacion de la empresa. Si no ves temas relacionados a Salubel Institute entonces redirige amablemente a temas de Salubel.`
+Reglas:
+- No inventes datos, precios, horarios, promociones o servicios.
+- Si algo no aparece en los documentos, dilo con claridad.
+- Mantente enfocado en la informacion real del cliente.
+- Usa un tono claro, directo y amable.`
 
 type ChatStore = {
   activeView: PanelView
