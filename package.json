@@ -3,7 +3,7 @@
   "description": "Smartbis POS desktop for Windows",
   "author": "Smartbis",
   "private": true,
-  "version": "0.63.0",
+  "version": "0.67.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {

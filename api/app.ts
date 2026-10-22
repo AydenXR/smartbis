@@ -19,6 +19,7 @@ import {
   type DbAuthUser,
 } from './lib/dbWorkspace.js'
 import { generateDbAgentAnswer } from './lib/dbChat.js'
+import { isUsableCatalogDocumentName } from './lib/catalogDocument.js'
 import { getWhatsAppStatus, notifyRegistration, sendWhatsAppTest, setWhatsAppRecipient, startWhatsApp } from './lib/whatsappNotifications.js'
 import {
   adminSendMessage,
@@ -1410,6 +1411,7 @@ app.post('/api/pos/catalog', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (
     const user = res.locals.user as DbAuthUser
     const b = req.body || {}
     if (!b.name) { res.status(400).json({ error: 'Nombre de producto/servicio es obligatorio' }); return }
+    if (!isUsableCatalogDocumentName(b.name)) { res.status(400).json({ error: 'El nombre del producto no puede ser un nombre genérico como "Pieza"' }); return }
     if (typeof b.salePrice !== 'number' || !(b.salePrice >= 0)) { res.status(400).json({ error: 'Precio venta inválido' }); return }
     const syncToMdDoc = b.syncToMdDoc === null ? null : (typeof b.syncToMdDoc === 'string' ? b.syncToMdDoc : undefined)
     const volumePriceTiers = Array.isArray(b.volumePriceTiers)
@@ -1426,9 +1428,22 @@ app.post('/api/pos/catalog', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (
         })
         .filter((t): t is { minQty: number; price: number } => Boolean(t))
       : undefined
+    const bundlePriceTiers = Array.isArray(b.bundlePriceTiers)
+      ? b.bundlePriceTiers
+        .map((t: any) => {
+          if (!t || typeof t !== 'object') return null
+          const quantity = Math.floor(Number(t.quantity))
+          const totalPrice = Number(t.totalPrice)
+          if (!Number.isFinite(quantity) || quantity < 2 || !Number.isFinite(totalPrice) || totalPrice < 0) return null
+          return { quantity, totalPrice }
+        })
+        .filter((t): t is { quantity: number; totalPrice: number } => Boolean(t))
+        .sort((a, b) => a.quantity - b.quantity)
+        .filter((t, i, all) => all.findIndex(x => x.quantity === t.quantity) === i)
+      : undefined
     const it = await upsertCatalogItem(user.tenantId, {
       id: typeof b.id === 'string' ? b.id : undefined,
-      kind: b.kind || 'product',
+      kind: typeof b.kind === 'string' ? b.kind : undefined,
       sku: typeof b.sku === 'string' ? b.sku : undefined,
       name: String(b.name),
       family: typeof b.family === 'string' ? b.family : undefined,
@@ -1437,11 +1452,13 @@ app.post('/api/pos/catalog', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (
       costPrice: typeof b.costPrice === 'number' ? b.costPrice : undefined,
       salePrice: b.salePrice,
       volumePriceTiers,
+      bundlePriceTiers,
       currency: typeof b.currency === 'string' ? b.currency : undefined,
       stocks: b.stocks && typeof b.stocks === 'object' ? b.stocks : undefined,
       location: typeof b.location === 'string' ? b.location : undefined,
       tags: Array.isArray(b.tags) ? b.tags : undefined,
-      active: typeof b.active === 'boolean' ? b.active : true,
+      active: typeof b.active === 'boolean' ? b.active : undefined,
+      cashierPriceEditable: typeof b.cashierPriceEditable === 'boolean' ? b.cashierPriceEditable : undefined,
       attrs: b.attrs && typeof b.attrs === 'object' ? b.attrs : undefined,
       userEmail: user.email,
       syncToMdDoc,
@@ -1620,11 +1637,16 @@ app.post('/api/pos/catalog/import', requireAuth, cashierGuard([...POS_ADMIN_ROLE
     const itemsParsedAll: any[] = parsed?.items || []
     const diagnostic: any = parsed?.diagnostic || null
     const method: string = parsed?.method || 'unknown'
-    const itemsParsed = itemsParsedAll.filter((x: any) => x && x.name && typeof x.salePrice === 'number')
+    const invalidNames = itemsParsedAll
+      .filter((x: any) => x?.name && !isUsableCatalogDocumentName(x.name))
+      .map((x: any) => `${x.name}: nombre genérico de producto ignorado`)
+    const itemsParsed = itemsParsedAll.filter(
+      (x: any) => x && isUsableCatalogDocumentName(x.name) && typeof x.salePrice === 'number',
+    )
     const targetDoc = typeof b.targetDoc === 'string' ? b.targetDoc : guessTargetDoc(itemsParsed[0]?.kind || 'product')
     const preStore = await ps.readPosStore(user.tenantId)
     const preIds = new Set(preStore.catalogItems.map(i => i.id))
-    const created: string[] = []; const updated: string[] = []; const skipped: string[] = []
+    const created: string[] = []; const updated: string[] = []; const skipped: string[] = [...invalidNames]
     for (const p of itemsParsed) {
       try {
         const stockInp: any = {
@@ -1925,6 +1947,7 @@ app.post('/api/pos/sales', requireAuth, async (req: Request, res: Response, next
         method: p.method || 'cash',
         amount: Number(p.amount) || 0,
         at: p.at || new Date().toISOString(),
+        shiftId: typeof p.shiftId === 'string' ? p.shiftId : undefined,
       })) : [],
       discount: Math.max(0, Number(b.discount) || 0),
     })

@@ -14,6 +14,7 @@ import {
   UserCircle,
   XCircle,
   CheckCircle2,
+  PackageCheck,
   FileText,
   Trash2,
   X,
@@ -92,6 +93,11 @@ function SaleStatusBadge({ s }: { s: PosSale['status'] }) {
   if (s === 'quote') return (
     <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-200">
       <FileText className="h-3 w-3" /> Cotización
+    </span>
+  )
+  if (s === 'own_use') return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-200">
+      <PackageCheck className="h-3 w-3" /> Uso propio
     </span>
   )
   if (s === 'pending') return (
@@ -364,6 +370,7 @@ export default function CrmSalesView() {
                 <option value="all">Todos estatus</option>
                 <option value="paid">Cobradas</option>
                 <option value="quote">Cotizaciones</option>
+                <option value="own_use">Uso propio</option>
                 <option value="cancelled">Canceladas</option>
                 <option value="pending">Pago parcial</option>
               </select>

@@ -104,6 +104,7 @@ type FormState = {
   volumePriceTiers: Array<{ minQty: string; price: string }>
   location: string
   active: boolean
+  cashierPriceEditable: boolean
   writeToDoc: boolean
   targetDoc: string
 }
@@ -119,6 +120,7 @@ const emptyForm: FormState = {
   volumePriceTiers: [],
   location: '',
   active: true,
+  cashierPriceEditable: false,
   writeToDoc: true,
   targetDoc: 'productos.md',
 }
@@ -144,7 +146,8 @@ export default function CrmInventoryView() {
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<PosCatalogItem | null>(null)
   const [stockAdjust, setStockAdjust] = useState<StockAdjust>(null)
-  const [stockDelta, setStockDelta] = useState(1)
+  const [stockCountRaw, setStockCountRaw] = useState('')
+  const stockCount = stockCountRaw.trim() === '' ? 0 : Number.parseInt(stockCountRaw, 10)
   const [stockReason, setStockReason] = useState('')
   const [savingStock, setSavingStock] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -287,6 +290,7 @@ export default function CrmInventoryView() {
       volumePriceTiers: (it.volumePriceTiers || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
       location: it.location || '',
       active: it.active,
+      cashierPriceEditable: Boolean(it.cashierPriceEditable),
       writeToDoc: true,
       targetDoc: it.sourceDocId || mdFiles[0]?.fileName || docHintForKind(it.kind),
     })
@@ -322,6 +326,7 @@ export default function CrmInventoryView() {
         volumePriceTiers: volumePriceTiers.length ? volumePriceTiers : [],
         location: form.location.trim() || undefined,
         active: form.active,
+        cashierPriceEditable: form.cashierPriceEditable,
         syncToMdDoc: form.writeToDoc ? form.targetDoc || null : null,
         sourceDocId: form.writeToDoc ? form.targetDoc : undefined,
       }
@@ -439,13 +444,15 @@ export default function CrmInventoryView() {
 
   function openStockAdjust(item: PosCatalogItem, branchId: string) {
     setStockAdjust({ item, branchId })
-    setStockDelta(1)
+    setStockCountRaw(String(item.stocks?.[branchId] ?? 0))
     setStockReason('')
   }
 
   async function handleSaveStock() {
     if (!stockAdjust) return
-    if (!stockDelta) return
+    const currentStock = stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0
+    const stockDelta = stockCount - currentStock
+    if (!Number.isFinite(stockCount) || stockCount < 0 || stockDelta === 0) return
     setSavingStock(true)
     try {
       const r = await posCatalogAdjustStock(
@@ -1420,6 +1427,25 @@ export default function CrmInventoryView() {
                 </div>
 
                 <div className="sm:col-span-2">
+                  <label className="mb-2 flex items-center justify-between rounded-[14px] border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2.5">
+                    <span>
+                      <span className="block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-amber-100">Caja puede modificar el precio en el carrito</span>
+                      <span className="mt-1 block text-[11px] text-slate-400">Permite a los usuarios de caja cambiar el precio al vender este producto.</span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.cashierPriceEditable}
+                      aria-label="Permitir a caja modificar el precio en el carrito"
+                      onClick={() => setForm({ ...form, cashierPriceEditable: !form.cashierPriceEditable })}
+                      className={cn('relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition', form.cashierPriceEditable ? 'bg-amber-500' : 'bg-slate-600/60')}
+                    >
+                      <span className={cn('inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition', form.cashierPriceEditable ? 'translate-x-5' : 'translate-x-0.5')} />
+                    </button>
+                  </label>
+                </div>
+
+                <div className="sm:col-span-2">
                   <label className="mb-1.5 flex items-center justify-between rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
                     <span className="text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                       Activo
@@ -1541,53 +1567,23 @@ export default function CrmInventoryView() {
             <div className="space-y-4 p-5">
               <div>
                 <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Ajuste
+                  Cantidad actual en stock
                 </label>
-                <div className="flex items-stretch gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStockDelta((v) => v - 1)}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-rose-500/30 bg-rose-500/15 text-rose-200 transition hover:bg-rose-500/25"
-                  >
-                    <ChevronDown className="h-5 w-5" />
-                  </button>
-                  <div className="flex flex-1 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0b2641]">
-                    <span
-                      className={cn(
-                        'font-mono text-[22px] font-bold',
-                        stockDelta < 0 ? 'text-rose-300' : stockDelta > 0 ? 'text-emerald-300' : 'text-slate-300',
-                      )}
-                    >
-                      {stockDelta > 0 ? '+' : ''}
-                      {stockDelta}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setStockDelta((v) => v + 1)}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 transition hover:bg-emerald-500/25"
-                  >
-                    <ChevronUp className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className="mt-2 grid grid-cols-4 gap-1.5">
-                  {[-10, -1, 1, 10].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setStockDelta(n)}
-                      className={cn(
-                        'rounded-[10px] px-2 py-1.5 font-mono text-[11.5px] font-bold transition',
-                        n < 0
-                          ? 'border border-rose-500/20 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20'
-                          : 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20',
-                      )}
-                    >
-                      {n > 0 ? '+' : ''}
-                      {n}
-                    </button>
-                  ))}
-                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Cantidad actual en stock"
+                  value={stockCountRaw}
+                  onChange={(event) => setStockCountRaw(event.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && Number.isFinite(stockCount) && stockCount >= 0 && stockCount !== (stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0) && !savingStock) {
+                      event.preventDefault()
+                      void handleSaveStock()
+                    }
+                  }}
+                  className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 font-mono text-[18px] font-bold text-slate-100 outline-none focus:border-[#1090D0]/60"
+                />
+                <p className="mt-1.5 text-[10.5px] text-slate-500">Escribe la existencia final. Si borras el campo, equivale a 0.</p>
               </div>
 
               <div>
@@ -1606,14 +1602,14 @@ export default function CrmInventoryView() {
               </div>
 
               <div className="rounded-[14px] border border-[#1a3a5a] bg-[#0b2641]/50 px-4 py-3 text-[12px] text-slate-300">
-                Stock actual:{' '}
+                Stock anterior:{' '}
                 <span className="font-mono font-semibold text-slate-100">
                   {stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0}
                 </span>
                 {' · '}
-                Resultado:{' '}
+                Nuevo stock:{' '}
                 <span className="font-mono font-bold text-[#5bbfe5]">
-                  {Math.max(0, (stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0) + stockDelta)}
+                  {Math.max(0, Number.isFinite(stockCount) ? stockCount : 0)}
                 </span>
                 <div className="mt-1.5 text-[10.5px] text-slate-500">
                   Al confirmar se actualizará también el documento .md asociado ({stockAdjust.item.sourceDocId || docHintForKind(stockAdjust.item.kind)}).
@@ -1632,10 +1628,10 @@ export default function CrmInventoryView() {
               <button
                 type="button"
                 onClick={() => void handleSaveStock()}
-                disabled={savingStock || stockDelta === 0}
+                disabled={savingStock || !Number.isFinite(stockCount) || stockCount < 0 || stockCount === (stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0)}
                 className={cn(
                   'rounded-[14px] px-5 py-2 text-[12.5px] font-bold text-white transition',
-                  savingStock || stockDelta === 0
+                  savingStock || !Number.isFinite(stockCount) || stockCount < 0 || stockCount === (stockAdjust.item.stocks?.[stockAdjust.branchId] ?? 0)
                     ? 'bg-[#1090D0]/50 opacity-60'
                     : 'bg-[#1090D0] hover:bg-[#0c79ae]',
                 )}

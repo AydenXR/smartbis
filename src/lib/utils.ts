@@ -8,6 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export interface TieredPriceResult {
   unitPrice: number
+  lineTotal: number
   appliedMinQty: number | null
   discountPerUnit: number
   saving: number
@@ -16,23 +17,47 @@ export interface TieredPriceResult {
 export function tieredUnitPrice(item: PosCatalogItem, qty: number): TieredPriceResult {
   const base = item.salePrice || 0
   const q = Math.max(1, Math.floor(qty || 0))
-  if (!item.volumePriceTiers?.length) {
-    return { unitPrice: base, appliedMinQty: null, discountPerUnit: 0, saving: 0 }
-  }
-  const sorted = [...item.volumePriceTiers]
+  const sorted = [...(item.volumePriceTiers || [])]
     .filter(t => typeof t?.minQty === 'number' && typeof t?.price === 'number' && t.minQty >= 1 && t.price >= 0)
     .sort((a, b) => b.minQty - a.minQty)
   const match = sorted.find(t => q >= t.minQty)
-  if (!match) {
-    return { unitPrice: base, appliedMinQty: null, discountPerUnit: 0, saving: 0 }
+  const regularUnit = match ? Math.min(match.price, base) : base
+  let bestTotal = regularUnit * q
+  let appliedMinQty = match?.minQty ?? null
+
+  const bundles = (item.bundlePriceTiers || [])
+    .filter(t => Number.isInteger(t?.quantity) && t.quantity >= 2 && Number.isFinite(t?.totalPrice) && t.totalPrice >= 0)
+    .sort((a, b) => a.quantity - b.quantity)
+  if (bundles.length) {
+    const totals = Array(q + 1).fill(Number.POSITIVE_INFINITY) as number[]
+    const maxBundleUsed = Array(q + 1).fill(0) as number[]
+    totals[0] = 0
+    for (let count = 1; count <= q; count++) {
+      totals[count] = totals[count - 1] + base
+      maxBundleUsed[count] = maxBundleUsed[count - 1]
+      for (const bundle of bundles) {
+        if (bundle.quantity > count) continue
+        const candidate = totals[count - bundle.quantity] + bundle.totalPrice
+        if (candidate < totals[count]) {
+          totals[count] = candidate
+          maxBundleUsed[count] = Math.max(bundle.quantity, maxBundleUsed[count - bundle.quantity])
+        }
+      }
+    }
+    if (totals[q] < bestTotal) {
+      bestTotal = totals[q]
+      appliedMinQty = maxBundleUsed[q] || null
+    }
   }
-  const unit = Math.min(match.price, base)
+
+  const unit = q > 0 ? bestTotal / q : base
   const discountPerUnit = base - unit
   return {
     unitPrice: unit,
-    appliedMinQty: match.minQty,
+    lineTotal: Number(bestTotal.toFixed(2)),
+    appliedMinQty,
     discountPerUnit,
-    saving: discountPerUnit * q,
+    saving: Number((base * q - bestTotal).toFixed(2)),
   }
 }
 

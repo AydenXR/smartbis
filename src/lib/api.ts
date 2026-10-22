@@ -482,7 +482,7 @@ export async function metaAutoEvalGet(id: string): Promise<AutoEval> {
 export type PosRole = 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
 export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
-export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
+export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote' | 'own_use'
 export interface PosAdministrationConfig { workingDaysByMonth: Record<string, number[]>; expenses: Array<{ id: string; name: string; amount: number }> }
 
 export interface PosBranch {
@@ -505,6 +505,11 @@ export interface VolumePriceTier {
   price: number
 }
 
+export interface BundlePriceTier {
+  quantity: number
+  totalPrice: number
+}
+
 export interface PosCatalogItem {
   id: string
   kind: ItemKind
@@ -516,11 +521,13 @@ export interface PosCatalogItem {
   costPrice?: number
   salePrice: number
   volumePriceTiers?: VolumePriceTier[]
+  bundlePriceTiers?: BundlePriceTier[]
   currency: string
   stocks: Record<string, number>
   location?: string
   tags: string[]
   active: boolean
+  cashierPriceEditable?: boolean
   attrs?: any
   sourceDocId?: string
   sourceBlockHash?: string
@@ -647,7 +654,7 @@ export interface PosSale {
   paidAmount: number
   pendingAmount: number
   lines: PosSaleLine[]
-  payments: Array<{ id: string; method: PaymentMethod; amount: number; at: string }>
+  payments: Array<{ id: string; method: PaymentMethod; amount: number; at: string; shiftId?: string }>
   currency: string
   ivaRate: number
 }

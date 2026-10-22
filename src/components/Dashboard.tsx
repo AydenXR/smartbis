@@ -725,7 +725,7 @@ export default function Dashboard({
                 isCashier={user.posRole === 'cashier'}
               >
                 {operationsTab === 'pos' ? (
-                  <CrmPosView />
+                  <CrmPosView userRole={user.posRole || 'admin'} />
                 ) : operationsTab === 'inventory' ? (
                   <CrmInventoryView />
                 ) : operationsTab === 'purchases' ? (

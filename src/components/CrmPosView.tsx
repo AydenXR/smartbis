@@ -30,6 +30,7 @@ import {
   ReceiptText,
   Database,
   Pencil,
+  PackageCheck,
 } from 'lucide-react'
 import { cn, tieredUnitPrice, type TieredPriceResult, applyGroupPromotionsToCart } from '@/lib/utils'
 import {
@@ -75,6 +76,8 @@ type CartLine = {
   appliedGroupMinQty: number | null
   appliedGroupUnitPrice: number | null
   groupSaving: number
+  cashierPriceEditable?: boolean
+  priceManuallyEdited?: boolean
 }
 
 type FrequentItem = {
@@ -138,7 +141,7 @@ function normalizeVolumeExpr(expr: string): string {
   return `${qty} x ${price}`
 }
 
-export default function CrmPosView() {
+export default function CrmPosView({ userRole }: { userRole?: string }) {
   const [branches, setBranches] = useState<PosBranch[]>([])
   const [shift, setShift] = useState<PosShift | undefined>(undefined)
   const [branchForShift, setBranchForShift] = useState<string>('')
@@ -163,6 +166,7 @@ export default function CrmPosView() {
   const searchContainerRef = useRef<HTMLDivElement>(null)
 
   const [cart, setCart] = useState<CartLine[]>([])
+  const [priceEditDrafts, setPriceEditDrafts] = useState<Record<string, string>>({})
 
   const [discount, setDiscount] = useState<number>(0)
   const [paidAmount, setPaidAmount] = useState<number>(0)
@@ -173,6 +177,8 @@ export default function CrmPosView() {
   const [checkout, setCheckout] = useState<CheckoutModalState | null>(null)
   const [payMethod, setPayMethod] = useState<PaymentMethod>('cash')
   const [paymentAmount, setPaymentAmount] = useState(0)
+  const [mixedMode, setMixedMode] = useState(false)
+  const [mixAmounts, setMixAmounts] = useState<{ cash: string; card: string; transfer: string }>({ cash: '', card: '', transfer: '' })
   const [processingPayment, setProcessingPayment] = useState(false)
 
   const [withdrawModal, setWithdrawModal] = useState<WithdrawModalState>(null)
@@ -263,6 +269,7 @@ export default function CrmPosView() {
       })
       setCatalog(res.items)
       if (res.promoGroups) setPromoGroups(res.promoGroups)
+      repriceCartForCatalog(res.items, res.promoGroups || promoGroups)
     } catch (e: any) {
       setCatalog([])
       setPromoGroups([])
@@ -272,17 +279,32 @@ export default function CrmPosView() {
     }
   }
 
-  function withGroupPromotions(prevLines: CartLine[]): CartLine[] {
+  function withGroupPromotions(
+    prevLines: CartLine[],
+    sourceCatalog: PosCatalogItem[] = catalog,
+    sourcePromoGroups: PromoGroup[] = promoGroups,
+  ): CartLine[] {
     try {
-      const { lines } = applyGroupPromotionsToCart(prevLines, catalog, promoGroups)
-      return lines.map((l) => ({
+      const regularLines = prevLines.filter(line => !line.priceManuallyEdited)
+      const { lines } = applyGroupPromotionsToCart(regularLines, sourceCatalog, sourcePromoGroups)
+      const promotedById = new Map(lines.map(line => [line.id, line]))
+      return prevLines.map((source) => {
+        const l = source.priceManuallyEdited ? {
+          ...source,
+          appliedGroupId: null,
+          appliedGroupName: undefined,
+          appliedGroupMinQty: null,
+          appliedGroupUnitPrice: null,
+          groupSaving: 0,
+        } : promotedById.get(source.id) || source
+        return ({
         id: l.id,
         itemId: l.itemId,
         sku: l.sku,
         name: l.name,
         qty: l.qty,
-        unitPrice: l.lineUnitPrice,
-        importe: l.lineImporte,
+        unitPrice: Number((l as any).lineUnitPrice ?? l.unitPrice),
+        importe: Number((l as any).lineImporte ?? l.importe),
         stockInBranch: l.stockInBranch,
         baseUnitPrice: l.baseUnitPrice,
         appliedTierMinQty: l.appliedTierMinQty ?? null,
@@ -292,10 +314,32 @@ export default function CrmPosView() {
         appliedGroupMinQty: l.appliedGroupMinQty ?? null,
         appliedGroupUnitPrice: l.appliedGroupUnitPrice ?? null,
         groupSaving: l.groupSaving ?? 0,
-      }))
+        cashierPriceEditable: l.cashierPriceEditable,
+        priceManuallyEdited: l.priceManuallyEdited,
+      })})
     } catch (e) {
       return prevLines
     }
+  }
+
+  function repriceCartForCatalog(items: PosCatalogItem[], groups: PromoGroup[]) {
+    setCart((prev) => {
+      const repriced = prev.map((line) => {
+        const item = items.find((candidate) => candidate.id === line.itemId)
+        if (!item) return line
+        if (line.priceManuallyEdited) return line
+        const tier = tieredUnitPrice(item, line.qty)
+        return {
+          ...line,
+          baseUnitPrice: item.salePrice,
+          unitPrice: tier.unitPrice,
+          importe: tier.lineTotal,
+          appliedTierMinQty: tier.appliedMinQty,
+          appliedTierSaving: tier.saving,
+        }
+      })
+      return withGroupPromotions(repriced, items, groups)
+    })
   }
 
   async function loadFrequent() {
@@ -387,6 +431,7 @@ export default function CrmPosView() {
         name: confirmDeletePromo.name,
         salePrice: Number(confirmDeletePromo.salePrice),
         volumePriceTiers: [],
+        bundlePriceTiers: [],
         syncToMdDoc: null,
       })
       setConfirmDeletePromo(null)
@@ -395,14 +440,14 @@ export default function CrmPosView() {
       setCatalog(fresh.items)
       setCart(prev => prev.map((l) => {
         if (l.itemId !== confirmDeletePromo.id) return l
-        const updated = res.item || { ...confirmDeletePromo, volumePriceTiers: [] }
+        const updated = res.item || { ...confirmDeletePromo, volumePriceTiers: [], bundlePriceTiers: [] }
         const nxt = tieredUnitPrice(updated, l.qty)
         const unit = nxt.unitPrice > 0 ? nxt.unitPrice : Number(confirmDeletePromo.salePrice)
         return {
           ...l,
           baseUnitPrice: Number(confirmDeletePromo.salePrice),
           unitPrice: unit,
-          importe: Number((l.qty * unit).toFixed(2)),
+          importe: nxt.lineTotal,
           appliedTierMinQty: nxt.appliedMinQty,
           appliedTierSaving: nxt.saving,
         }
@@ -472,7 +517,10 @@ export default function CrmPosView() {
         const name = i.name.trim().toLowerCase()
         const sku = i.sku.trim().toLowerCase()
         const family = String(i.family || '').trim().toLowerCase()
-        return name.includes(q) || sku.includes(q) || family.includes(q)
+        const category = String(i.category || '').trim().toLowerCase()
+        const description = String(i.description || '').trim().toLowerCase()
+        const tags = (Array.isArray(i.tags) ? i.tags : []).join(' ').toLowerCase()
+        return name.includes(q) || sku.includes(q) || family.includes(q) || category.includes(q) || description.includes(q) || tags.includes(q)
       })
       .slice(0, 8)
   }, [itemSearch, catalog])
@@ -499,13 +547,18 @@ export default function CrmPosView() {
         const copy = [...prev]
         const ex = copy[existingIdx]
         const newQty = ex.qty + qty
+        if (ex.priceManuallyEdited) {
+          copy[existingIdx] = { ...ex, qty: newQty, importe: Number((newQty * ex.unitPrice).toFixed(2)) }
+          next = copy
+          return withGroupPromotions(next)
+        }
         const nextTier = tieredUnitPrice(item, newQty)
         const unit = nextTier.unitPrice > 0 ? nextTier.unitPrice : item.salePrice
         copy[existingIdx] = {
           ...ex,
           qty: newQty,
           unitPrice: unit,
-          importe: Number((newQty * unit).toFixed(2)),
+          importe: nextTier.lineTotal,
           appliedTierMinQty: nextTier.appliedMinQty,
           appliedTierSaving: nextTier.saving,
         }
@@ -519,7 +572,7 @@ export default function CrmPosView() {
           name: item.name,
           qty,
           unitPrice: unit,
-          importe: Number((qty * unit).toFixed(2)),
+          importe: tier.lineTotal,
           stockInBranch: currentStock,
           baseUnitPrice: item.salePrice,
           appliedTierMinQty: tier.appliedMinQty,
@@ -529,6 +582,7 @@ export default function CrmPosView() {
           appliedGroupMinQty: null,
           appliedGroupUnitPrice: null,
           groupSaving: 0,
+          cashierPriceEditable: Boolean(item.cashierPriceEditable),
         }
         next = [...prev, line]
       }
@@ -602,8 +656,12 @@ export default function CrmPosView() {
           if (l.id !== id) return l
           const item = catalog.find((c) => c.id === l.itemId)
           const base = l.baseUnitPrice || l.unitPrice
+          if (l.priceManuallyEdited) {
+            return { ...l, qty: nextQty, importe: Number((nextQty * l.unitPrice).toFixed(2)) }
+          }
           let tier: TieredPriceResult = {
             unitPrice: l.unitPrice,
+            lineTotal: Number((l.qty * l.unitPrice).toFixed(2)),
             appliedMinQty: l.appliedTierMinQty,
             discountPerUnit: 0,
             saving: 0,
@@ -611,20 +669,40 @@ export default function CrmPosView() {
           if (item) {
             tier = tieredUnitPrice(item, nextQty)
           } else if (nextQty === 1) {
-            tier = { unitPrice: base, appliedMinQty: null, discountPerUnit: 0, saving: 0 }
+            tier = { unitPrice: base, lineTotal: base, appliedMinQty: null, discountPerUnit: 0, saving: 0 }
           }
           const unit = tier.unitPrice > 0 ? tier.unitPrice : base
           return {
             ...l,
             qty: nextQty,
             unitPrice: unit,
-            importe: Number((nextQty * unit).toFixed(2)),
+            importe: tier.lineTotal,
             appliedTierMinQty: tier.appliedMinQty,
             appliedTierSaving: tier.saving > 0 ? tier.saving : 0,
           }
         }),
       ),
     )
+  }
+
+  function updateCartLineUnitPrice(id: string, value: string) {
+    const unitPrice = Number(value)
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return
+    const roundedPrice = Math.round(unitPrice * 100) / 100
+    setCart(prev => withGroupPromotions(prev.map(line => line.id !== id ? line : {
+      ...line,
+      unitPrice: roundedPrice,
+      importe: Number((line.qty * roundedPrice).toFixed(2)),
+      baseUnitPrice: roundedPrice,
+      appliedTierMinQty: null,
+      appliedTierSaving: 0,
+      appliedGroupId: null,
+      appliedGroupName: undefined,
+      appliedGroupMinQty: null,
+      appliedGroupUnitPrice: null,
+      groupSaving: 0,
+      priceManuallyEdited: true,
+    })))
   }
 
   function removeCartLine(id: string) {
@@ -695,12 +773,21 @@ export default function CrmPosView() {
     [cartSubtotal, cartDiscount, cartIva],
   )
 
+  const mixCash = Number(mixAmounts.cash) || 0
+  const mixCard = Number(mixAmounts.card) || 0
+  const mixTransfer = Number(mixAmounts.transfer) || 0
+  const mixPaid = Number((mixCash + mixCard + mixTransfer).toFixed(2))
+  const mixRemaining = checkout ? Number((checkout.total - mixPaid).toFixed(2)) : 0
+  const mixNonCashOver = checkout ? mixCard + mixTransfer > checkout.total + 0.001 : false
+
   const ivaEnabledCalc = !!shiftBranch?.ivaEnabled && requiresFactura
 
   function openCheckout() {
     if (cart.length === 0 || !shift) return
     setPaidAmount(0)
     setPaymentAmount(cartTotal)
+    setMixedMode(false)
+    setMixAmounts({ cash: '', card: '', transfer: '' })
     setPayMethod('cash')
     setCheckout({
       open: true,
@@ -724,7 +811,23 @@ export default function CrmPosView() {
         unitPrice: l.unitPrice,
         importe: l.importe,
       }))
-      const methodAmount = Math.min(paymentAmount || 0, checkout.total)
+      const nowIso = new Date().toISOString()
+      let paymentsToSend: Array<{ id: string; method: PaymentMethod; amount: number; at: string }> = []
+      if (mixedMode) {
+        if (mixPaid <= 0) throw new Error('Captura al menos un monto en efectivo, tarjeta o transferencia')
+        if (mixNonCashOver) throw new Error('Tarjeta y transferencia superan el total a cobrar')
+        const cashApplied = Math.max(0, Math.min(mixCash, Number((checkout.total - mixCard - mixTransfer).toFixed(2))))
+        paymentsToSend = ([
+          { method: 'cash', amount: cashApplied },
+          { method: 'card', amount: mixCard },
+          { method: 'transfer', amount: mixTransfer },
+        ] as Array<{ method: PaymentMethod; amount: number }>)
+          .filter((x) => x.amount > 0)
+          .map((x, i) => ({ id: `p-${Date.now()}-${i}`, method: x.method, amount: Number(x.amount.toFixed(2)), at: nowIso }))
+      } else {
+        const methodAmount = Math.min(paymentAmount || 0, checkout.total)
+        if (methodAmount > 0) paymentsToSend = [{ id: `p-${Date.now()}`, method: payMethod, amount: methodAmount, at: nowIso }]
+      }
       await posSaleCreate({
         branchId: shift.branchId,
         shiftId: shift.id,
@@ -732,17 +835,7 @@ export default function CrmPosView() {
         requiresFactura,
         status: 'paid',
         lines,
-        payments:
-          methodAmount > 0
-            ? [
-                {
-                  id: `p-${Date.now()}`,
-                  method: payMethod,
-                  amount: methodAmount,
-                  at: new Date().toISOString(),
-                },
-              ]
-            : [],
+        payments: paymentsToSend,
         discount: checkout.discount,
       })
       setCheckout(null)
@@ -756,6 +849,45 @@ export default function CrmPosView() {
       void loadFrequent()
     } catch (e: any) {
       setError(e?.message || 'No se pudo registrar la venta')
+    } finally {
+      setProcessingPayment(false)
+    }
+  }
+
+  async function createOwnUse() {
+    if (cart.length === 0 || !shift || processingPayment) return
+    const units = cart.reduce((a, l) => a + l.qty, 0)
+    if (!window.confirm(`Uso propio: se descontarán ${units} pieza(s) del stock sin generar cobro. ¿Continuar?`)) return
+    setProcessingPayment(true)
+    setError('')
+    try {
+      await posSaleCreate({
+        branchId: shift.branchId,
+        shiftId: shift.id,
+        customerName: customerName.trim() || 'USO PROPIO',
+        requiresFactura: false,
+        status: 'own_use',
+        lines: cart.map((l) => ({
+          itemId: l.itemId,
+          sku: l.sku,
+          name: l.name,
+          qty: l.qty,
+          unitPrice: l.unitPrice,
+          importe: l.importe,
+        })),
+        payments: [],
+        discount: 0,
+      })
+      setCheckout(null)
+      setCart([])
+      setCustomerName('')
+      setRequiresFactura(false)
+      setDiscount(0)
+      setPaidAmount(0)
+      showToast('Uso propio registrado: stock descontado')
+      void loadCatalog('', true)
+    } catch (e: any) {
+      setError(e?.message || 'No se pudo registrar el uso propio')
     } finally {
       setProcessingPayment(false)
     }
@@ -1452,7 +1584,25 @@ export default function CrmPosView() {
                             </div>
                           </td>
                           <td className="px-2.5 py-1.5 text-right font-mono text-[12px] text-slate-200">
-                            {l.appliedGroupId && l.groupSaving > 0 ? (
+                            {l.cashierPriceEditable ? (
+                              <label className="inline-flex items-center gap-1" title="Precio editable para caja">
+                                <span className="text-slate-400">$</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={priceEditDrafts[l.id] ?? String(l.unitPrice)}
+                                  onFocus={() => setPriceEditDrafts(prev => ({ ...prev, [l.id]: String(l.unitPrice) }))}
+                                  onChange={event => setPriceEditDrafts(prev => ({ ...prev, [l.id]: event.target.value }))}
+                                  onBlur={() => {
+                                    updateCartLineUnitPrice(l.id, priceEditDrafts[l.id] ?? String(l.unitPrice))
+                                    setPriceEditDrafts(prev => { const next = { ...prev }; delete next[l.id]; return next })
+                                  }}
+                                  aria-label={`Precio de ${l.name}`}
+                                  className="w-24 rounded-md border border-amber-400/40 bg-[#091f35] px-2 py-1 text-right font-mono text-[12px] font-bold text-amber-100 outline-none focus:border-amber-300"
+                                />
+                              </label>
+                            ) : l.appliedGroupId && l.groupSaving > 0 ? (
                               <div className="flex flex-col items-end leading-tight">
                                 <span className="line-through text-slate-500 text-[10px] font-semibold">${l.baseUnitPrice.toFixed(2)}</span>
                                 <span className="text-cyan-200 font-bold">${l.unitPrice.toFixed(2)}</span>
@@ -1637,6 +1787,23 @@ export default function CrmPosView() {
               >
                 <FileText className="h-4 w-4" />
                 Cotización
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void createOwnUse()}
+                disabled={cart.length === 0 || !shift || processingPayment}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-xl border px-3.5 text-[11.5px] font-bold uppercase tracking-wider transition',
+                  cart.length === 0 || !shift || processingPayment
+                    ? 'cursor-not-allowed border-slate-700 bg-[#0b2641]/50 text-slate-500 opacity-60'
+                    : 'border-teal-500/40 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20 hover:text-teal-100',
+                )}
+                style={{ height: '40px' }}
+                title="Descuenta los productos del stock para uso interno, sin cobro"
+              >
+                <PackageCheck className="h-4 w-4" />
+                Uso propio
               </button>
 
               <button
@@ -2047,25 +2214,32 @@ export default function CrmPosView() {
                 <label className="mb-1.5 block text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
                   Método de pago
                 </label>
-                <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#1a3a5a] bg-[#0b2641] p-1">
+                <div className="grid grid-cols-4 gap-1 rounded-xl border border-[#1a3a5a] bg-[#0b2641] p-1">
                   {(
                     [
                       { id: 'cash', label: 'Efectivo', icon: Banknote },
                       { id: 'card', label: 'Tarjeta', icon: CreditCard },
                       { id: 'transfer', label: 'Transfer', icon: Send },
-                    ] as Array<{ id: PaymentMethod; label: string; icon: any }>
+                      { id: 'mixed', label: 'Mixto', icon: Wallet },
+                    ] as Array<{ id: PaymentMethod | 'mixed'; label: string; icon: any }>
                   ).map((opt) => {
                     const Icon = opt.icon
+                    const active = opt.id === 'mixed' ? mixedMode : !mixedMode && payMethod === opt.id
                     return (
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => setPayMethod(opt.id)}
+                        onClick={() => {
+                          if (opt.id === 'mixed') {
+                            setMixedMode(true)
+                          } else {
+                            setMixedMode(false)
+                            setPayMethod(opt.id)
+                          }
+                        }}
                         className={cn(
                           'flex flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-[9.5px] font-bold transition',
-                          payMethod === opt.id
-                            ? 'bg-[#1090D0] text-white shadow-inner'
-                            : 'text-slate-300 hover:text-white',
+                          active ? 'bg-[#1090D0] text-white shadow-inner' : 'text-slate-300 hover:text-white',
                         )}
                       >
                         <Icon className="h-4 w-4" />
@@ -2076,6 +2250,80 @@ export default function CrmPosView() {
                 </div>
               </div>
 
+              {mixedMode ? (
+                <div className="space-y-2 rounded-xl border border-[#1a3a5a] bg-[#0b2641]/60 p-3">
+                  {(
+                    [
+                      { key: 'cash', label: 'Efectivo', icon: Banknote },
+                      { key: 'card', label: 'Tarjeta', icon: CreditCard },
+                      { key: 'transfer', label: 'Transferencia', icon: Send },
+                    ] as Array<{ key: 'cash' | 'card' | 'transfer'; label: string; icon: any }>
+                  ).map((f) => {
+                    const Icon = f.icon
+                    return (
+                      <div key={f.key} className="flex items-center gap-2">
+                        <span className="flex w-28 items-center gap-1.5 text-[11px] font-bold text-slate-300">
+                          <Icon className="h-3.5 w-3.5 text-[#5bbfe5]" />
+                          {f.label}
+                        </span>
+                        <div className="flex flex-1 items-center gap-1.5 rounded-lg border border-[#1a3a5a] bg-[#0b2641] px-2.5 py-1.5 focus-within:border-[#1090D0]/50">
+                          <span className="font-mono text-[12px] font-bold text-slate-400">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            placeholder="0.00"
+                            value={mixAmounts[f.key]}
+                            onChange={(e) => setMixAmounts((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                            aria-label={`Monto en ${f.label}`}
+                            className="w-full bg-transparent font-mono text-[14px] font-bold text-slate-100 placeholder:text-slate-600 focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const others = mixPaid - (Number(mixAmounts[f.key]) || 0)
+                            const fill = Math.max(0, Number((checkout.total - others).toFixed(2)))
+                            setMixAmounts((prev) => ({ ...prev, [f.key]: fill > 0 ? String(fill) : '' }))
+                          }}
+                          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-200 hover:bg-emerald-500/20"
+                          title="Poner aquí lo que falta"
+                        >
+                          Resto
+                        </button>
+                      </div>
+                    )
+                  })}
+                  <div className="flex items-center justify-between rounded-lg border border-[#1a3a5a] bg-[#0f3151] px-3 py-2 text-[11px]">
+                    <span className="font-bold uppercase tracking-wider text-slate-400">
+                      {mixRemaining < 0 ? 'Cambio' : 'Restante por cobrar'}
+                    </span>
+                    <span
+                      className={cn(
+                        'font-mono text-[16px] font-extrabold',
+                        mixRemaining < 0 ? 'text-emerald-300' : mixRemaining === 0 ? 'text-emerald-300' : 'text-amber-200',
+                      )}
+                    >
+                      ${Math.abs(mixRemaining).toFixed(2)}
+                    </span>
+                  </div>
+                  {mixNonCashOver ? (
+                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200">
+                      Tarjeta y transferencia no pueden superar el total a cobrar.
+                    </div>
+                  ) : mixRemaining < 0 && mixCash <= 0 ? (
+                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200">
+                      Solo el efectivo puede generar cambio.
+                    </div>
+                  ) : mixRemaining > 0 && mixPaid > 0 ? (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200">
+                      Pago parcial: la venta quedará con saldo pendiente.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!mixedMode ? (
               <div>
                 <label className="mb-1 block text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
                   Paga con:
@@ -2129,9 +2377,20 @@ export default function CrmPosView() {
                   </div>
                 ) : null}
               </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-[#1a3a5a] px-4 py-3 flex-shrink-0">
+              <button
+                type="button"
+                disabled={processingPayment}
+                onClick={() => void createOwnUse()}
+                className="mr-auto inline-flex items-center gap-1 rounded-lg border border-teal-500/40 bg-teal-500/10 px-3 py-1.5 text-[11.5px] font-bold text-teal-200 transition hover:bg-teal-500/20 disabled:opacity-50"
+                title="Descuenta del stock para uso interno, sin cobro"
+              >
+                <PackageCheck className="h-3.5 w-3.5" />
+                Uso propio
+              </button>
               <button
                 type="button"
                 onClick={() => setCheckout(null)}
@@ -2701,6 +2960,7 @@ export default function CrmPosView() {
                             const fresh = await posCatalog()
                             setCatalog(fresh.items)
                             if (fresh.promoGroups) setPromoGroups(fresh.promoGroups)
+                            repriceCartForCatalog(fresh.items, fresh.promoGroups || promoGroups)
                           } catch {}
                           try { void loadFrequent() } catch {}
                           showToast(r.report || 'Sincronización completada')
@@ -2732,11 +2992,12 @@ export default function CrmPosView() {
                     {(() => {
                       const q = promoSearch.trim().toLowerCase()
                       const promos = catalog
-                        .filter((c) => c.active && (c.volumePriceTiers || []).length > 0)
+                        .filter((c) => c.active && ((c.volumePriceTiers || []).length > 0 || (c.bundlePriceTiers || []).length > 0))
                         .filter((c) => !q ? true : [c.name, c.sku, c.family, c.category, (c.tags || []).join(' ')].join(' ').toLowerCase().includes(q))
                         .sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt))
                       const cards: JSX.Element[] = []
                       for (const p of promos) {
+                        const bundleTiers = p.bundlePriceTiers || []
                         const tiers = [
                           { minQty: 1, price: p.salePrice },
                           ...(p.volumePriceTiers || []).sort((a, b) => a.minQty - b.minQty),
@@ -2749,7 +3010,7 @@ export default function CrmPosView() {
                                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                                   {p.sku ? <span className="font-mono text-[9.5px] text-slate-500 rounded-md border border-[#1a3a5a] bg-white/[0.02] px-1.5 py-0.5">{p.sku}</span> : null}
                                   <span className="inline-flex items-center gap-0.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-amber-200">
-                                    🎁 {(p.volumePriceTiers || []).length} rangos
+                                    🎁 {(p.volumePriceTiers || []).length + bundleTiers.length} rangos
                                   </span>
                                 </div>
                               </div>
@@ -2802,6 +3063,15 @@ export default function CrmPosView() {
                                   </div>
                                 )
                               })}
+                              {bundleTiers.map((t) => (
+                                <div key={`${p.id}-bundle-${t.quantity}`} className="flex items-center justify-between rounded-xl border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-1.5">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-200">
+                                    <Package className="h-3.5 w-3.5 text-cyan-300" />
+                                    Paquete de {t.quantity} piezas
+                                  </span>
+                                  <span className="font-mono text-[12px] font-bold text-cyan-100">${t.totalPrice.toFixed(2)} total</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )
@@ -3700,7 +3970,7 @@ export default function CrmPosView() {
                               const updated = res.item || { ...item, salePrice, volumePriceTiers: tiers }
                               const nxt = tieredUnitPrice(updated, l.qty)
                               const unit = nxt.unitPrice > 0 ? nxt.unitPrice : salePrice
-                              return { ...l, baseUnitPrice: salePrice, unitPrice: unit, importe: Number((l.qty * unit).toFixed(2)), appliedTierMinQty: nxt.appliedMinQty, appliedTierSaving: nxt.saving }
+                              return { ...l, baseUnitPrice: salePrice, unitPrice: unit, importe: nxt.lineTotal, appliedTierMinQty: nxt.appliedMinQty, appliedTierSaving: nxt.saving }
                             }))
                             setPromoView('list')
                           } catch (e: any) {

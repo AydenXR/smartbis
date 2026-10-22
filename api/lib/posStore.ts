@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import dotenv from 'dotenv'
+import { isMisparsedCatalogItem, isUsableCatalogDocumentName } from './catalogDocument.js'
 
 dotenv.config()
 dotenv.config({ path: '.env.local', override: true })
@@ -151,7 +152,7 @@ function posPath(tenantId: string) {
 export type PosRole = 'owner' | 'admin' | 'admin_pv' | 'admin_cs' | 'cashier' | 'cs_agent'
 export type ItemKind = 'product' | 'service' | 'course' | 'menu_item'
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'whatsapp' | 'pending'
-export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote'
+export type SaleStatus = 'paid' | 'pending' | 'cancelled' | 'quote' | 'own_use'
 
 export interface PosBranch {
   id: string
@@ -177,6 +178,11 @@ export interface VolumePriceTier {
   price: number
 }
 
+export interface BundlePriceTier {
+  quantity: number
+  totalPrice: number
+}
+
 export interface PromoGroup {
   id: string
   name: string
@@ -198,11 +204,13 @@ export interface PosCatalogItem {
   costPrice?: number
   salePrice: number
   volumePriceTiers?: VolumePriceTier[]
+  bundlePriceTiers?: BundlePriceTier[]
   currency: string
   stocks: PosStockMap
   location?: string
   tags: string[]
   active: boolean
+  cashierPriceEditable?: boolean
   attrs?: any
   sourceDocId?: string
   sourceBlockHash?: string
@@ -307,7 +315,7 @@ export interface PosSale {
   paidAmount: number
   pendingAmount: number
   lines: PosSaleLine[]
-  payments: Array<{ id: string; method: PaymentMethod; amount: number; at: string }>
+  payments: Array<{ id: string; method: PaymentMethod; amount: number; at: string; shiftId?: string }>
   currency: string
   ivaRate: number
 }
@@ -703,6 +711,7 @@ export async function listCatalog(
     if (!i.name || !i.sku) return false
     if (typeof i.salePrice !== 'number' || !Number.isFinite(i.salePrice) || i.salePrice < 0) return false
     if (typeof i.active === 'boolean' && !i.active) return false
+    if (isMisparsedCatalogItem(i) || !isUsableCatalogDocumentName(i.name)) return false
     return true
   })
   if (opts?.activeOnly !== false) list = list.filter(i => i.active)
@@ -714,7 +723,9 @@ export async function listCatalog(
       const sku = String(i.sku || '').toLowerCase()
       const family = String(i.family || '').toLowerCase()
       const category = String(i.category || '').toLowerCase()
-      return name.includes(q) || sku.includes(q) || family.includes(q) || category.includes(q)
+      const description = String(i.description || '').toLowerCase()
+      const tags = (Array.isArray(i.tags) ? i.tags : []).join(' ').toLowerCase()
+      return name.includes(q) || sku.includes(q) || family.includes(q) || category.includes(q) || description.includes(q) || tags.includes(q)
     })
   }
   return list.sort((a, b) => a.name.localeCompare(b.name))
@@ -727,6 +738,9 @@ export async function upsertCatalogItem(
   tenantId: string,
   inp: Partial<PosCatalogItem> & { name: string; salePrice: number; userEmail: string; syncToMdDoc?: string },
 ): Promise<PosCatalogItem> {
+  if (!isUsableCatalogDocumentName(inp.name)) {
+    throw new Error('El nombre del producto no puede ser un nombre genérico como "Pieza"')
+  }
   const s = await readPosStore(tenantId)
   // Lookup: prefer id, then exact SKU match (previene duplicados al re-importar mismo CSV)
   const exist: PosCatalogItem | undefined = inp.id
@@ -742,7 +756,13 @@ export async function upsertCatalogItem(
     if (typeof stocks[bid] !== 'number' || Number.isNaN(stocks[bid])) stocks[bid] = 0
   })
   const next: PosCatalogItem = exist
-    ? { ...exist, ...inp, stocks, updatedAt: nowISO(), volumePriceTiers: inp.volumePriceTiers ?? exist.volumePriceTiers ?? [] }
+    ? {
+        ...exist,
+        ...Object.fromEntries(Object.entries(inp).filter(([, value]) => value !== undefined)),
+        stocks,
+        updatedAt: nowISO(),
+        volumePriceTiers: inp.volumePriceTiers ?? exist.volumePriceTiers ?? [],
+      }
     : {
         id: inp.id || `cat_${uid()}`,
         kind: inp.kind || 'product',
@@ -754,11 +774,13 @@ export async function upsertCatalogItem(
         costPrice: inp.costPrice,
         salePrice: inp.salePrice,
         volumePriceTiers: inp.volumePriceTiers || [],
+        bundlePriceTiers: inp.bundlePriceTiers || [],
         currency: inp.currency || s.config.currencyDefault,
         stocks,
         location: inp.location || '',
         tags: inp.tags || [],
         active: inp.active ?? true,
+        cashierPriceEditable: inp.cashierPriceEditable ?? false,
         attrs: inp.attrs || {},
         sourceDocId: inp.sourceDocId,
         sourceBlockHash: inp.sourceBlockHash,
@@ -1295,13 +1317,17 @@ export async function closeShift(
   const sh = s.shifts.find(x => x.id === shiftId)
   if (!sh || sh.status !== 'open') throw new Error('SHIFT_NOT_OPEN')
   const shiftSales = s.sales.filter(
-    sl => sl.shiftId === shiftId && sl.status !== 'cancelled' && sl.status !== 'quote',
+    sl => sl.shiftId === shiftId && sl.status !== 'cancelled' && sl.status !== 'quote' && sl.status !== 'own_use',
   )
   const byMethod: Record<string, number> = {}
   let paid = 0
-  for (const sl of shiftSales) {
-    paid += sl.paidAmount || 0
-    for (const p of sl.payments) byMethod[p.method] = (byMethod[p.method] || 0) + p.amount
+  for (const sl of s.sales) {
+    if (sl.status === 'cancelled' || sl.status === 'quote') continue
+    for (const p of sl.payments) {
+      if ((p.shiftId || sl.shiftId) !== shiftId) continue
+      paid += p.amount
+      byMethod[p.method] = (byMethod[p.method] || 0) + p.amount
+    }
   }
   const cashIn = sh.initialCash + (byMethod['cash'] || 0)
   const withdraws = sh.cashWithdrawals.reduce((a, b) => a + b.amount, 0)
@@ -1360,8 +1386,9 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
   const s = await readPosStore(inp.tenantId)
   const branch = s.branches.find(b => b.id === inp.branchId)
   if (!branch) throw new Error('BRANCH_NOT_FOUND')
-  const saleLines: PosSaleLine[] = inp.lines.map(line => ({ ...line }))
-  const subtotal = inp.lines.reduce((a, l) => a + l.importe, 0)
+  const isOwnUse = inp.status === 'own_use'
+  const saleLines: PosSaleLine[] = inp.lines.map(line => ({ ...line, importe: isOwnUse ? 0 : line.importe }))
+  const subtotal = isOwnUse ? 0 : inp.lines.reduce((a, l) => a + l.importe, 0)
   const discount = Math.min(subtotal, Math.max(0, inp.discount || 0))
   const withDiscount = Math.max(0, subtotal - discount)
   const ivaRate = (branch.ivaRate || 0) > 1 ? (branch.ivaRate || 0) / 100 : branch.ivaRate || 0
@@ -1369,17 +1396,20 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     ? +(withDiscount * ivaRate).toFixed(2)
     : 0
   const total = +(withDiscount + ivaAmount).toFixed(2)
-  const paidAmount = (inp.payments || []).reduce((a, b) => a + b.amount, 0)
+  const payments = isOwnUse ? [] : inp.payments || []
+  const paidAmount = payments.reduce((a, b) => a + b.amount, 0)
   const pendingAmount = +Math.max(0, total - paidAmount).toFixed(2)
   const finalStatus: SaleStatus =
     inp.status === 'quote'
       ? 'quote'
-      : pendingAmount <= 0.001
+      : isOwnUse
+        ? 'own_use'
+        : pendingAmount <= 0.001
         ? 'paid'
         : paidAmount > 0
           ? 'pending'
           : 'pending'
-  if (finalStatus === 'paid') {
+  if (finalStatus === 'paid' || finalStatus === 'own_use') {
     for (const line of saleLines) {
       const item = s.catalogItems.find(catalogItem => catalogItem.id === line.itemId)
       if (!item) continue
@@ -1410,7 +1440,7 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     paidAmount: +paidAmount.toFixed(2),
     pendingAmount,
     lines: saleLines,
-    payments: inp.payments || [],
+    payments,
     currency: s.config.currencyDefault,
     ivaRate,
   }
@@ -1434,18 +1464,21 @@ export async function createSale(inp: PosCreateSaleInput): Promise<PosSale> {
     message:
       sale.status === 'quote'
         ? `Cotización: $${total} · ${sale.lines.length} líneas · Cliente: ${sale.customerName || '(sin nombre)'}`
-        : `Venta ${sale.status}: $${total} (Pagado $${paidAmount} · Pend $${pendingAmount}) · ${sale.lines.length} líneas · ${sale.customerName || '(sin nombre)'}`,
+        : sale.status === 'own_use'
+          ? `Uso propio (descuenta stock, sin cobro) · ${sale.lines.length} líneas · ${sale.customerName || '(sin nombre)'}`
+          : `Venta ${sale.status}: $${total} (Pagado $${paidAmount} · Pend $${pendingAmount}) · ${sale.lines.length} líneas · ${sale.customerName || '(sin nombre)'}`,
     details: sale,
   })
   return sale
 }
+
 export async function cancelSale(tenantId: string, saleId: string, userEmail: string): Promise<boolean> {
   const s = await readPosStore(tenantId)
   const sl = s.sales.find(sl => sl.id === saleId)
   if (!sl) return false
   if (sl.status === 'cancelled' || sl.status === 'quote') return false
   // revertir stock
-  if (sl.status === 'paid') {
+  if (sl.status === 'paid' || sl.status === 'own_use') {
     for (const l of sl.lines) {
       const it = s.catalogItems.find(i => i.id === l.itemId)
       if (!it) continue
@@ -1510,7 +1543,7 @@ export async function getFrequentProducts(
   const s = await readPosStore(tenantId)
   const qtyByItem: Record<string, number> = {}
   for (const sl of s.sales) {
-    if (sl.status === 'cancelled' || sl.status === 'quote') continue
+    if (sl.status === 'cancelled' || sl.status === 'quote' || sl.status === 'own_use') continue
     for (const l of sl.lines) qtyByItem[l.itemId] = (qtyByItem[l.itemId] || 0) + l.qty
   }
   if (Object.keys(qtyByItem).length === 0) {
@@ -1825,6 +1858,18 @@ export async function syncCatalogFromDocuments(
     }
     return tiers.sort((a, b) => a.minQty - b.minQty)
   }
+  const parseBundlePriceTiers = (block: string): BundlePriceTier[] => {
+    const tiers: BundlePriceTier[] = []
+    for (const line of block.split('\n')) {
+      const match = line.match(/^\s*[-*]?\s*total\s+paquete\s*\(\s*(\d+)\s*(?:piezas?|pzs?|pz)\s*\)\s*[:：=]\s*\$?\s*([0-9][0-9.,]*)\s*$/i)
+      if (!match) continue
+      const quantity = Number.parseInt(match[1], 10)
+      const totalPrice = Number.parseFloat(match[2].replace(/,/g, ''))
+      if (quantity < 2 || !Number.isFinite(totalPrice) || totalPrice < 0) continue
+      tiers.push({ quantity, totalPrice })
+    }
+    return tiers.sort((a, b) => a.quantity - b.quantity).filter((t, i, all) => all.findIndex(x => x.quantity === t.quantity) === i)
+  }
   const detectKind = (title: string, section: string | undefined, block: string): ItemKind => {
     const tl = `${title} ${section || ''} ${block}`.toLowerCase()
     if (tl.includes('curso') || tl.includes('clase') || tl.includes('taller') || tl.includes('diplomado')) return 'course'
@@ -1855,6 +1900,7 @@ export async function syncCatalogFromDocuments(
         const parsedCostPrice = parseCostPrice(blk)
         const parsedStocks = parseStockMap(blk, store.branches)
         const parsedVolumeTiers = parseVolumePriceTiers(blk)
+        const parsedBundleTiers = parseBundlePriceTiers(blk)
         const stockMapHasAny = Object.values(parsedStocks).some(value => value > 0)
         const get = (regexes: RegExp[]): string | undefined => {
           for (const r of regexes) {
@@ -1873,6 +1919,10 @@ export async function syncCatalogFromDocuments(
         ])
         if (!name) {
           skipped.push(`No pude extraer nombre de bloque ${doc.title}`)
+          continue
+        }
+        if (!isUsableCatalogDocumentName(name)) {
+          skipped.push(`Nombre genérico de producto ignorado: ${name}`)
           continue
         }
         const sku =
@@ -1911,6 +1961,10 @@ export async function syncCatalogFromDocuments(
           userEmail,
         }
         if (exist) {
+          const hashChanged = exist.sourceBlockHash !== bh
+          const nextBundleTiers = parsedBundleTiers.length > 0
+            ? parsedBundleTiers
+            : hashChanged ? [] : exist.bundlePriceTiers || []
           const changed = exist.sourceBlockHash !== bh ||
             exist.kind !== base.kind ||
             exist.name !== base.name ||
@@ -1923,11 +1977,11 @@ export async function syncCatalogFromDocuments(
             (parsedActive !== undefined && exist.active !== parsedActive) ||
             (parsedCostPrice !== undefined && exist.costPrice !== parsedCostPrice) ||
             (parsedVolumeTiers.length > 0 && JSON.stringify(exist.volumePriceTiers || []) !== JSON.stringify(parsedVolumeTiers)) ||
+            JSON.stringify(exist.bundlePriceTiers || []) !== JSON.stringify(nextBundleTiers) ||
             (stockMapHasAny && JSON.stringify(exist.stocks) !== JSON.stringify(parsedStocks))
 
           if (changed) {
             const prevTiers = exist.volumePriceTiers || []
-            const hashChanged = exist.sourceBlockHash !== bh
             let nextTiers: VolumePriceTier[]
             if (parsedVolumeTiers.length > 0) {
               nextTiers = parsedVolumeTiers
@@ -1949,6 +2003,7 @@ export async function syncCatalogFromDocuments(
               costPrice: parsedCostPrice !== undefined ? parsedCostPrice : exist.costPrice,
               active: parsedActive !== undefined ? parsedActive : exist.active,
               volumePriceTiers: nextTiers,
+              bundlePriceTiers: nextBundleTiers,
               stocks: stockMapHasAny ? { ...exist.stocks, ...parsedStocks } : exist.stocks,
               updatedAt: nowISO(),
             })
@@ -1975,6 +2030,7 @@ export async function syncCatalogFromDocuments(
             tags: [],
             active: parsedActive ?? true,
             volumePriceTiers: parsedVolumeTiers,
+            bundlePriceTiers: parsedBundleTiers,
             attrs: {},
             sourceDocId: base.sourceDocId,
             sourceBlockHash: base.sourceBlockHash,
@@ -2083,6 +2139,10 @@ export function renderCatalogItemBlock(it: PosCatalogItem, branches?: PosBranch[
       : ''
     lines.push(`- Promoción: ${t.minQty} x $${t.price}${pct}`)
   }
+  const bundles = Array.isArray(it.bundlePriceTiers)
+    ? [...it.bundlePriceTiers].filter(t => t && Number.isFinite(t.quantity) && t.quantity >= 2 && Number.isFinite(t.totalPrice) && t.totalPrice >= 0).sort((a, b) => a.quantity - b.quantity)
+    : []
+  for (const t of bundles) lines.push(`- Total paquete (${t.quantity} piezas): $${t.totalPrice}`)
   lines.push(`- Moneda: ${it.currency || 'MXN'}`)
   lines.push(stocks)
   if (it.location) lines.push(`- Ubicación: ${it.location}`)
