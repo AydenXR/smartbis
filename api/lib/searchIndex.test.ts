@@ -177,3 +177,193 @@ test('corrects one-letter typos in treatment names', () => {
   const result = searchIndex(treatmentIndex, 'tratamiento de peptomas para reafirmar gluteos')
   assert.match(result.contextBlock, /1,200/)
 })
+
+test('treatments asked by body area return the treatment list', () => {
+  for (const q of ['cuentas con tratamientos para la cara?', 'tienes tratamientos faciales?', 'que tratamientos tienen para el rostro']) {
+    const result = searchIndex(treatmentIndex, q)
+    assert.match(result.contextBlock, /Peptonas/, q)
+    assert.match(result.contextBlock, /Lipoenzimas/, q)
+  }
+})
+
+test('an absent treatment named with a body area still returns nothing', () => {
+  const result = searchIndex(treatmentIndex, 'tienen tratamiento de botox para la cara')
+  assert.equal(result.matchedBlocks.length, 0)
+})
+
+test('the treatment list shows each treatment body area when the document has it', () => {
+  const areaIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...treatmentDocs[0],
+      content: '[TRATAMIENTO: Peptonas]\nZONA: Cuerpo\nPRECIO APROXIMADO: $1,200\n\n[TRATAMIENTO: Hidrofacial]\nZONA: Rostro\nPRECIO APROXIMADO: $800',
+    }],
+  })
+  const result = searchIndex(areaIndex, 'cuentas con tratamientos para la cara?')
+
+  assert.match(result.contextBlock, /Hidrofacial \| Zona: Rostro/)
+  assert.match(result.contextBlock, /Peptonas \| Zona: Cuerpo/)
+})
+
+const facialCoursesIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    {
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      content: [
+        '[CURSO]', 'Nombre del curso: Hidrofacial', 'Descripcion: Limpieza profunda del rostro.', 'Precio: $895 MXN', '',
+        '[CURSO]', 'Nombre del curso: Russian Lips', 'Descripcion: Diseno de labios.', 'Precio: $895 MXN', '',
+        '[CURSO]', 'Nombre del curso: Maderoterapia', 'Descripcion: Moldeado corporal con rodillos.', 'Precio: $895 MXN',
+      ].join('\n'),
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    ...treatmentDocs,
+  ],
+})
+
+test('courses asked by body area list the courses for that area, not the treatments', () => {
+  for (const q of ['cuentas con cursos para tratamiento facial?', 'cursos para la cara', 'que cursos tienen de rostro']) {
+    const result = searchIndex(facialCoursesIndex, q)
+    assert.match(result.contextBlock, /Hidrofacial/, q)
+    assert.match(result.contextBlock, /Russian Lips/, q)
+    assert.doesNotMatch(result.contextBlock, /Maderoterapia|LYDIA_CORONADO/, q)
+  }
+})
+
+test('treatments asked by body area still return the treatment list when courses exist', () => {
+  const result = searchIndex(facialCoursesIndex, 'cuentas con tratamientos para la cara?')
+  assert.match(result.contextBlock, /LISTA DE TRATAMIENTOS/)
+})
+
+test('a narrow area that names a treatment finds that treatment, not the whole list', () => {
+  const lipsIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...treatmentDocs[0],
+      content: '[TRATAMIENTO: Relleno de labios con HP]\nDURACION: 2.5 horas\nPRECIO APROXIMADO: $3,850\n\n[TRATAMIENTO: Peptonas]\nPRECIO APROXIMADO: $1,200',
+    }],
+  })
+  const result = searchIndex(lipsIndex, 'tratamiento de labios')
+
+  assert.doesNotMatch(result.contextBlock, /LISTA DE TRATAMIENTOS/)
+  assert.match(result.contextBlock, /DURACION: 2\.5 horas/)
+})
+
+const acidProductsIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [{
+    ...document,
+    content: [
+      '[PRODUCTO]', 'Nombre del producto: Aguja en U 12 x 0.20', 'Familia: Ácido Hialurónico', 'Precio: $15 MXN', '',
+      '[PRODUCTO]', 'Nombre del producto: Rejuveness Plus', 'Familia: Ácido Hialurónico', 'Precio: $900 MXN', '',
+      '[PRODUCTO]', 'Nombre del producto: Acido hialuronico - Revofil Plus 1ml', 'Familia: Ácido Hialurónico', 'Precio: $1,690 MXN',
+    ].join('\n'),
+  }],
+})
+
+test('a short word like "en" does not match inside product names', () => {
+  const result = searchIndex(acidProductsIndex, 'tienen ácido hialurónico en existencia?')
+  assert.equal(result.matchedBlocks[0]?.title, 'Acido hialuronico - Revofil Plus 1ml')
+})
+
+test('a [CURSO] heading stays with its card instead of becoming an empty block', () => {
+  const titles = schoolIndex.blocks.filter((block) => block.document.id === 'courses').map((block) => block.title)
+  assert.deepEqual(titles, ['Russian Lips', 'Mesobotox'])
+})
+
+const syllabusIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [{
+    id: 'courses',
+    title: 'cursos.md',
+    docType: 'cursos',
+    section: 'cursos',
+    content: [
+      '[TEMARIOS]', '', 'FIBROBLAST', '[Temario]', 'Temario FIBROBLAST', 'Plasma Pen', 'Estructura de la piel', '',
+      'PDRN SALMÓN', '[Temario]', 'Temario:', 'Mecanismo de acción', 'Evidencia clínica', '',
+      '[CURSO]', 'Nombre del curso: Bioestimulación con PDRN de salmón.', 'Precio: $895 MXN',
+    ].join('\n'),
+    isActive: true,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }],
+})
+
+test('a syllabus keeps the course name written above its [Temario] heading', () => {
+  const result = searchIndex(syllabusIndex, 'temario de pdrn salmon')
+  assert.match(result.contextBlock, /Mecanismo de acción/)
+  assert.doesNotMatch(result.contextBlock, /Estructura de la piel/)
+})
+
+const courseAndProductIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    facialCoursesIndex.documents[0],
+    {
+      ...document,
+      content: [
+        '[CURSO]', 'Nombre del curso: Lipoenzimas', 'Precio: $895 MXN', '',
+      ].join('\n'),
+      id: 'more-courses',
+      section: 'cursos',
+      docType: 'cursos',
+    },
+    {
+      ...document,
+      content: Array.from({ length: 15 }, (_, i) => [
+        '[PRODUCTO]',
+        `Nombre del producto: ${i === 0 ? 'DUO LIPOENZIMAS PRODERM' : `Producto ${i}`}`,
+        `Familia: ${i % 2 ? 'Ácido Hialurónico' : 'Enzimas'}`,
+        'Stock / Disponibilidad: 3 unidades disponibles',
+        'Precio: $100 MXN',
+        '',
+      ].join('\n')).join('\n'),
+    },
+  ],
+})
+
+test('a course list question lists every course and no products', () => {
+  for (const q of ['que cursos tienen', 'que cursos tienen disponibles?']) {
+    const result = searchIndex(courseAndProductIndex, q)
+    for (const name of ['Hidrofacial', 'Russian Lips', 'Maderoterapia', 'Lipoenzimas']) {
+      assert.match(result.contextBlock, new RegExp(name), q)
+    }
+    assert.doesNotMatch(result.contextBlock, /PRODUCTO|Producto \d|PRODERM/, q)
+  }
+})
+
+test('a course price question ranks the course above a product with the same name', () => {
+  const result = searchIndex(courseAndProductIndex, 'cuanto cuesta el curso de lipoenzimas')
+  assert.equal(result.matchedBlocks[0]?.title, 'Lipoenzimas')
+})
+
+test('a product list question summarizes a large catalog by category', () => {
+  const result = searchIndex(courseAndProductIndex, 'que productos venden')
+  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/)
+  assert.match(result.contextBlock, /Enzimas \(8 productos\)/)
+  assert.doesNotMatch(result.contextBlock, /Hidrofacial/)
+})
+
+test('understands a course question written with typos in common words', () => {
+  for (const q of ['ienes crsos para fciales o cra', 'tiness dispinbile cursos apra la cara?']) {
+    const result = searchIndex(facialCoursesIndex, q)
+    assert.match(result.contextBlock, /Hidrofacial/, q)
+    assert.match(result.contextBlock, /Russian Lips/, q)
+    assert.doesNotMatch(result.contextBlock, /Maderoterapia/, q)
+  }
+})
+
+test('does not "correct" a word that exists in the documents', () => {
+  const verrugasIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...facialCoursesIndex.documents[0],
+      content: '[CURSO]\nNombre del curso: Fibroblast\nDescripcion: Eliminacion de verrugas.\n\n[CURSO]\nNombre del curso: Verrugas Plus\nPrecio: $1',
+    }],
+  })
+  const result = searchIndex(verrugasIndex, 'curso para eliminacion de verrugas')
+  assert.match(result.contextBlock, /Fibroblast/)
+})

@@ -133,7 +133,7 @@ const ANTI_INTERNAL_REASONING_RULE = `=== PRIORIDAD 0 (NUNCA, JAMÁS, BAJO NING�
 === FIN PRIORIDAD 0.1 ===
 `
 
-function buildSystemPrompt(prompt: string, contextBlock: string, referralContext = '') {
+function buildSystemPrompt(prompt: string, contextBlock: string, referralContext = '', hasTreatments = false) {
   const now = getCurrentDateTimeSpanish()
   const timeAwarenessBlock = `=== PRIORIDAD 0.2 (CONCIENCIA TEMPORAL Y FECHAS — NUNCA, BAJO NINGÚN CONCEPTO, INCUMPLE ESTAS REGLAS):
 - La fecha y hora ACTUAL en que transcurre esta conversación es: ${now.fechaCompleta} (formato ISO: ${now.fechaISO}).
@@ -141,15 +141,16 @@ function buildSystemPrompt(prompt: string, contextBlock: string, referralContext
 - REGLAS OBLIGATORIAS SOBRE FECHAS DE CURSOS, EVENTOS, PROMOCIONES, RESERVAS, CUALQUIER COSA CON FECHA:
   1) ANTES de mencionar CUALQUIER fecha que aparezca en los documentos, calcula mentalmente si ESA FECHA ya PASÓ respecto a HOY (${now.fechaCompleta}).
   2) Si la fecha ya PASÓ (por ejemplo: es 01 de Septiembre y el documento dice "20 de Agosto"), PROHIBIDO TOTALMENTE decir que "está programada para el X día" o que "hay curso el X día" o cualquier frase que sugiera que FALTA para esa fecha. ESA FECHA YA PASÓ.
-  3) Si una fecha ya pasó, en vez de ofrecerla como disponible, dices lo siguiente (elige la variante que mejor encaje):
-     - "La fecha pasada de [nombre curso/evento] fue [fecha]. Para las próximas fechas disponibles te invitamos a consultar por WhatsApp al +52 1 662 335 8779."
-     - O si el cliente preguntó directamente por esa fecha: "Esa fecha ya pasó. Por favor contáctanos por WhatsApp para conocer las próximas fechas disponibles: +52 1 662 335 8779."
+  3) Si una fecha ya pasó, en vez de ofrecerla como disponible, dices lo siguiente (elige la variante que mejor encaje), usando el WhatsApp o teléfono de contacto que aparece en la información del negocio:
+     - "La fecha pasada de [nombre curso/evento] fue [fecha]. Para las próximas fechas disponibles te invitamos a consultar por WhatsApp al [WhatsApp del negocio]."
+     - O si el cliente preguntó directamente por esa fecha: "Esa fecha ya pasó. Por favor contáctanos por WhatsApp para conocer las próximas fechas disponibles: [WhatsApp del negocio]."
   4) Solo mencionas como fechas VÁLIDAS y DISPONIBLES aquellas que sean IGUAL A HOY o POSTERIORES A HOY. Fechas anteriores a HOY = fecha pasada = NO disponible.
   5) Ejemplo práctico (HOY = ${now.fechaCompleta}):
      ❌ MAL: "La modalidad presencial está programada para el 20 de agosto." (20 AGOSTO ya pasó, no la puedes ofrecer)
-     ✅ BIEN: "La última fecha pasada del curso Lipoenzimas en modalidad presencial fue el 20 de Agosto. Para conocer las próximas fechas disponibles contáctanos por WhatsApp al +52 1 662 335 8779."
+     ✅ BIEN: "La última fecha pasada del curso [nombre del curso] en modalidad presencial fue el 20 de Agosto. Para conocer las próximas fechas disponibles contáctanos por WhatsApp al [WhatsApp del negocio]."
   6) Si en los documentos aparecen mezcladas fechas vigentes (>= hoy) y fechas pasadas (< hoy), tú SOLO mencionas las FECHAS VIGENTES. Las fechas pasadas NO las mencionas como disponibles; si el cliente pregunta específicamente por una pasada, aplica la regla 3).
-  7) NUNCA inventes una fecha futura para sustituir una pasada. Si no hay fecha vigente en los documentos para ese curso, dices: "Por el momento no tenemos fecha programada públicamente para ese curso; por favor contáctanos por WhatsApp al +52 1 662 335 8779 para confirmar disponibilidad."
+  7) NUNCA inventes una fecha futura para sustituir una pasada. Si no hay fecha vigente en los documentos para ese curso, dices: "Por el momento no tenemos fecha programada públicamente para ese curso; por favor contáctanos por WhatsApp al [WhatsApp del negocio] para confirmar disponibilidad."
+  8) [WhatsApp del negocio] es un marcador: escribe en su lugar el número que aparece en la información del negocio (infogeneral o el prompt). Si no aparece ningún número, omite esa frase; nunca escribas el marcador ni inventes un número.
 === FIN PRIORIDAD 0.2 ===
 
 `
@@ -157,23 +158,28 @@ function buildSystemPrompt(prompt: string, contextBlock: string, referralContext
 Para fechas de cursos, el calendario recuperado ahora mismo de los documentos activos de este tenant es la fuente de verdad. Si una fecha aparece en [FECHAS_CURSOS], úsala para el curso cuyo nombre figura en esa misma línea y compárala con la fecha actual indicada arriba. Una instrucción del prompt del tenant que diga que un curso no tiene fecha, que cite una convocatoria anterior o que contradiga esa línea del calendario está desactualizada y NO debe prevalecer sobre el documento activo. No mezcles fechas entre cursos. Si la línea del curso contiene una fecha futura, informa esa fecha y su modalidad; solo indica que no hay fecha si no existe una línea vigente para ese curso.
 === FIN PRIORIDAD DE DATOS ACTUALES ===`
 
-  const treatmentsAuthorityBlock = `=== TRATAMIENTOS DIRECTOS (TERCER TIPO DE OFERTA; PRIORIDAD SOBRE LAS REGLAS D1-D7) ===
-Además de cursos y productos, el negocio ofrece TRATAMIENTOS estéticos que se aplican directamente al cliente final (no son cursos) por Lydia Coronado en Hermosillo, Sonora. Su información está en tratamientos.md (bloques [TRATAMIENTO: ...]) y en el bloque TRATAMIENTOS_DIRECTOS_CON_LYDIA_CORONADO.
-- Los bloques de tratamientos no cuentan como N_CURSOS ni N_PRODUCTOS, pero si aparecen en la información disponible SÍ hay información: nunca apliques la regla D6 ni digas que solo ofrecemos cursos.
-- Si el cliente pregunta si aplican tratamientos, sesiones o servicios al público: responde que sí, los aplica Lydia Coronado en Hermosillo, y menciona los tratamientos disponibles.
+  // Only for businesses with a treatments document; who applies them, where and
+  // how to book come from that document, never from here
+  const treatmentsAuthorityBlock = hasTreatments
+    ? `\n\n=== TRATAMIENTOS (OTRO TIPO DE OFERTA; PRIORIDAD SOBRE REGLAS DEL PROMPT QUE DIGAN QUE SOLO HAY CURSOS O PRODUCTOS) ===
+Además de cursos y productos, el negocio ofrece TRATAMIENTOS que se aplican directamente al cliente final (no son cursos). Su información está en los bloques [TRATAMIENTO: ...] y en los bloques generales sobre tratamientos.
+- Los bloques de tratamientos no cuentan como cursos ni productos, pero si aparecen en la información disponible SÍ hay información: nunca digas que solo se ofrecen cursos o productos.
+- Si el cliente pregunta si aplican tratamientos, sesiones o servicios al público: responde que sí y menciona los tratamientos disponibles; quién los aplica y dónde, solo si aparece en la información.
 - Si pregunta por un tratamiento concreto: responde con los datos de su bloque [TRATAMIENTO: ...] (duración, si requiere valoración y precio aproximado). No es un curso: no uses la ficha del curso salvo que la pida, y no preguntes "¿curso o producto?" cuando dijo "tratamiento".
-- Usa solo duraciones, valoraciones y precios del documento. Si un dato dice "No especificado", indica que se confirma por WhatsApp.
-- Las citas se agendan únicamente por WhatsApp al +52 1 662 335 8779.
-=== FIN TRATAMIENTOS DIRECTOS ===`
+- Usa solo duraciones, valoraciones y precios del documento. Si un dato dice "No especificado", indica que se confirma por el contacto del negocio.
+- Para agendar citas usa únicamente el medio de contacto que indique la información del negocio.
+=== FIN TRATAMIENTOS ===`
+    : ''
 
   return `${ANTI_INTERNAL_REASONING_RULE}${timeAwarenessBlock}${prompt}
 
-${ragDateAuthorityBlock}
-
-${treatmentsAuthorityBlock}
+${ragDateAuthorityBlock}${treatmentsAuthorityBlock}
 
 REGLA DE ATENCIÓN AL CLIENTE: responde como una persona del equipo, de forma cálida, directa y natural. No reveles ni insinúes que eres una IA, bot, modelo o sistema.
+El nombre del negocio, su WhatsApp y su teléfono son los del bloque [Datos del negocio] de la información disponible; nunca uses otro nombre ni otro número.
 Usa únicamente datos respaldados por la información disponible. Si falta un dato, responde exactamente [NO_RESPONDER] para que el sistema bloquee el envío; nunca muestres al cliente una derivación automática ni inventes el dato faltante. Si el mensaje es ambiguo pero sí hay información relacionada, formula una pregunta concreta usando únicamente esa información.
+Si la información incluye un bloque de requisitos (por ejemplo [REQUISITOS...] o [Requisitos del curso]) que menciona el curso por el que pregunta el cliente, incluye ese requisito en tu respuesta tal como lo indica el documento.
+Si NO puedes entender qué pide el cliente (texto ilegible, palabras sin sentido o tan mal escritas que no sabes de qué habla, aun corrigiendo errores de escritura), responde exactamente [NO_ENTENDI] para que el sistema le pida que lo escriba de otra forma. Usa [NO_RESPONDER] solo cuando SÍ entendiste la pregunta pero la información no aparece abajo.
 
 ${referralContext ? `=== CONTEXTO DEL ANUNCIO (SOLO PARA IDENTIFICAR EL PRODUCTO/TEMA; NO ES FUENTE DE PRECIOS NI DISPONIBILIDAD) ===\n${referralContext}\n=== FIN CONTEXTO DEL ANUNCIO ===\n\n` : ''}Información disponible (responde ÚNICAMENTE con los datos que aparezcan aquí abajo; si algo no aparece aquí, no lo inventes; si no está, responde [NO_RESPONDER]):
 ${contextBlock}`
@@ -605,58 +611,137 @@ function matchedBlocksToRefs(blocks: any[]): AutoEvalMatchedBlockRef[] {
 
 const NO_INFORMATION_PHRASE = /(?:no\s+(?:cuento|contamos|tenemos|tengo|dispongo|disponemos)\s+(?:con\s+)?(?:esa\s+)?(?:informaci[oó]n|datos)|no\s+hay\s+(?:informaci[oó]n|datos)|no\s+(?:s[eé]|sabemos|puedo\s+responder|podemos\s+responder)|no\s+estoy\s+capacitado\s+para\s+responder|(?:soy|como)\s+(?:una?\s+)?(?:ia|inteligencia\s+artificial|bot|asistente\s+virtual))/i
 
-const MEDICAL_ELIGIBILITY_NOTE = 'Puedes tomar el curso sin tener título médico, pero para aplicar el tratamiento a pacientes se requiere título médico.'
-
-function ensureMedicalEligibilityNote(answer: string, userMessage: string): string {
-  const question = userMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const isCoveredCourse =
-    /rinomodelacion/.test(question) ||
-    /russian\s*lips?/.test(question) ||
-    /hiperhidrosis/.test(question) ||
-    /(?:botox|toxina botulinica).{0,40}tercio\s+(?:superior|inferior)/.test(question) ||
-    /tercio\s+(?:superior|inferior).{0,40}(?:botox|toxina botulinica)/.test(question)
-
-  if (!isCoveredCourse || !/curso/i.test(answer) || answer.includes(MEDICAL_ELIGIBILITY_NOTE)) return answer
-
-  // Insert it as its own paragraph before the closing question when there is one.
-  const paragraphs = answer.trim().split(/\n\s*\n/)
-  let closingIndex = -1
-  for (let index = paragraphs.length - 1; index >= 0; index -= 1) {
-    if (/\?\s*$/.test(paragraphs[index].trim()) && /(?:te gustar[ií]a|te interesa|quieres|requiere?s|tienes)/i.test(paragraphs[index])) {
-      closingIndex = index
-      break
-    }
-  }
-  paragraphs.splice(closingIndex >= 0 ? closingIndex : paragraphs.length, 0, MEDICAL_ELIGIBILITY_NOTE)
-  return paragraphs.join('\n\n')
+function significantNameTokens(value: string) {
+  return normalizeText(value)
+    .split(' ')
+    .filter((token) => token.length >= 4 && !COURSE_QUERY_STOP_WORDS.has(token))
 }
 
-async function buildDbDocumentsContextBlock(tenantId: string, query = '') {
+// A requirements block ("[REQUISITOS_PARA_TOMAR_CURSOS...]") whose list names one
+// of the courses found, so the bot states the condition the business wrote
+// ("se requiere titulo medico para aplicar...") for that course
+export function findRequirementBlockForCourses(blocks: IndexedBlock[], matchedBlocks: IndexedBlock[]) {
+  const courseNames = matchedBlocks
+    .filter((block) => block.document.section === 'cursos' && block.fields.name)
+    .map((block) => significantNameTokens(block.fields.name))
+    .filter((tokens) => tokens.length > 0)
+  if (courseNames.length === 0) return null
+
+  return blocks.find((block) => {
+    if (!/requisito/i.test(block.title) || matchedBlocks.includes(block)) return false
+    const listedNames = block.body
+      .split(/\r?\n/)
+      .filter((line) => /^\s*[-*•]/.test(line))
+      .map(significantNameTokens)
+    return listedNames.some((listed) =>
+      courseNames.some((course) => {
+        const shared = course.filter((token) => listed.includes(token)).length
+        return shared >= Math.min(2, course.length, listed.length)
+      }),
+    )
+  }) || null
+}
+
+const MAX_PROFILE_BLOCK_CHARS = 400
+const MAX_PAYMENT_BLOCK_CHARS = 2000
+
+function findGeneralBlocks(blocks: IndexedBlock[], matchedBlocks: IndexedBlock[], title: RegExp, maxChars: number) {
+  return blocks.filter((block) =>
+    block.document.section === 'general' &&
+    title.test(block.normalizedTitle) &&
+    block.body.length <= maxChars &&
+    !matchedBlocks.includes(block),
+  )
+}
+
+// The business's name and contact from its general documents ("[NOMBRE_DE_EMPRESA]",
+// "[WHATSAPP_OFICIAL]", "[TELEFONO]"): every answer may need them (past dates,
+// bookings, payments) and the code never holds them
+export function findBusinessProfileBlocks(blocks: IndexedBlock[], matchedBlocks: IndexedBlock[]) {
+  return [
+    ...findGeneralBlocks(blocks, matchedBlocks, /\bnombre (?:de (?:la )?|del )?(?:empresa|negocio)\b/, MAX_PROFILE_BLOCK_CHARS).slice(0, 1),
+    ...findGeneralBlocks(blocks, matchedBlocks, /\b(?:whatsapp|telefono|contacto)\b/, MAX_PROFILE_BLOCK_CHARS).slice(0, 2),
+  ]
+}
+
+// The business's payment blocks ("[DATOS_BANCARIOS_PUBLICOS]", "[FORMAS_DE_PAGO_ACEPTADAS]"):
+// the only source of accounts, amounts and links the bot may give
+export function findBusinessPaymentBlocks(blocks: IndexedBlock[], matchedBlocks: IndexedBlock[]) {
+  return findGeneralBlocks(blocks, matchedBlocks, /\b(?:pago|pagos|bancari[oa]s?)\b/, MAX_PAYMENT_BLOCK_CHARS).slice(0, 3)
+}
+
+// Payment or enrollment talk: the message asks about paying, or the bot was
+// already walking the customer through enrollment and payment
+export function isPaymentConversation(userMessage: string, history: DbConversationMessage[]) {
+  const asksPayment = /(?:\bpag(?:o|os|ar|ue)\b|\bcuentas?\b|dep[oó]sito|transferencia|tarjeta|paypal|stripe|oxxo|\bspei\b|clabe|\bapart(?:ar|ado|o)\b|inscrib|inscripci[oó]n|comprobante)/i
+  if (asksPayment.test(String(userMessage || ''))) return true
+  const lastAssistant = [...(history || [])]
+    .reverse()
+    .find((message) => message.role === 'assistant' && String(message.content || '').trim())
+  return Boolean(
+    lastAssistant &&
+    /pago|inscrip|ciudad\s+o\s+pa[ií]s|desde\s+qu[eé]\s+(?:ciudad|pa[ií]s)|modalidad\s+(?:online|presencial)/i.test(lastAssistant.content),
+  )
+}
+
+async function buildDbDocumentsContextBlock(tenantId: string, query = '', includePayment = false) {
   const index = await getDbTenantSearchIndex(tenantId)
   const result = searchIndex(index, query) as any
   const matchedBlocks = Array.isArray(result.matchedBlocks) ? result.matchedBlocks : []
   const queryTokens = normalizeText(query)
     .split(' ')
     .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
+  // Date questions and course lists need the whole calendar, also to tell which
+  // listed course has a date ("cursos para la cara")
+  const needsCalendar =
+    Boolean(result.intent?.wantsDates) ||
+    // a product catalog list has nothing to do with course dates
+    Boolean(result.intent?.wantsList && !result.intent?.wantsProducts) ||
+    (Boolean(result.intent?.wantsCourses) && /^Catalogo resumido/.test(String(result.contextBlock || '')))
   const scheduleBlock = index.blocks.find((block) => {
     if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) return false
-    return queryTokens.some((token) => normalizeText(block.body).includes(token))
+    return needsCalendar || queryTokens.some((token) => normalizeText(block.body).includes(token))
   })
-  const hasScheduleBlock = matchedBlocks.some((block: IndexedBlock) => block.kind === 'schedule' || /^\[FECHAS_CURSOS\]/im.test(block.body))
+  // Only the calendar counts: an [HORARIOS] block is also kind 'schedule' but has no dates
+  const hasScheduleBlock = matchedBlocks.some((block: IndexedBlock) => /^\[FECHAS_CURSOS\]/im.test(block.body))
   const completeMatchedBlocks =
     scheduleBlock && !hasScheduleBlock
       ? [...matchedBlocks.slice(0, 3), scheduleBlock]
       : matchedBlocks
-  const contextBlock =
+  const contextWithCalendar =
     scheduleBlock && !hasScheduleBlock
       ? `${String(result.contextBlock || '').trim()}\n\n[Documento de calendario]\n${scheduleBlock.body}`.trim()
       : result.contextBlock
+  const requirementBlock = findRequirementBlockForCourses(index.blocks, matchedBlocks)
+  const contextWithRequirements = requirementBlock
+    ? `${String(contextWithCalendar || '').trim()}\n\n[Requisitos del curso]\n${requirementBlock.body}`.trim()
+    : contextWithCalendar
+  const profileBlocks = findBusinessProfileBlocks(index.blocks, completeMatchedBlocks)
+  const paymentBlocks = includePayment ? findBusinessPaymentBlocks(index.blocks, completeMatchedBlocks) : []
+  const contextBlock = [
+    String(contextWithRequirements || '').trim(),
+    profileBlocks.length > 0 && `[Datos del negocio]\n${profileBlocks.map((block) => block.body).join('\n\n')}`,
+    paymentBlocks.length > 0 && `[Pagos del negocio]\n${paymentBlocks.map((block) => block.body).join('\n\n')}`,
+  ].filter(Boolean).join('\n\n').trim()
 
   return {
     documents: result.documents,
     contextBlock,
-    matchedBlocks: completeMatchedBlocks.slice(0, 4) as IndexedBlock[],
+    matchedBlocks: [
+      ...completeMatchedBlocks.slice(0, 4),
+      ...(requirementBlock ? [requirementBlock] : []),
+      // the judge checks the answer against the same business data the bot saw
+      ...profileBlocks,
+      ...paymentBlocks,
+    ] as IndexedBlock[],
+    // every payment block, also one the search already found
+    paymentText: includePayment
+      ? findBusinessPaymentBlocks(index.blocks, []).map((block) => block.body).join('\n')
+      : '',
     intent: (result.intent || {}) as Record<string, boolean>,
+    hasCourses: index.documents.some((document) => document.isActive && document.section === 'cursos'),
+    // Same rule the search uses to tell a treatments document (tratamientos.md)
+    hasTreatments: index.documents.some((document) => document.isActive && /tratamiento/i.test(document.title)),
   }
 }
 
@@ -692,7 +777,7 @@ const COURSE_QUERY_STOP_WORDS = new Set([
   'precio', 'precios', 'costo', 'fecha', 'fechas', 'disponible', 'disponibles',
   'online', 'presencial', 'modalidad', 'de', 'del', 'la', 'las', 'el', 'los',
   'y', 'con', 'para', 'sobre',
-  'bot', 'asesor', 'usuario', 'cliente', 'instituto', 'institute', 'salubel',
+  'bot', 'asesor', 'usuario', 'cliente', 'instituto', 'institute',
   'mexico', 'hermosillo', 'sonora', 'hora', 'horas', 'dias', 'dia', 'hola', 'gracias',
 ])
 
@@ -950,14 +1035,16 @@ export function isAuthorizedEnrollmentFlowAnswer(answer: string, expectedAnswer:
   return Boolean(expectedAnswer) && normalizeEnrollmentAnswer(answer) === normalizeEnrollmentAnswer(expectedAnswer || '')
 }
 
-const OFFICIAL_OUT_OF_SCOPE_ANSWERS = [
-  'No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?',
-  'No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.',
-]
+// An official phrase is one the business wrote word for word in its own prompt
+// ("No estoy capacitado para responder dudas externas a ..."). Short answers do
+// not count: any few words could appear somewhere in a long prompt
+const MIN_OFFICIAL_PHRASE_CHARS = 60
 
-export function isAuthorizedOutOfScopeAnswer(answer: string): boolean {
-  return OFFICIAL_OUT_OF_SCOPE_ANSWERS.some((expectedAnswer) =>
-    normalizeEnrollmentAnswer(answer) === normalizeEnrollmentAnswer(expectedAnswer),
+export function isAuthorizedOutOfScopeAnswer(answer: string, tenantPrompt: string): boolean {
+  const normalizedAnswer = normalizeEnrollmentAnswer(answer)
+  return (
+    normalizedAnswer.length >= MIN_OFFICIAL_PHRASE_CHARS &&
+    normalizeEnrollmentAnswer(tenantPrompt).includes(normalizedAnswer)
   )
 }
 
@@ -1002,11 +1089,45 @@ export function isAuthorizedPaymentFlowAnswer(
 
   const policy = normalizePaymentPolicy(tenantPrompt)
   const answerUrls = Array.from(answer.matchAll(/https?:\/\/[^\s)\]]+/gi), (match) => match[0])
-  const answerWithoutPhones = answer.replace(/(?:whatsapp|tel[eé]fono|celular|tel|contacto)?[^\d\n]{0,10}\+?(?:52[\s-]*)?(?:1[\s-]*)?662[\s-]*335[\s-]*8779/gi, '')
+  // A contact number is not payment data: any business's phone, by the word before it
+  const answerWithoutPhones = answer.replace(/(?:whatsapp|tel[eé]fono|celular|\btel\b|contacto|llamar|ll[aá]manos)[^\d\n]{0,20}\+?\d[\d\s().-]{6,}\d/gi, '')
   const answerAccountNumbers = Array.from(answerWithoutPhones.matchAll(/\b(?:\d[\d\s-]{7,}\d)\b/g), (match) => match[0])
   if (!answerUrls.length && !answerAccountNumbers.length) return false
 
   return [...answerUrls, ...answerAccountNumbers].every((fact) => policy.includes(normalizePaymentPolicy(fact)))
+}
+
+const NOT_UNDERSTOOD_MARKER = /\[\s*NO[_\s]ENTEND[IÍ]\s*\]/i
+const NO_ANSWER_MARKER = /\[\s*NO[_\s]RESPONDER\s*\]/i
+
+// One wording per attempt, so a second request does not read as a repeated robot line.
+// Courses are offered only by tenants with a courses document
+function clarificationReplies(hasCourses: boolean) {
+  const offer = hasCourses ? 'curso, producto o servicio' : 'producto o servicio'
+  return [
+    `Disculpa, no logré entender bien tu mensaje. ¿Me lo podrías escribir de otra forma? Cuéntame qué ${offer} te interesa y con gusto te ayudo.`,
+    `Perdón, sigo sin entenderte bien. ¿Me podrías decir en pocas palabras qué estás buscando? Por ejemplo, el nombre del ${offer}.`,
+  ]
+}
+
+const MAX_CLARIFICATIONS = clarificationReplies(true).length
+
+export function isAuthorizedClarificationAnswer(answer: string): boolean {
+  return [...clarificationReplies(true), ...clarificationReplies(false)].some(
+    (reply) => normalizeEnrollmentAnswer(answer) === normalizeEnrollmentAnswer(reply),
+  )
+}
+
+// Asks the customer to rephrase, at most MAX_CLARIFICATIONS times in a row;
+// after that returns null so a person picks up the conversation
+export function buildClarificationReply(history: DbConversationMessage[], hasCourses = true): string | null {
+  let consecutive = 0
+  for (const message of [...(history || [])].reverse()) {
+    if (message.role !== 'assistant') continue
+    if (!isAuthorizedClarificationAnswer(String(message.content || ''))) break
+    consecutive += 1
+  }
+  return clarificationReplies(hasCourses)[consecutive] || null
 }
 
 function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[], referralContext = ''): string {
@@ -1075,13 +1196,12 @@ function buildPaymentFlowGuard(userMessage: string, history: DbConversationMessa
 
   if (!((isInternationalLocation || isMexicoLocation || isPaymentFollowUp) && paymentConversation)) return ''
 
+  // The accounts, links and rules per location or modality are the business's own:
+  // they come from its prompt or documents, never from here
   return `\n\n=== CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===
-La conversación ya está dentro del flujo de inscripción y el prompt del tenant contiene la política autorizada de pagos. No respondas con frases de falta de información, no derives al WhatsApp por no encontrar un bloque RAG y no reinicies la conversación preguntando si busca cursos o productos.
-Si el cliente confirmó una ubicación dentro de México:
-- Si el curso es modalidad presencial: entrega ÚNICAMENTE los métodos de pago en México (Santander, OXXO HSBC 4830 3045 0694 7021, autoservicio Banamex 5204 1653 7821 9095), menciona que puede apartar con $500 MXN y liquidar un día antes. NO agregues enlaces de Stripe ni PayPal.
-- Si el curso es modalidad online: entrega los métodos en México más PayPal y el enlace Stripe correspondiente al costo del curso.
-Si el cliente confirmó un país fuera de México, aplica el BLOQUE INTERNACIONAL del prompt: los cursos presenciales solo existen en Hermosillo y para el extranjero corresponde modalidad online. Si el curso y su precio ya están claros, entrega PayPal y el enlace Stripe autorizado por el prompt.
-Nunca inventes cuentas, precios ni enlaces. Cierra siempre pidiendo enviar comprobante por WhatsApp al +52 1 662 335 8779 con nombre completo y correo.
+La conversación ya está dentro del flujo de inscripción o compra. No respondas con frases de falta de información, no derives al contacto por no encontrar un bloque de documentos y no reinicies la conversación preguntando si busca cursos o productos.
+Entrega los métodos de pago que el prompt del negocio o el bloque [Pagos del negocio] indiquen para la ubicación que confirmó el cliente (y para la modalidad, si el negocio distingue presencial y en línea), copiando cuentas, montos y enlaces tal como están escritos ahí, sin agregar métodos que no correspondan a ese caso.
+Nunca inventes cuentas, precios ni enlaces. Si el negocio indica cómo enviar el comprobante, cierra pidiéndolo por ese medio con los datos que solicite.
 === FIN CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===`
 }
 
@@ -1097,7 +1217,11 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   }
 
   const retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '')
-  const { documents, contextBlock, matchedBlocks } = await buildDbDocumentsContextBlock(input.tenantId, retrievalQuery)
+  const { documents, contextBlock, matchedBlocks, hasCourses, hasTreatments, paymentText } = await buildDbDocumentsContextBlock(
+    input.tenantId,
+    retrievalQuery,
+    isPaymentConversation(input.message, input.history || []),
+  )
 
   const generalDocText = (documents || []).map((d: any) => {
     const s = (d?.section || '').toLowerCase()
@@ -1128,7 +1252,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
 
   const trimmedHistory = input.history.slice(-12)
   const paymentFlowGuard = buildPaymentFlowGuard(input.message, input.history || [])
-  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '') + paymentFlowGuard
+  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '', hasTreatments) + paymentFlowGuard
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     ...trimmedHistory.map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: String(m.content || '') })),
@@ -1177,99 +1301,130 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
       'Por el momento tenemos dificultades técnicas temporales. Por favor contáctanos por WhatsApp y un asesor humano te atenderá de inmediato. ¡Gracias por tu comprensión!'
   }
 
-  answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks)
-  // Refuerza esta condición en el resultado: el modelo puede omitir datos de
-  // elegibilidad aunque el curso coincida y la nota esté en sus documentos.
-  answer = ensureMedicalEligibilityNote(answer, input.message)
+  // The model's markers are never sent as text: a message it could not
+  // understand gets a request to rephrase, a missing answer is always blocked.
+  // Both are decided here, without the judge.
+  let markerEval: { category: AutoEvalCategory; reason: string } | null = null
+  if (NOT_UNDERSTOOD_MARKER.test(answer)) {
+    const clarification = buildClarificationReply(input.history || [], hasCourses)
+    if (clarification) {
+      answer = clarification
+      markerEval = {
+        category: 'correct',
+        reason: 'El modelo no entendió el mensaje del cliente; se le pide que lo escriba de otra forma con la plantilla autorizada.',
+      }
+    } else {
+      answer = '[NO_RESPONDER]'
+      markerEval = {
+        category: 'noinfo',
+        reason: `El cliente ya recibió ${MAX_CLARIFICATIONS} pedidos seguidos de aclaración y el mensaje sigue sin entenderse; lo atiende una persona.`,
+      }
+    }
+  } else if (NO_ANSWER_MARKER.test(answer)) {
+    answer = '[NO_RESPONDER]'
+    markerEval = {
+      category: 'noinfo',
+      reason: 'El modelo respondió [NO_RESPONDER]: entendió la pregunta pero la información no está en los documentos.',
+    }
+  }
+
+  if (!markerEval) {
+    answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks)
+  }
 
   // ===== AUTO-CURADO · JUEZ SÍNCRONO (último filtro, antes de devolver respuesta) =====
   const matchedBlocksForJudge = matchedBlocks || []
-  const matchedBlocksText = matchedBlocksToText(matchedBlocksForJudge)
+  // A treatment list or catalog summary covers every item, more than the top
+  // blocks: the judge checks the answer against the same text the bot saw
+  const contextText = String(contextBlock || '')
+  const matchedBlocksText = /^Catalogo resumido|BLOQUE: LISTA DE TRATAMIENTOS\]/.test(contextText)
+    ? contextText
+    : matchedBlocksToText(matchedBlocksForJudge)
   const matchedBlockRefs = matchedBlocksToRefs(matchedBlocksForJudge)
-  // Esta nota es una política de seguridad añadida por el sistema para ciertos
-  // cursos. Se conserva en la respuesta, pero se excluye del juicio RAG para
-  // que el autocurador no la marque como dato inventado por el modelo.
-  const answerForJudge = answer
-    .replace(MEDICAL_ELIGIBILITY_NOTE, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 
   let evalCategory: AutoEvalCategory = 'correct'
   let evalReason = ''
   let evalId = ''
-  try {
-    const judgeRes = await runAutocuratorJudge({
-      apiKey,
-      baseUrl,
-      model,
-      fallbackModel,
-      maxTokens,
-      tenantPrompt: input.prompt,
-      userQuestion: input.message,
-      conversationContext: (input.history || []).slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'ASESOR'}: ${String(m.content || '').slice(0, 700)}`).join('\n').slice(-5000),
-      referralContext: input.referralContext || '',
-      botAnswer: answerForJudge,
-      matchedBlocksText,
-    })
-    evalCategory = judgeRes.category
-    evalReason = judgeRes.reason
-  } catch (e: any) {
-    const q = (input.message || '').trim()
-    const qLower = q.toLowerCase()
-    const a = (answer || '').trim()
-    const aLower = a.toLowerCase()
-    const ragCount = (matchedBlocksForJudge || []).length
+  if (markerEval) {
+    evalCategory = markerEval.category
+    evalReason = markerEval.reason
+  } else {
+    try {
+      const judgeRes = await runAutocuratorJudge({
+        apiKey,
+        baseUrl,
+        model,
+        fallbackModel,
+        maxTokens,
+        tenantPrompt: input.prompt,
+        userQuestion: input.message,
+        conversationContext: (input.history || []).slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'ASESOR'}: ${String(m.content || '').slice(0, 700)}`).join('\n').slice(-5000),
+        referralContext: input.referralContext || '',
+        botAnswer: answer,
+        matchedBlocksText,
+      })
+      evalCategory = judgeRes.category
+      evalReason = judgeRes.reason
+    } catch (e: any) {
+      const q = (input.message || '').trim()
+      const qLower = q.toLowerCase()
+      const a = (answer || '').trim()
+      const aLower = a.toLowerCase()
+      const ragCount = (matchedBlocksForJudge || []).length
 
-    const esSoloSaludo = /^(hola|buen[oa]s?(\s*(d[ií]as|tardes|noches))?|gracias|de\s*nada|ok|vale|bye|adi[oó]s|si|s[íi]|no|claro|quiz[áa]s|muchas\s+gracias)$/.test(qLower)
-    const esSoloCierre = /^(hasta luego|nos vemos|excelente\s*d[ií]a|cu[eé]ntame\s*luego|ok\s*gracias|gracias\s*,?\s*(bye|adi[oó]s)|de\s*nada\s*,?\s*(bye|adi|ok|claro))\s*[.!?]*$/i.test(qLower)
+      const esSoloSaludo = /^(hola|buen[oa]s?(\s*(d[ií]as|tardes|noches))?|gracias|de\s*nada|ok|vale|bye|adi[oó]s|si|s[íi]|no|claro|quiz[áa]s|muchas\s+gracias)$/.test(qLower)
+      const esSoloCierre = /^(hasta luego|nos vemos|excelente\s*d[ií]a|cu[eé]ntame\s*luego|ok\s*gracias|gracias\s*,?\s*(bye|adi[oó]s)|de\s*nada\s*,?\s*(bye|adi|ok|claro))\s*[.!?]*$/i.test(qLower)
 
-    const tieneDatoSospechoso = /(\$|precio|fecha|disponible|stock|mxn|usd|d[ií]a\s*\d+|sep[^t]|ago|oct|nov|dic|enero|febrero|marzo|abril|mayo|junio|julio)/i.test(aLower)
+      const tieneDatoSospechoso = /(\$|precio|fecha|disponible|stock|mxn|usd|d[ií]a\s*\d+|sep[^t]|ago|oct|nov|dic|enero|febrero|marzo|abril|mayo|junio|julio)/i.test(aLower)
 
-    const contradiceRagTeniendoDocs =
-      ragCount >= 1 &&
-      (/(?:no\s*(?:tengo|cuento|dispon(?:go|emos)?)|no\s+hay\s+(?:informaci[oó]n|datos|registros)|no\s*pod(?:emos|emos)\s+(?:ayudar|decir|responder|atender)|dificultades\s*t[eé]cnicas|problemas\s*t[eé]cnicos)/i.test(aLower) ||
-        /cont[áa]cten?(?:os)?\s*(?:al|a\s+l[oa]s?)\s*whatsapp|whatsapp\s*(?:de|por|directo|inmediato)/i.test(aLower))
+      const contradiceRagTeniendoDocs =
+        ragCount >= 1 &&
+        (/(?:no\s*(?:tengo|cuento|dispon(?:go|emos)?)|no\s+hay\s+(?:informaci[oó]n|datos|registros)|no\s*pod(?:emos|emos)\s+(?:ayudar|decir|responder|atender)|dificultades\s*t[eé]cnicas|problemas\s*t[eé]cnicos)/i.test(aLower) ||
+          /cont[áa]cten?(?:os)?\s*(?:al|a\s+l[oa]s?)\s*whatsapp|whatsapp\s*(?:de|por|directo|inmediato)/i.test(aLower))
 
-    const derivaWhatsAppSinInfo =
-      !esSoloSaludo &&
-      /(?:whatsapp|wa\.me|\+?\d[\d\s\-\.\(\)]{8,}\d)/i.test(aLower) &&
-      !(
-        /(?:direcci[oó]n|ubicaci[oó]n|curso|tratamiento|producto|servicio|precio|fecha|horario|costo|promoci[oó]n|paquete|cita|reserva|informaci[oó]n\s*(?:del|de\s+el?\s+|acerca\s*de))/i.test(aLower) ||
-          /(?:dudas|m[áa]s\s+informaci[oó]n|detalles|alguna\s+otra\s+duda|quieres\s+mas\s+info|necesitas\s+(?:algo\s+)?m[aá]s)/i.test(aLower)
-      )
+      const derivaWhatsAppSinInfo =
+        !esSoloSaludo &&
+        /(?:whatsapp|wa\.me|\+?\d[\d\s\-\.\(\)]{8,}\d)/i.test(aLower) &&
+        !(
+          /(?:direcci[oó]n|ubicaci[oó]n|curso|tratamiento|producto|servicio|precio|fecha|horario|costo|promoci[oó]n|paquete|cita|reserva|informaci[oó]n\s*(?:del|de\s+el?\s+|acerca\s*de))/i.test(aLower) ||
+            /(?:dudas|m[áa]s\s+informaci[oó]n|detalles|alguna\s+otra\s+duda|quieres\s+mas\s+info|necesitas\s+(?:algo\s+)?m[aá]s)/i.test(aLower)
+        )
 
-    const esAclaracion = !tieneDatoSospechoso && !contradiceRagTeniendoDocs && !derivaWhatsAppSinInfo && a.length < 320 &&
-      (a.includes('¿') || a.includes('?')) &&
-      /^(con\s*gusto|claro|por\s*supuesto|c[uú]al\s*(?:es\s*el|de\s+el|es\s*tu|de\s+tu|es\s*esta|de\s*esta)?|qu[eé]\s*(?:curso|producto|servicio|fecha|precio|informaci[oó]n)|te\s*refer[ií]a\s+a\s+(?:qu[eé]|cu[aá]l)|(?:a\s+qu[eé]|sobre\s+qu[eé])\s+(?:te\s+)?refieres?)/i.test(aLower)
+      const esAclaracion = !tieneDatoSospechoso && !contradiceRagTeniendoDocs && !derivaWhatsAppSinInfo && a.length < 320 &&
+        (a.includes('¿') || a.includes('?')) &&
+        /^(con\s*gusto|claro|por\s*supuesto|c[uú]al\s*(?:es\s*el|de\s+el|es\s*tu|de\s+tu|es\s*esta|de\s*esta)?|qu[eé]\s*(?:curso|producto|servicio|fecha|precio|informaci[oó]n)|te\s*refer[ií]a\s+a\s+(?:qu[eé]|cu[aá]l)|(?:a\s+qu[eé]|sobre\s+qu[eé])\s+(?:te\s+)?refieres?)/i.test(aLower)
 
-    const esCortesiaPura =
-      !tieneDatoSospechoso &&
-      !contradiceRagTeniendoDocs &&
-      !derivaWhatsAppSinInfo &&
-      a.length < 380 &&
-      /(de nada|fue un placer|con gusto|nos\s+alegra|excelente d[ií]a|hasta luego|un gusto|placer ayudarte|gracias a (?:ti|ustedes?)|cuenta\s+con\s+nosotros)/i.test(aLower)
+      const esCortesiaPura =
+        !tieneDatoSospechoso &&
+        !contradiceRagTeniendoDocs &&
+        !derivaWhatsAppSinInfo &&
+        a.length < 380 &&
+        /(de nada|fue un placer|con gusto|nos\s+alegra|excelente d[ií]a|hasta luego|un gusto|placer ayudarte|gracias a (?:ti|ustedes?)|cuenta\s+con\s+nosotros)/i.test(aLower)
 
-    const puedeAprobarPorHeuristica =
-      (esSoloSaludo || esSoloCierre || esAclaracion || esCortesiaPura) &&
-      !contradiceRagTeniendoDocs &&
-      !derivaWhatsAppSinInfo
+      const puedeAprobarPorHeuristica =
+        (esSoloSaludo || esSoloCierre || esAclaracion || esCortesiaPura) &&
+        !contradiceRagTeniendoDocs &&
+        !derivaWhatsAppSinInfo
 
-    if (puedeAprobarPorHeuristica) {
-      evalCategory = 'correct'
-      const tags = [esSoloSaludo && 'saludo', esSoloCierre && 'cierre', esAclaracion && 'aclaracion', esCortesiaPura && 'cortesia'].filter(Boolean)
-      evalReason = `Juez falló pero respuesta aprobada por heurística (${tags.join('/') || 'segura'}). Error original: ${e?.message || String(e)}`.slice(0, 600)
-    } else {
-      evalCategory = 'judge_failed'
-      const tags = [
-        contradiceRagTeniendoDocs && `contradice-RAG-${ragCount}`,
-        derivaWhatsAppSinInfo && 'deriva-WA-sin-info',
-        tieneDatoSospechoso && 'datos-sospechosos',
-      ].filter(Boolean)
-      evalReason = `Bloqueado por fail-closed (judge_failed${tags.length ? ' · ' + tags.join(' · ') : ''}). Error original: ${e?.message || String(e || 'error desconocido')}`.slice(0, 600)
+      if (puedeAprobarPorHeuristica) {
+        evalCategory = 'correct'
+        const tags = [esSoloSaludo && 'saludo', esSoloCierre && 'cierre', esAclaracion && 'aclaracion', esCortesiaPura && 'cortesia'].filter(Boolean)
+        evalReason = `Juez falló pero respuesta aprobada por heurística (${tags.join('/') || 'segura'}). Error original: ${e?.message || String(e)}`.slice(0, 600)
+      } else {
+        evalCategory = 'judge_failed'
+        const tags = [
+          contradiceRagTeniendoDocs && `contradice-RAG-${ragCount}`,
+          derivaWhatsAppSinInfo && 'deriva-WA-sin-info',
+          tieneDatoSospechoso && 'datos-sospechosos',
+        ].filter(Boolean)
+        evalReason = `Bloqueado por fail-closed (judge_failed${tags.length ? ' · ' + tags.join(' · ') : ''}). Error original: ${e?.message || String(e || 'error desconocido')}`.slice(0, 600)
+      }
     }
   }
 
-  if (isAuthorizedPaymentFlowAnswer(input.message, input.history || [], answer, input.prompt)) {
+  // Accounts and links are authorized when the business wrote them in its prompt
+  // or in its general documents' payment blocks
+  if (isAuthorizedPaymentFlowAnswer(input.message, input.history || [], answer, `${input.prompt}\n${paymentText}`)) {
     evalCategory = 'correct'
     evalReason = 'La respuesta de pago sigue el flujo de inscripción y sus enlaces y datos coinciden con el prompt autorizado.'
   }
@@ -1284,9 +1439,9 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     evalReason = 'La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.'
   }
 
-  if (isAuthorizedOutOfScopeAnswer(answer)) {
+  if (isAuthorizedOutOfScopeAnswer(answer, input.prompt)) {
     evalCategory = 'correct'
-    evalReason = 'La respuesta coincide exactamente con una frase oficial autorizada para preguntas fuera de contexto o recomendaciones personalizadas.'
+    evalReason = 'La respuesta coincide palabra por palabra con una frase oficial escrita en el prompt del negocio.'
   }
 
   const blocked = evalCategory !== 'correct'
