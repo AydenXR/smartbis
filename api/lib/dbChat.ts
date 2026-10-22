@@ -1,5 +1,6 @@
 import { normalizeText, searchIndex, type IndexedBlock } from './searchIndex.js'
 import { getDbTenantSearchIndex } from './dbWorkspace.js'
+import { DEFAULT_TIME_ZONE, describeTimeZone, detectTimeZoneSetting, getZonedDateParts } from './timeZone.js'
 import {
   createAutoEval,
   type AutoEvalCategory,
@@ -69,23 +70,19 @@ function getConfiguredFallbackModel(): string {
 const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const DIAS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
-function getCurrentDateTimeSpanish(): { fechaCompleta: string; fechaISO: string; anio: number; mes: number; dia: number } {
-  const now = new Date()
-  const options: Intl.DateTimeFormatOptions = { timeZone: 'America/Hermosillo' }
-  const zoned = new Date(now.toLocaleString('en-US', options))
-  const diaSemana = DIAS_ES[zoned.getDay()]
-  const diaNum = zoned.getDate()
-  const mesNum = zoned.getMonth()
-  const mesNombre = MESES_ES[mesNum]
-  const anio = zoned.getFullYear()
-  const horas = zoned.getHours().toString().padStart(2, '0')
-  const mins = zoned.getMinutes().toString().padStart(2, '0')
+// Today in the business's own time zone (from its documents, Hermosillo by default)
+function getCurrentDateTimeSpanish(timeZone = DEFAULT_TIME_ZONE): { fechaCompleta: string; fechaISO: string; anio: number; mes: number; dia: number } {
+  const zoned = getZonedDateParts(new Date(), timeZone)
+  const dia = zoned.day.toString().padStart(2, '0')
+  const mes = zoned.month.toString().padStart(2, '0')
+  const horas = zoned.hour.toString().padStart(2, '0')
+  const mins = zoned.minute.toString().padStart(2, '0')
   return {
-    fechaCompleta: `${diaSemana} ${diaNum.toString().padStart(2, '0')} de ${mesNombre} de ${anio}, ${horas}:${mins} hrs (zona horaria Arizona / Sonora, México — tiempo local Hermosillo UTC-7, sin horario de verano)`,
-    fechaISO: `${anio}-${(mesNum + 1).toString().padStart(2, '0')}-${diaNum.toString().padStart(2, '0')}`,
-    anio,
-    mes: mesNum + 1,
-    dia: diaNum,
+    fechaCompleta: `${DIAS_ES[zoned.weekday]} ${dia} de ${MESES_ES[zoned.month - 1]} de ${zoned.year}, ${horas}:${mins} hrs (zona horaria ${timeZone}, ${zoned.offsetLabel})`,
+    fechaISO: `${zoned.year}-${mes}-${dia}`,
+    anio: zoned.year,
+    mes: zoned.month,
+    dia: zoned.day,
   }
 }
 
@@ -133,8 +130,8 @@ const ANTI_INTERNAL_REASONING_RULE = `=== PRIORIDAD 0 (NUNCA, JAMÁS, BAJO NING�
 === FIN PRIORIDAD 0.1 ===
 `
 
-function buildSystemPrompt(prompt: string, contextBlock: string, referralContext = '', hasTreatments = false) {
-  const now = getCurrentDateTimeSpanish()
+function buildSystemPrompt(prompt: string, contextBlock: string, referralContext = '', hasTreatments = false, timeZone = DEFAULT_TIME_ZONE) {
+  const now = getCurrentDateTimeSpanish(timeZone)
   const timeAwarenessBlock = `=== PRIORIDAD 0.2 (CONCIENCIA TEMPORAL Y FECHAS — NUNCA, BAJO NINGÚN CONCEPTO, INCUMPLE ESTAS REGLAS):
 - La fecha y hora ACTUAL en que transcurre esta conversación es: ${now.fechaCompleta} (formato ISO: ${now.fechaISO}).
 - ESTA ES LA VERDAD ABSOLUTA SOBRE LA FECHA. NUNCA digas una fecha, ni hagas suposiciones, ni uses información de los documentos sin antes compararla contra HOY.
@@ -176,7 +173,7 @@ Además de cursos y productos, el negocio ofrece TRATAMIENTOS que se aplican dir
 ${ragDateAuthorityBlock}${treatmentsAuthorityBlock}
 
 REGLA DE ATENCIÓN AL CLIENTE: responde como una persona del equipo, de forma cálida, directa y natural. No reveles ni insinúes que eres una IA, bot, modelo o sistema.
-El nombre del negocio, su WhatsApp y su teléfono son los del bloque [Datos del negocio] de la información disponible; nunca uses otro nombre ni otro número.
+El nombre del negocio, su WhatsApp, su teléfono y su zona horaria son los del bloque [Datos del negocio] de la información disponible; nunca uses otro nombre, número ni zona. Si preguntan la zona horaria o en qué hora están los horarios, responde con la de ese bloque.
 Usa únicamente datos respaldados por la información disponible. Si falta un dato, responde exactamente [NO_RESPONDER] para que el sistema bloquee el envío; nunca muestres al cliente una derivación automática ni inventes el dato faltante. Si el mensaje es ambiguo pero sí hay información relacionada, formula una pregunta concreta usando únicamente esa información.
 Si la información incluye un bloque de requisitos (por ejemplo [REQUISITOS...] o [Requisitos del curso]) que menciona el curso por el que pregunta el cliente, incluye ese requisito en tu respuesta tal como lo indica el documento.
 Si NO puedes entender qué pide el cliente (texto ilegible, palabras sin sentido o tan mal escritas que no sabes de qué habla, aun corrigiendo errores de escritura), responde exactamente [NO_ENTENDI] para que el sistema le pida que lo escriba de otra forma. Usa [NO_RESPONDER] solo cuando SÍ entendiste la pregunta pero la información no aparece abajo.
@@ -509,8 +506,9 @@ async function runAutocuratorJudge(args: {
   referralContext: string
   botAnswer: string
   matchedBlocksText: string
+  timeZone: string
 }): Promise<JudgeOutput> {
-  const now = getCurrentDateTimeSpanish()
+  const now = getCurrentDateTimeSpanish(args.timeZone)
   const ragSummary = args.matchedBlocksText || '(NO hubo documentos recuperados por el RAG — matchedBlocks vacío)'
   const promptSnippet = (args.tenantPrompt || '').slice(0, 2500)
   const paymentStart =
@@ -718,9 +716,12 @@ async function buildDbDocumentsContextBlock(tenantId: string, query = '', includ
     : contextWithCalendar
   const profileBlocks = findBusinessProfileBlocks(index.blocks, completeMatchedBlocks)
   const paymentBlocks = includePayment ? findBusinessPaymentBlocks(index.blocks, completeMatchedBlocks) : []
+  // The zone is a business fact like its name: the one in its documents, or the default
+  const timeZoneSetting = detectTimeZoneSetting(index)
+  const businessFacts = [...profileBlocks.map((block) => block.body), describeTimeZone(timeZoneSetting)].join('\n\n')
   const contextBlock = [
     String(contextWithRequirements || '').trim(),
-    profileBlocks.length > 0 && `[Datos del negocio]\n${profileBlocks.map((block) => block.body).join('\n\n')}`,
+    `[Datos del negocio]\n${businessFacts}`,
     paymentBlocks.length > 0 && `[Pagos del negocio]\n${paymentBlocks.map((block) => block.body).join('\n\n')}`,
   ].filter(Boolean).join('\n\n').trim()
 
@@ -742,18 +743,9 @@ async function buildDbDocumentsContextBlock(tenantId: string, query = '', includ
     hasCourses: index.documents.some((document) => document.isActive && document.section === 'cursos'),
     // Same rule the search uses to tell a treatments document (tratamientos.md)
     hasTreatments: index.documents.some((document) => document.isActive && /tratamiento/i.test(document.title)),
-  }
-}
-
-function getHermosilloMonthDay(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Hermosillo',
-    month: 'numeric',
-    day: 'numeric',
-  }).formatToParts(date)
-  return {
-    month: Number(parts.find((part) => part.type === 'month')?.value),
-    day: Number(parts.find((part) => part.type === 'day')?.value),
+    timeZone: timeZoneSetting.zone,
+    // the judge must see the same business facts the bot saw, the time zone included
+    businessFacts,
   }
 }
 
@@ -792,6 +784,7 @@ function getUpcomingCourseDates(
   question: string,
   matchedBlocks: IndexedBlock[],
   now = new Date(),
+  timeZone = DEFAULT_TIME_ZONE,
 ): ScheduledCourseDate[] {
   const queryTokens = new Set(
     normalizeText(question)
@@ -800,7 +793,7 @@ function getUpcomingCourseDates(
   )
   if (!queryTokens.size) return []
 
-  const currentDate = getHermosilloMonthDay(now)
+  const currentDate = getZonedDateParts(now, timeZone)
   const matchingDates = new Map<string, ScheduledCourseDate>()
 
   for (const block of matchedBlocks) {
@@ -850,6 +843,7 @@ export function applyUpcomingCourseDateCorrection(
   question: string,
   matchedBlocks: IndexedBlock[],
   now = new Date(),
+  timeZone = DEFAULT_TIME_ZONE,
 ) {
   // En mensajes de flujo de pagos autorizados, nunca agregar fechas de cursos arbitrarias
   const isPaymentAnswer =
@@ -857,7 +851,7 @@ export function applyUpcomingCourseDateCorrection(
     /(?:cuenta|dep[oó]sito|transferencia|comprobante)/i.test(answer)
   if (isPaymentAnswer) return answer
 
-  const upcomingDates = getUpcomingCourseDates(question, matchedBlocks, now)
+  const upcomingDates = getUpcomingCourseDates(question, matchedBlocks, now, timeZone)
   if (!upcomingDates.length) return answer
 
   // Agrupar fechas por curso para no mezclar nombres con fechas ajenas
@@ -882,10 +876,7 @@ export function applyUpcomingCourseDateCorrection(
     month: 'long',
     timeZone: 'UTC',
   })
-  const year = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    timeZone: 'America/Hermosillo',
-  }).format(now)
+  const year = String(getZonedDateParts(now, timeZone).year)
 
   const corrections = relevantCourseEntries.map(([courseName, dates]) => {
     const dateSummary = dates
@@ -1217,7 +1208,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   }
 
   const retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '')
-  const { documents, contextBlock, matchedBlocks, hasCourses, hasTreatments, paymentText } = await buildDbDocumentsContextBlock(
+  const { documents, contextBlock, matchedBlocks, hasCourses, hasTreatments, paymentText, timeZone, businessFacts } = await buildDbDocumentsContextBlock(
     input.tenantId,
     retrievalQuery,
     isPaymentConversation(input.message, input.history || []),
@@ -1252,7 +1243,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
 
   const trimmedHistory = input.history.slice(-12)
   const paymentFlowGuard = buildPaymentFlowGuard(input.message, input.history || [])
-  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '', hasTreatments) + paymentFlowGuard
+  const systemPrompt = buildSystemPrompt(input.prompt, contextBlock, input.referralContext || '', hasTreatments, timeZone) + paymentFlowGuard
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     ...trimmedHistory.map((m) => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: String(m.content || '') })),
@@ -1329,7 +1320,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   }
 
   if (!markerEval) {
-    answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks)
+    answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks, new Date(), timeZone)
   }
 
   // ===== AUTO-CURADO · JUEZ SÍNCRONO (último filtro, antes de devolver respuesta) =====
@@ -1339,7 +1330,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   const contextText = String(contextBlock || '')
   const matchedBlocksText = /^Catalogo resumido|BLOQUE: LISTA DE TRATAMIENTOS\]/.test(contextText)
     ? contextText
-    : matchedBlocksToText(matchedBlocksForJudge)
+    : `${matchedBlocksToText(matchedBlocksForJudge)}\n\n---\n\n[Datos del negocio]\n${businessFacts}`.trim()
   const matchedBlockRefs = matchedBlocksToRefs(matchedBlocksForJudge)
 
   let evalCategory: AutoEvalCategory = 'correct'
@@ -1362,6 +1353,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
         referralContext: input.referralContext || '',
         botAnswer: answer,
         matchedBlocksText,
+        timeZone,
       })
       evalCategory = judgeRes.category
       evalReason = judgeRes.reason
