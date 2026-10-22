@@ -1192,10 +1192,26 @@ export function findPreviousTopicQuestion(index: SearchIndex, history: DbConvers
   return earlierQuestions.find((message) => namesKnownTopic(index, message.content))?.content.trim() || null
 }
 
+// What the ad was about, for the search: its title and product, without the
+// instructions written for the model ("Usa su ID y titulo para buscar..."),
+// whose words would be taken for item names
+export function adSearchText(referralContext: string): string {
+  const facts = String(referralContext || '').split(/:\s/).pop() || ''
+  return facts
+    .split('·')
+    .map((fact) => fact.trim())
+    .filter((fact) => fact && !/^ID de anuncio\b/i.test(fact))
+    .map((fact) => fact.replace(/^(?:anuncio|producto|referencia)\s+/i, ''))
+    .join(' ')
+    // bare numbers are the ad's own numbering ("Revofil 1026"), not part of a product name
+    .replace(/(?:^|\s)\d+(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function buildEnhancedQuery(
   userMessage: string,
   history: DbConversationMessage[],
-  referralContext = '',
   previousTopicQuestion: string | null = null,
 ): string {
   const normalizedMsg = (userMessage || '').replace(/\s+/g, ' ').trim()
@@ -1222,10 +1238,10 @@ function buildEnhancedQuery(
 
   // A follow-up that names nothing is searched together with the question it follows
   if (previousTopicQuestion && !esRespuestaCorta) {
-    return `${previousTopicQuestion}\n${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+    return `${previousTopicQuestion}\n${normalizedMsg}`
   }
 
-  if (msgWords.length >= 3 && !esRespuestaCorta) return `${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+  if (msgWords.length >= 3 && !esRespuestaCorta) return `${normalizedMsg}`
 
   const ultimosMensajesAsesor = recent
     .filter((m) => m.role === 'assistant')
@@ -1244,13 +1260,13 @@ function buildEnhancedQuery(
   }
 
   const context = recent.map((m) => `${m.role === 'user' ? 'USUARIO' : 'ASESOR'}: ${m.content}`).join('\n')
-  if (!context) return `${normalizedMsg}${pistasAdicionales}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+  if (!context) return `${normalizedMsg}${pistasAdicionales}`
   let combined = `${context}\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
   if (combined.length > 1500) {
     const tail = 1500 - pistasAdicionales.length
     combined = context.slice(Math.max(0, context.length - tail)) + `\nUSUARIO ACTUAL: ${normalizedMsg}${pistasAdicionales}`
   }
-  return `${combined}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+  return `${combined}`
 }
 
 function buildPaymentFlowGuard(userMessage: string, history: DbConversationMessage[]): string {
@@ -1291,8 +1307,12 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   const index = await getDbTenantSearchIndex(input.tenantId)
   const includePayment = isPaymentConversation(input.message, input.history || [])
   const messageNamesTopic = namesKnownTopic(index, input.message)
-  const previousTopicQuestion = messageNamesTopic ? null : findPreviousTopicQuestion(index, input.history || [])
-  let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '', previousTopicQuestion)
+  // A message that names nothing ("¿precio?") is about the previous question or,
+  // for a customer who came from an ad, about what the ad showed
+  const previousTopicQuestion = messageNamesTopic
+    ? null
+    : findPreviousTopicQuestion(index, input.history || []) || adSearchText(input.referralContext || '') || null
+  let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], previousTopicQuestion)
   let retrieval = buildDbDocumentsContextBlock(index, retrievalQuery, includePayment)
 
   // The rules found no course, product or treatment for a follow-up: the model

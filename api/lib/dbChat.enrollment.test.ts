@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSearchIndex, searchIndex } from './searchIndex.js'
 import {
+  adSearchText,
   buildClarificationReply,
   findBusinessPaymentBlocks,
   findPreviousTopicQuestion,
@@ -338,4 +339,12 @@ test('the model rewrites a follow-up only when the rules found no course, produc
   assert.equal(shouldRewriteFollowUp('gracias!', history, false, nothing), false)
   assert.equal(shouldRewriteFollowUp('si', history, false, nothing), false)
   assert.equal(shouldRewriteFollowUp('y eso cuanto es?', [], false, nothing), false)
+})
+
+const AD_CONTEXT = 'El cliente llegó desde este anuncio. Usa su ID y título para buscar la ficha correspondiente en anuncios.md; interpreta preguntas breves (por ejemplo, “precio”) respecto al producto o tema anunciado y busca además en el catálogo. El anuncio sirve para identificar qué buscar, no para afirmar precio ni disponibilidad: ID de anuncio 120260350368110456 · anuncio Producto AH Revofil 1026'
+
+test('only the ad title reaches the search, never the instructions for the model', () => {
+  assert.equal(adSearchText(AD_CONTEXT), 'Producto AH Revofil')
+  assert.equal(adSearchText(`${AD_CONTEXT} · referencia promo-octubre`), 'Producto AH Revofil promo-octubre')
+  assert.equal(adSearchText(''), '')
 })
