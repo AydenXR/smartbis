@@ -16,7 +16,7 @@ export interface MetaStoreState {
   loadingStatus: boolean
   errorStatus: string
   loadStatus: (fn: () => Promise<MetaStatusResponse>) => Promise<void>
-  setState: (fn: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>, next: { state?: MetaBotState; testMode?: boolean }) => Promise<void>
+  setState: (fn: (next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) => Promise<any>, next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) => Promise<void>
 
   chats: MetaChatItem[]
   loadingChats: boolean
@@ -40,6 +40,7 @@ export interface MetaStoreState {
 const initialStatus: MetaStatusResponse = {
   state: 'PAUSE',
   testMode: false,
+  autocuratorEnabled: true,
   webhookSubscribed: false,
   linked: false,
   hasPageToken: false,
@@ -68,9 +69,9 @@ export const useMetaCrmStore = create<MetaStoreState>((set, get) => ({
     })
     try {
       const r: any = await fn(next)
-      if (r?.state !== undefined || r?.testMode !== undefined) {
+      if (r?.state !== undefined || r?.testMode !== undefined || r?.autocuratorEnabled !== undefined) {
         set({
-          status: (get().status ? { ...get().status!, state: r.state ?? get().status!.state, testMode: r.testMode ?? get().status!.testMode } : null),
+          status: (get().status ? { ...get().status!, state: r.state ?? get().status!.state, testMode: r.testMode ?? get().status!.testMode, autocuratorEnabled: r.autocuratorEnabled ?? get().status!.autocuratorEnabled } : null),
         })
       }
     } catch (e: any) {

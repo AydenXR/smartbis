@@ -46,6 +46,7 @@ export interface TenantMetaConfig {
   userLLExtendsAt?: string
   state: MetaBotState
   testMode: boolean
+  autocuratorEnabled: boolean
   webhookSubscribed: boolean
   webhookSubscriptionVersion?: number
   linkedAt?: string
@@ -134,6 +135,7 @@ export function defaultTenantMetaConfig(tenantId: string): TenantMetaConfig {
     graphVersion: GRAPH_VERSION,
     state: 'PAUSE',
     testMode: false,
+    autocuratorEnabled: true,
     webhookSubscribed: false,
     updatedAt: nowISO(),
   }
@@ -152,6 +154,7 @@ export async function getTenantMetaConfig(tenantId: string): Promise<TenantMetaC
   if (!cfg.graphVersion) cfg.graphVersion = GRAPH_VERSION
   if (!cfg.state) cfg.state = 'PAUSE'
   if (cfg.testMode === undefined) cfg.testMode = false
+  if (cfg.autocuratorEnabled === undefined) cfg.autocuratorEnabled = true
   return cfg
 }
 
@@ -707,7 +710,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
       referralContext: referralContextText(referral),
       psid,
       triggerMessageId: mid,
-    })
+    }, { autocuratorEnabled: cfg.autocuratorEnabled })
     answer = typeof res === 'string' ? res : String(res?.answer || res?.text || '')
     autoEval = res?.autoEval || null
   } catch (e: any) {
@@ -736,7 +739,7 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
   }
 
   const blockedByAutocurator = !!autoEval?.blocked
-  const unsafeFallback = !answer.trim() || /no cuento con la información|whatsapp de mi superior/i.test(answer)
+  const unsafeFallback = !answer.trim() || /\[NO_RESPONDER\]|\[NO_ENTENDI\]|no cuento con la información|whatsapp de mi superior/i.test(answer)
   if (!blockedByAutocurator && unsafeFallback) {
     autoEval = {
       ...(autoEval || {}),

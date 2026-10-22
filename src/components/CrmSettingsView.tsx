@@ -22,7 +22,7 @@ type CrmSettingsViewProps = {
   onGetOAuthUrl: () => Promise<string>
   onRetryPages: () => Promise<{ pages: any[] }>
   onLinkManual: (input: { pageId: string; pageName?: string; pageAccessToken: string }) => Promise<{ success: boolean; subscribed: boolean; pageId: string; pageName: string }>
-  onSetState: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>
+  onSetState: (next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) => Promise<any>
   onSyncAds: () => Promise<{ ads: number; accountsChecked: number }>
   APP_ID: string
   graphVersion?: string
@@ -541,6 +541,12 @@ function StatusSummaryCard({ status }: { status: MetaStatusResponse | null }) {
       ok: !testMode,
       warn: testMode,
     },
+    {
+      label: 'Autocurador',
+      value: status?.autocuratorEnabled ? 'Activado' : 'Desactivado',
+      ok: !status?.autocuratorEnabled,
+      warn: status?.autocuratorEnabled,
+    },
   ]
   return (
     <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151]/80 p-4">
@@ -572,7 +578,7 @@ function QuickControls({
   onSetState,
 }: {
   status: MetaStatusResponse | null
-  onSetState: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>
+  onSetState: (next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) => Promise<any>
 }) {
   return (
     <div className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151]/80 p-4">
@@ -631,6 +637,29 @@ function QuickControls({
             {status?.testMode
               ? 'Volver a enviar respuestas a clientes'
               : 'No enviar respuestas, solo revisar en CRM'}
+          </p>
+        </button>
+        <button
+          type="button"
+          disabled={!status?.linked}
+          onClick={() => onSetState({ autocuratorEnabled: !status?.autocuratorEnabled })}
+          className={cn(
+            'flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition disabled:opacity-50',
+            status?.autocuratorEnabled
+              ? 'border-violet-400/30 bg-violet-400/10 hover:bg-violet-400/15'
+              : 'border-[#1a3a5a] bg-[#11375a] hover:bg-[#143f67]',
+          )}
+          title={status?.autocuratorEnabled ? 'Desactivar la evaluación automática de las respuestas' : 'Activar la evaluación automática de las respuestas'}
+        >
+          <div className="flex w-full items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/90">
+              {status?.autocuratorEnabled ? 'DESACTIVAR AUTOCURADOR' : 'ACTIVAR AUTOCURADOR'}
+            </span>
+          </div>
+          <p className="text-[11px] text-white/75">
+            {status?.autocuratorEnabled
+              ? 'Omitir el juez automático antes de responder'
+              : 'Revisar automáticamente las respuestas'}
           </p>
         </button>
       </div>
