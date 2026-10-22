@@ -33,3 +33,6 @@ smartbis2-deploy.tar.gz
 # Local WhatsApp sessions and tenant runtime state
 clientsdata/_whatsapp_auth/
 clientsdata/_whatsapp_store/
+
+# Electron build output (may contain embedded credentials)
+dist-electron/

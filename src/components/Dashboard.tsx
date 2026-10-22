@@ -73,6 +73,7 @@ function initMetaStatus(): MetaStatusResponse {
   return {
     state: 'PAUSE',
     testMode: false,
+    autocuratorEnabled: true,
     webhookSubscribed: false,
     linked: false,
     hasPageToken: false,
@@ -497,7 +498,7 @@ export default function Dashboard({
     }
   }
 
-  async function handleSetMetaState(next: { state?: MetaBotState; testMode?: boolean }) {
+  async function handleSetMetaState(next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) {
     const prev = metaStatus
     setMetaStatus({ ...metaStatus, ...next })
     try {
@@ -506,6 +507,7 @@ export default function Dashboard({
         ...cur,
         state: (r?.state ?? cur.state),
         testMode: (r?.testMode ?? cur.testMode),
+        autocuratorEnabled: (r?.autocuratorEnabled ?? cur.autocuratorEnabled),
       }))
       return r
     } catch (e) {

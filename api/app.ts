@@ -841,6 +841,7 @@ app.get('/api/meta/status', requireAuth, csGuard(CS_AGENT_ROLES), async (_req: R
     pageProfilePic: cfg.pageProfilePic,
     state: cfg.state,
     testMode: cfg.testMode,
+    autocuratorEnabled: cfg.autocuratorEnabled,
     webhookSubscribed: cfg.webhookSubscribed,
     linkedAt: cfg.linkedAt,
     updatedAt: cfg.updatedAt,
@@ -985,11 +986,13 @@ app.post('/api/meta/setState', requireAuth, csGuard(CS_AGENT_ROLES), async (req:
     const stateRaw = String(req.body?.state || '')
     const state = stateRaw === 'START' ? 'START' : stateRaw === 'PAUSE' ? 'PAUSE' : null
     const testModeRaw = req.body?.testMode
-    const patch: Partial<{ state: MetaBotState; testMode: boolean }> = {}
+    const autocuratorEnabledRaw = req.body?.autocuratorEnabled
+    const patch: Partial<{ state: MetaBotState; testMode: boolean; autocuratorEnabled: boolean }> = {}
     if (state) patch.state = state
     if (typeof testModeRaw === 'boolean') patch.testMode = testModeRaw
+    if (typeof autocuratorEnabledRaw === 'boolean') patch.autocuratorEnabled = autocuratorEnabledRaw
     const cfg = await saveTenantMetaConfig(user.tenantId, patch)
-    res.status(200).json({ success: true, state: cfg.state, testMode: cfg.testMode })
+    res.status(200).json({ success: true, state: cfg.state, testMode: cfg.testMode, autocuratorEnabled: cfg.autocuratorEnabled })
   } catch (e) { next(e) }
 })
 

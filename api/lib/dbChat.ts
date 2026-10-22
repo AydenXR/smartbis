@@ -26,7 +26,7 @@ type DbChatInput = {
   botMessageId?: string
 }
 
-type GenAnswerOpts = Record<string, never>
+type GenAnswerOpts = { autocuratorEnabled?: boolean }
 
 export type AutoEvalResult = {
   id: string
@@ -1434,7 +1434,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     }
   }
 
-  if (!markerEval) {
+  if (!markerEval && opts.autocuratorEnabled !== false) {
     answer = applyUpcomingCourseDateCorrection(answer, retrievalQuery, matchedBlocks, new Date(), timeZone)
   }
 
@@ -1536,45 +1536,47 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     evalReason = 'La respuesta de pago sigue el flujo de inscripción y sus enlaces y datos coinciden con el prompt autorizado.'
   }
 
-  if (matchedBlocksForJudge.length === 0 && NO_INFORMATION_PHRASE.test(answer)) {
+  if (opts.autocuratorEnabled !== false && matchedBlocksForJudge.length === 0 && NO_INFORMATION_PHRASE.test(answer)) {
     evalCategory = 'noinfo'
     evalReason = 'La respuesta reconoce que no hay información respaldada por documentos.'
   }
 
-  if (isAuthorizedEnrollmentFlowAnswer(answer, enrollmentReply)) {
+  if (opts.autocuratorEnabled !== false && isAuthorizedEnrollmentFlowAnswer(answer, enrollmentReply)) {
     evalCategory = 'correct'
     evalReason = 'La respuesta pertenece al flujo determinista de inscripción y coincide con la plantilla autorizada.'
   }
 
-  if (isAuthorizedOutOfScopeAnswer(answer, input.prompt)) {
+  if (opts.autocuratorEnabled !== false && isAuthorizedOutOfScopeAnswer(answer, input.prompt)) {
     evalCategory = 'correct'
     evalReason = 'La respuesta coincide palabra por palabra con una frase oficial escrita en el prompt del negocio.'
   }
 
   const blocked = evalCategory !== 'correct'
 
-  // Guardamos la evaluación siempre (tanto si pasa como si se bloquea) para auditoría
-  try {
-    const savedEval = await createAutoEval(input.tenantId, {
-      psid: input.psid,
-      triggerMessageId: input.triggerMessageId,
-      botMessageId: input.botMessageId,
-      triggerMessageText: input.message,
-      botAnswerText: answer,
-      category: evalCategory,
-      judgeReason: evalReason,
-      matchedBlocks: matchedBlockRefs,
-    })
-    evalId = savedEval.id
-  } catch (_e) {
-    // Si falla el guardado, no propagamos el error al flujo principal, pero conservamos la decisión.
+  if (opts.autocuratorEnabled !== false) {
+    // Guardamos la evaluación siempre (tanto si pasa como si se bloquea) para auditoría
+    try {
+      const savedEval = await createAutoEval(input.tenantId, {
+        psid: input.psid,
+        triggerMessageId: input.triggerMessageId,
+        botMessageId: input.botMessageId,
+        triggerMessageText: input.message,
+        botAnswerText: answer,
+        category: evalCategory,
+        judgeReason: evalReason,
+        matchedBlocks: matchedBlockRefs,
+      })
+      evalId = savedEval.id
+    } catch (_e) {
+      // Si falla el guardado, no propagamos el error al flujo principal, pero conservamos la decisión.
+    }
   }
 
   const autoEval: AutoEvalResult = {
     id: evalId,
-    category: evalCategory,
+    category: opts.autocuratorEnabled === false ? 'correct' : evalCategory,
     judgeReason: evalReason,
-    blocked,
+    blocked: opts.autocuratorEnabled === false ? false : blocked,
   }
 
   return {

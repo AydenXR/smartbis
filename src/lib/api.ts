@@ -235,6 +235,7 @@ export interface MetaStatusResponse {
   pageProfilePic?: string
   state: MetaBotState
   testMode: boolean
+  autocuratorEnabled: boolean
   webhookSubscribed: boolean
   linkedAt?: string
   updatedAt?: string
@@ -308,8 +309,8 @@ export async function getMetaStatus() {
   return requestJson<MetaStatusResponse>('/api/meta/status')
 }
 
-export async function setMetaState(next: { state?: MetaBotState; testMode?: boolean }) {
-  return requestJson<{ success: boolean; state: MetaBotState; testMode: boolean }>('/api/meta/setState', {
+export async function setMetaState(next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) {
+  return requestJson<{ success: boolean; state: MetaBotState; testMode: boolean; autocuratorEnabled: boolean }>('/api/meta/setState', {
     method: 'POST',
     body: next,
   })

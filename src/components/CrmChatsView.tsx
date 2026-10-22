@@ -68,7 +68,7 @@ type CrmChatsViewProps = {
   onRefreshStatus: () => Promise<void>
   onRefreshChats: (opts?: { silent?: boolean }) => Promise<void>
   onSelectChat: (psid: string | null, opts?: { silent?: boolean }) => Promise<void>
-  onSetState: (next: { state?: MetaBotState; testMode?: boolean }) => Promise<any>
+  onSetState: (next: { state?: MetaBotState; testMode?: boolean; autocuratorEnabled?: boolean }) => Promise<any>
   onSendManual: (psid: string, text: string) => Promise<any>
   onMarkAsRead: (psid: string) => Promise<void>
   onDeleteChat: (psid: string) => Promise<void>
@@ -367,6 +367,13 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
     startPollInterval()
   }
 
+  async function handleToggleAutocurator() {
+    if (!status) return
+    await setState(onSetState, { autocuratorEnabled: !status.autocuratorEnabled })
+    stopPollInterval()
+    startPollInterval()
+  }
+
   async function handleSendManual() {
     if (!selectedPSID || !manualText.trim() || sending) return
     setSending(true)
@@ -542,6 +549,20 @@ export default function CrmChatsView(props: CrmChatsViewProps) {
               <span className="tracking-wide">TEST MODE: OFF</span>
             </>
           )}
+        </button>
+        <button
+          type="button"
+          disabled={!status?.linked || loadingStatus}
+          onClick={handleToggleAutocurator}
+          className={cn(
+            'group flex items-center gap-2 rounded-xl border px-3.5 py-1.5 text-[12px] font-semibold transition disabled:opacity-50',
+            status?.autocuratorEnabled
+              ? 'border-violet-300/40 bg-violet-400/85 text-violet-950 hover:bg-violet-300'
+              : 'border-[#1a3a5a] bg-[#11375a] text-slate-200 hover:border-violet-300/40 hover:bg-violet-300/10 hover:text-violet-200',
+          )}
+          title={status?.autocuratorEnabled ? 'Desactivar la revisión automática de respuestas' : 'Activar la revisión automática de respuestas'}
+        >
+          <span className="tracking-wide">{status?.autocuratorEnabled ? 'AUTOCURADOR: ON' : 'AUTOCURADOR: OFF'}</span>
         </button>
         </div>
       </header>
