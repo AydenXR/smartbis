@@ -1,4 +1,4 @@
-import { normalizeText, searchIndex, type IndexedBlock } from './searchIndex.js'
+import { namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
 import { getDbTenantSearchIndex } from './dbWorkspace.js'
 import { DEFAULT_TIME_ZONE, describeTimeZone, detectTimeZoneSetting, getZonedDateParts } from './timeZone.js'
 import {
@@ -682,8 +682,7 @@ export function isPaymentConversation(userMessage: string, history: DbConversati
   )
 }
 
-async function buildDbDocumentsContextBlock(tenantId: string, query = '', includePayment = false) {
-  const index = await getDbTenantSearchIndex(tenantId)
+function buildDbDocumentsContextBlock(index: SearchIndex, query = '', includePayment = false) {
   const result = searchIndex(index, query) as any
   const matchedBlocks = Array.isArray(result.matchedBlocks) ? result.matchedBlocks : []
   const queryTokens = normalizeText(query)
@@ -1121,7 +1120,84 @@ export function buildClarificationReply(history: DbConversationMessage[], hasCou
   return clarificationReplies(hasCourses)[consecutive] || null
 }
 
-function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[], referralContext = ''): string {
+// Course, product or treatment information, beyond general blocks (location, FAQ)
+export function hasCatalogInformation(retrieval: { contextBlock: string; matchedBlocks: IndexedBlock[] }) {
+  return (
+    /^Catalogo resumido|BLOQUE: LISTA DE TRATAMIENTOS\]/.test(String(retrieval.contextBlock || '')) ||
+    retrieval.matchedBlocks.some((block) => block.document.section !== 'general' || /tratamiento/i.test(block.document.title))
+  )
+}
+
+const COURTESY_MESSAGE = /^(?:hola|buen[oa]s?(?:\s+(?:d[ií]as|tardes|noches))?|gracias|muchas\s+gracias|ok|okey|vale|adi[oó]s|bye|hasta\s+luego|saludos)[\s.!?¡¿]*$/i
+
+// Only for a real follow-up in a conversation: not a greeting, a "si"/"ok"
+// reply or a message that already names what it is about
+export function shouldRewriteFollowUp(
+  userMessage: string,
+  history: DbConversationMessage[],
+  messageNamesTopic: boolean,
+  retrieval: { contextBlock: string; matchedBlocks: IndexedBlock[] },
+) {
+  const normalized = normalizeConversationReply(userMessage)
+  return (
+    !messageNamesTopic &&
+    normalized.length > 0 &&
+    !RESPUESTAS_CORTAS_SIN_CONTEXTO.has(normalized) &&
+    !COURTESY_MESSAGE.test(String(userMessage || '').trim()) &&
+    (history || []).some((message) => message.role === 'assistant' && String(message.content || '').trim()) &&
+    !hasCatalogInformation(retrieval)
+  )
+}
+
+const FOLLOW_UP_REWRITE_PROMPT = `Reescribe el último mensaje del cliente como UNA sola pregunta completa que se entienda sin leer la conversación, nombrando el curso, producto, tratamiento o servicio del que se está hablando.
+Usa únicamente lo que aparece en la conversación; no agregues datos, precios ni nombres que no estén ahí.
+Responde solo con la pregunta reescrita, sin comillas ni explicaciones.`
+
+async function rewriteFollowUpQuestion(args: {
+  apiKey: string
+  baseUrl: string
+  model: string
+  fallbackModel: string
+  message: string
+  history: DbConversationMessage[]
+}): Promise<string | null> {
+  const conversation = args.history
+    .slice(-6)
+    .map((message) => `${message.role === 'user' ? 'CLIENTE' : 'ASESOR'}: ${String(message.content || '').slice(0, 600)}`)
+    .join('\n')
+  const completion = await requestCompletion({
+    apiKey: args.apiKey,
+    baseUrl: args.baseUrl,
+    model: args.model,
+    fallbackModel: args.fallbackModel,
+    maxTokens: 400,
+    messages: [
+      { role: 'system', content: FOLLOW_UP_REWRITE_PROMPT },
+      { role: 'user', content: `${conversation}\nCLIENTE (último mensaje): ${args.message}` },
+    ],
+  })
+  if (completion.finishReason === 'fallback_models_unavailable') return null
+
+  const question = String(completion.answer || '').split('\n')[0].trim().replace(/^["'«“]+|["'»”]+$/g, '')
+  return question && question.length <= 300 ? question : null
+}
+
+// The customer's latest earlier question that said what it was about, for a
+// follow-up that does not ("¿cuales son los precios?" after "¿tienen cursos en Hermosillo?")
+export function findPreviousTopicQuestion(index: SearchIndex, history: DbConversationMessage[]): string | null {
+  const earlierQuestions = (history || [])
+    .filter((message) => message.role === 'user' && String(message.content || '').trim())
+    .slice(-4)
+    .reverse()
+  return earlierQuestions.find((message) => namesKnownTopic(index, message.content))?.content.trim() || null
+}
+
+function buildEnhancedQuery(
+  userMessage: string,
+  history: DbConversationMessage[],
+  referralContext = '',
+  previousTopicQuestion: string | null = null,
+): string {
   const normalizedMsg = (userMessage || '').replace(/\s+/g, ' ').trim()
   const recent = (history || []).slice(-8)
   const msgWords = normalizedMsg.split(/\s+/).filter((w) => w.length >= 2)
@@ -1143,6 +1219,11 @@ function buildEnhancedQuery(userMessage: string, history: DbConversationMessage[
   const esRespuestaCorta =
     (msgWords.length <= 4 && (RESPUESTAS_CORTAS_SIN_CONTEXTO.has(msgLowerSimple) || esConfirmacionDeInteres)) ||
     (isLocationReply && previousAskedLocationOrPayment)
+
+  // A follow-up that names nothing is searched together with the question it follows
+  if (previousTopicQuestion && !esRespuestaCorta) {
+    return `${previousTopicQuestion}\n${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
+  }
 
   if (msgWords.length >= 3 && !esRespuestaCorta) return `${normalizedMsg}${referralContext ? `\nCONTEXTO DE BÚSQUEDA DEL ANUNCIO: ${referralContext}` : ''}`
 
@@ -1207,12 +1288,26 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     throw new Error('LLM_API_KEY no esta configurada')
   }
 
-  const retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '')
-  const { documents, contextBlock, matchedBlocks, hasCourses, hasTreatments, paymentText, timeZone, businessFacts } = await buildDbDocumentsContextBlock(
-    input.tenantId,
-    retrievalQuery,
-    isPaymentConversation(input.message, input.history || []),
-  )
+  const index = await getDbTenantSearchIndex(input.tenantId)
+  const includePayment = isPaymentConversation(input.message, input.history || [])
+  const messageNamesTopic = namesKnownTopic(index, input.message)
+  const previousTopicQuestion = messageNamesTopic ? null : findPreviousTopicQuestion(index, input.history || [])
+  let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], input.referralContext || '', previousTopicQuestion)
+  let retrieval = buildDbDocumentsContextBlock(index, retrievalQuery, includePayment)
+
+  // The rules found no course, product or treatment for a follow-up: the model
+  // rewrites it as a full question from the conversation and it is searched again
+  if (shouldRewriteFollowUp(input.message, input.history || [], messageNamesTopic, retrieval)) {
+    const rewritten = await rewriteFollowUpQuestion({ apiKey, baseUrl, model, fallbackModel, message: input.message, history: input.history || [] })
+    if (rewritten) {
+      const retry = buildDbDocumentsContextBlock(index, rewritten, includePayment)
+      if (hasCatalogInformation(retry)) {
+        retrievalQuery = rewritten
+        retrieval = retry
+      }
+    }
+  }
+  const { documents, contextBlock, matchedBlocks, hasCourses, hasTreatments, paymentText, timeZone, businessFacts } = retrieval
 
   const generalDocText = (documents || []).map((d: any) => {
     const s = (d?.section || '').toLowerCase()

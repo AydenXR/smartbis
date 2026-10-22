@@ -82,6 +82,13 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   'programados', 'actualmente', 'ahorita',
   // "temario de X" pide una parte de X; "temario" solo coincide con todos los temarios
   'temario', 'temarios',
+  // Verbos de "¿que ofrecen?": preguntan por la oferta, no nombran un elemento
+  'brindan', 'brindas', 'brindar', 'brindamos', 'ofreces', 'ofrecer', 'manejan', 'manejas', 'manejar',
+  'imparten', 'impartes', 'realizas', 'haces', 'trabajan', 'trabajas', 'tienen', 'vendes', 'proporcionan',
+  // Preguntas de seguimiento ("¿y en linea?", "¿cuanto cuesta?"): piden un dato del tema ya hablado
+  'linea', 'presencial', 'presenciales', 'modalidad', 'modalidades', 'costo', 'costos', 'cuesta', 'cuestan',
+  'fecha', 'fechas', 'proxima', 'proximo', 'proximas', 'proximos', 'empieza', 'empiezan', 'inicia', 'inician',
+  'tambien', 'entonces', 'ademas', 'todos', 'todas', 'cada', 'ellos', 'estos', 'esos', 'esas', 'estas', 'cual',
 ])
 
 // Body areas describe what a treatment is for ("tratamientos para la cara"),
@@ -437,7 +444,7 @@ function analyzeQuery(query: string) {
       !wantsLocation &&
       !wantsSchedule &&
       !wantsDetails &&
-      /\bproductos\b|\bcursos\b|\bservicios\b|\btalleres\b|\btratamientos\b|\bprocedimientos\b|\bdisponibles\b|\bofrecen\b|\bopciones\b|\bmenu\b|\bcatalogo\b|\blista\b|\bprogramados\b/.test(
+      /\bproductos\b|\bcursos\b|\bservicios\b|\btalleres\b|\btratamientos\b|\bprocedimientos\b|\bdisponibles\b|\bofrecen\b|\bofreces\b|\bbrindan\b|\bbrindas\b|\bopciones\b|\bmenu\b|\bcatalogo\b|\blista\b|\bprogramados\b/.test(
         normalizedQuery,
       ) &&
       queryEntityWords(query).length === 0,
@@ -919,6 +926,49 @@ function buildCatalogSummaryLine(block: IndexedBlock) {
   return `- ${title}${details.length > 0 ? ` | ${details.join(' | ')}` : ''}`
 }
 
+function itemName(block: IndexedBlock) {
+  return (block.fields.name || block.title).trim().replace(/\.$/, '')
+}
+
+function uniqueNames(blocks: IndexedBlock[]) {
+  return [...new Set(blocks.map(itemName).filter(Boolean))]
+}
+
+// Everything the business offers, one line per section: courses and treatments
+// by name, products by name or, for a large catalog, by category
+function buildOfferOverview(blocks: IndexedBlock[]) {
+  const named = blocks.filter((block) => isCatalogLikeBlock(block) && block.fields.name)
+  const treatments = blocks.filter(isTreatmentBlock)
+  const courses = named.filter((block) => block.document.section === 'cursos')
+  const products = named.filter((block) => block.document.section === 'productos')
+  const otherServices = named.filter((block) => block.document.section === 'general' && !treatments.includes(block))
+
+  const lines: string[] = []
+  const courseNames = uniqueNames(courses)
+  if (courseNames.length > 0) lines.push(`- Cursos (${courseNames.length}): ${courseNames.join(', ')}`)
+  const treatmentNames = uniqueNames(treatments)
+  if (treatmentNames.length > 0) lines.push(`- Tratamientos (${treatmentNames.length}): ${treatmentNames.join(', ')}`)
+  const serviceNames = uniqueNames(otherServices)
+  if (serviceNames.length > 0) lines.push(`- Servicios (${serviceNames.length}): ${serviceNames.join(', ')}`)
+  if (products.length > MAX_SUMMARY_ITEMS) {
+    const counts = new Map<string, number>()
+    for (const block of products) {
+      const category = block.fields.category.trim() || 'Otros'
+      counts.set(category, (counts.get(category) || 0) + 1)
+    }
+    const categories = [...counts.entries()].sort((left, right) => right[1] - left[1])
+    lines.push(`- Productos (${products.length}), por categoria: ${categories.map(([category, count]) => `${category} (${count})`).join(', ')}`)
+  } else if (products.length > 0) {
+    lines.push(`- Productos (${products.length}): ${uniqueNames(products).join(', ')}`)
+  }
+  if (lines.length === 0) return null
+
+  return {
+    contextBlock: `Catalogo resumido encontrado en los documentos (todo lo que ofrece el negocio, por tipo; si el cliente quiere detalles, pregunta que le interesa):\n${lines.join('\n')}`.slice(0, MAX_CONTEXT_CHARS * 2),
+    blocks: [...courses, ...treatments, ...otherServices, ...products],
+  }
+}
+
 // A catalog too long to list item by item is summarized by category, so the
 // bot never presents the first few items as the whole catalog
 function buildCategoryCatalogSummary(blocks: IndexedBlock[]) {
@@ -1030,6 +1080,7 @@ const QUESTION_VOCABULARY = [
   'curso', 'cursos', 'producto', 'productos', 'servicio', 'servicios', 'tratamiento', 'tratamientos',
   'taller', 'talleres', 'diplomado', 'diplomados', 'sesion', 'sesiones',
   'tienes', 'tienen', 'cuentas', 'cuentan', 'ofrecen', 'venden', 'manejan', 'hacen', 'aplican',
+  'brindan', 'brindas', 'ofreces', 'manejas', 'imparten', 'realizan', 'trabajan', 'proporcionan',
   'disponible', 'disponibles', 'disponibilidad', 'existencia', 'precio', 'precios', 'costo', 'cuanto', 'cuesta',
   'horario', 'horarios', 'fecha', 'fechas', 'cuando', 'donde', 'ubicacion', 'direccion',
   'online', 'linea', 'presencial', 'modalidad', 'informacion', 'quiero', 'necesito', 'busco',
@@ -1037,7 +1088,7 @@ const QUESTION_VOCABULARY = [
   'cara', 'rostro', 'facial', 'faciales', 'cuerpo', 'corporal', 'corporales', 'piel', 'cabello', 'capilar',
 ]
 
-type TypoVocabulary = { known: Set<string>; names: string[] }
+type TypoVocabulary = { known: Set<string>; names: string[]; places: string[] }
 const typoVocabularies = new WeakMap<SearchIndex, TypoVocabulary>()
 
 function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
@@ -1047,11 +1098,17 @@ function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
   // Every word already in the documents is right as written: never "corrected"
   const known = new Set<string>([...QUERY_ENTITY_STOP_WORDS, ...QUESTION_VOCABULARY])
   const names = new Set<string>()
+  // Cities and places the business writes in its location blocks ("Hermosillo",
+  // "Guadalajara"): customers misspell them as often as item names
+  const places = new Set<string>()
   for (const block of index.blocks) {
     for (const token of block.bodyTokens) known.add(token)
     for (const token of block.titleTokens) if (token.length >= 5) names.add(token)
+    if (isLocationBlock(block)) {
+      for (const token of block.bodyTokens) if (token.length >= 5 && !/\d/.test(token)) places.add(token)
+    }
   }
-  const vocabulary = { known, names: [...names] }
+  const vocabulary = { known, names: [...names], places: [...places] }
   typoVocabularies.set(index, vocabulary)
   return vocabulary
 }
@@ -1062,8 +1119,10 @@ function correctWord(word: string, vocabulary: TypoVocabulary) {
   // Item names: one edit, long words only (peptomas -> peptonas)
   // Question words: one edit, or two in longer words (tiness -> tienes);
   // 3-letter words only gain a missing letter (cra -> cara)
+  // Places: one edit, or two in long names (hermosiyo -> hermosillo)
   const candidates: Array<{ token: string; maxEdits: number }> = [
     ...(word.length >= 5 ? vocabulary.names.map((token) => ({ token, maxEdits: 1 })) : []),
+    ...(word.length >= 5 ? vocabulary.places.map((token) => ({ token, maxEdits: word.length >= 8 ? 2 : 1 })) : []),
     ...QUESTION_VOCABULARY
       .filter((token) => word.length > 3 || token.length === word.length + 1)
       .map((token) => ({ token, maxEdits: word.length >= 6 ? 2 : 1 })),
@@ -1085,8 +1144,78 @@ function correctQueryTypos(index: SearchIndex, query: string) {
     .join(' ')
 }
 
+const SECTION_TOPIC_WORDS =
+  /\b(?:cursos?|productos?|tratamientos?|servicios?|talleres|taller|diplomados?|kits?|ubicacion|direccion|donde|sucursal(?:es)?|sede|horarios?|telefono|whatsapp|pagos?|temarios?)\b/
+
+// Whether a message says what it is about: a section ("cursos", "horarios") or
+// an item the documents name. "¿Cuales son los precios?" or "¿y en linea?" do
+// not: they continue the topic of the previous question
+export function namesKnownTopic(index: SearchIndex, message: string) {
+  const query = correctQueryTypos(index, message)
+  if (SECTION_TOPIC_WORDS.test(query)) return true
+  return queryEntityWords(query).some((word) => index.blocks.some((block) => blockNameHasWord(block, word)))
+}
+
+function isLocationBlock(block: IndexedBlock) {
+  return (
+    block.document.section === 'general' &&
+    (block.kind === 'location' || /\b(?:ubicacion|direccion|sucursal|sucursales|sede|sedes)\b/.test(block.normalizedTitle))
+  )
+}
+
+// "cursos en Hermosillo": a place that only the location blocks mention says
+// where, it does not name an item. So does an unknown word right after "en"
+// ("cursos en Monterrey"), a city where the business may have no branch
+function findPlaceWords(index: SearchIndex, query: string) {
+  const tokens = query.split(' ')
+  const followsEn = (word: string) => tokens.some((token, i) => token === word && tokens[i - 1] === 'en')
+  return queryEntityWords(query).filter((word) =>
+    !index.blocks.some((block) => block.document.section !== 'general' && blockNameHasWord(block, word)) &&
+    (
+      index.blocks.some((block) => isLocationBlock(block) && block.bodyTokens.includes(word)) ||
+      (followsEn(word) && !index.blocks.some((block) => block.bodyTokens.includes(word)))
+    ),
+  )
+}
+
 export function searchIndex(index: SearchIndex, rawQuery: string): SearchContextResult {
-  const query = correctQueryTypos(index, rawQuery)
+  const correctedQuery = correctQueryTypos(index, rawQuery)
+  const placeWords = findPlaceWords(index, correctedQuery)
+  if (placeWords.length === 0) return searchCorrectedQuery(index, correctedQuery)
+
+  // The place is searched apart: the items without it, plus where the business is
+  const withoutPlaces = correctedQuery
+    .split(' ')
+    .filter((word) => !placeWords.includes(word))
+    .join(' ')
+  const result = searchCorrectedQuery(index, withoutPlaces)
+  // The blocks that mention the place; for a city the business is not in, its
+  // location blocks, so the bot can say where it is
+  const mentioningPlace = index.blocks.filter((block) =>
+    isLocationBlock(block) && placeWords.some((word) => block.bodyTokens.includes(word)),
+  )
+  const namesPlace = (block: IndexedBlock) => /\b(?:ubicacion|direccion|sucursal|sucursales|sede|sedes)\b/.test(block.normalizedTitle)
+  const placeBlocks = (mentioningPlace.length > 0 ? mentioningPlace : index.blocks.filter(isLocationBlock))
+    .filter((block) => !result.matchedBlocks.includes(block))
+    // "[UBICACION]", "[CURSOS_SUCURSALES]" before a phone block that is also of kind location
+    .sort((left, right) => Number(namesPlace(right)) - Number(namesPlace(left)))
+    .slice(0, 2)
+  if (placeBlocks.length === 0) return result
+
+  const placeContext = placeBlocks
+    .map((block) => `[SECCION: GENERAL | DOCUMENTO: ${block.document.title} | BLOQUE: ${block.title}]\n${block.body}`)
+    .join('\n\n')
+  return {
+    ...result,
+    documents: Array.from(new Map([...result.documents, ...placeBlocks.map((block) => block.document)].map((document) => [document.id, document])).values()),
+    contextBlock: result.matchedBlocks.length > 0 || /^Catalogo resumido/.test(result.contextBlock)
+      ? `${result.contextBlock}\n\n${placeContext}`
+      : placeContext,
+    matchedBlocks: [...result.matchedBlocks, ...placeBlocks],
+  }
+}
+
+function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextResult {
   const intent = analyzeQuery(query)
   // Scored once per block: scoring inside the comparator repeated it on every comparison
   const scores = new Map(index.blocks.map((block) => [block, scoreIndexedBlock(block, query)]))
@@ -1127,8 +1256,22 @@ export function searchIndex(index: SearchIndex, rawQuery: string): SearchContext
     }
   }
 
+  // "que servicios brindan", "que ofrecen": no section named, so every section
+  // in short, instead of the first 40 items of a mix of all of them
+  if (intent.wantsList && !intent.wantsCourses && !intent.wantsProducts) {
+    const overview = buildOfferOverview(candidateBlocks)
+    if (overview) {
+      return {
+        documents: Array.from(new Map(overview.blocks.map((block) => [block.document.id, block.document])).values()),
+        contextBlock: overview.contextBlock,
+        matchedBlocks: overview.blocks.slice(0, MAX_CONTEXT_BLOCKS),
+        intent,
+      }
+    }
+  }
+
   if (intent.wantsList) {
-    // "que cursos tienen" lists only courses; with no section named, everything
+    // "que cursos tienen" lists only courses
     const listSection = intent.wantsCourses ? 'cursos' : intent.wantsProducts ? 'productos' : null
     const listBlocks = listSection
       ? candidateBlocks.filter((block) => block.document.section === listSection)

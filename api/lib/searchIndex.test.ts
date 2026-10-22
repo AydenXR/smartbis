@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createSearchIndex, searchIndex } from './searchIndex.js'
+import { createSearchIndex, namesKnownTopic, searchIndex } from './searchIndex.js'
 import type { WorkspaceDocument } from './workspace.js'
 
 const document: WorkspaceDocument = {
@@ -366,4 +366,99 @@ test('does not "correct" a word that exists in the documents', () => {
   })
   const result = searchIndex(verrugasIndex, 'curso para eliminacion de verrugas')
   assert.match(result.contextBlock, /Fibroblast/)
+})
+
+const wholeOfferIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    courseAndProductIndex.documents[0],
+    courseAndProductIndex.documents[2],
+    treatmentDocs[0],
+  ],
+})
+
+test('asking what the business offers, with any verb or typo, gets an overview of every section', () => {
+  for (const q of ['que servicios brindan?', 'que servicios birndan?', 'que servicios ofrecen?', 'que ofrecen?', 'que servicios dan']) {
+    const result = searchIndex(wholeOfferIndex, q)
+    assert.match(result.contextBlock, /Cursos \(3\): Hidrofacial, Russian Lips, Maderoterapia/, q)
+    assert.match(result.contextBlock, /Tratamientos \(2\): Peptonas, Lipoenzimas/, q)
+    // 15 products: by category, never the first few as if they were all
+    assert.match(result.contextBlock, /Productos \(15\), por categoria: Enzimas \(8\), Ácido Hialurónico \(7\)/, q)
+    assert.doesNotMatch(result.contextBlock, /Producto 3/, q)
+  }
+})
+
+const placeIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    {
+      ...facialCoursesIndex.documents[0],
+      content: [
+        '[CURSO]', 'Nombre del curso: Hidrofacial', 'Modalidades: Online, Presencial', 'Precio: Online: $895 MXN / Presencial: $2850 MXN', '',
+        '[CURSO]', 'Nombre del curso: Russian Lips', 'Modalidades: Online', 'Precio: Online: $895 MXN',
+      ].join('\n'),
+    },
+    {
+      id: 'general',
+      title: 'infogeneral.md',
+      docType: 'general',
+      section: 'general',
+      content: '[CURSOS_SUCURSALES]\nLos cursos presenciales se imparten solo en nuestra sede de Hermosillo, Sonora.\n\n[UBICACION]\nAv. Principal 123, Hermosillo.',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ],
+})
+
+test('a city named only in the location blocks is not taken for an item name', () => {
+  const result = searchIndex(placeIndex, 'tiene scursos en hermosillo?')
+  assert.match(result.contextBlock, /Hidrofacial/)
+  assert.match(result.contextBlock, /Russian Lips/)
+  // where the courses are given comes along
+  assert.match(result.contextBlock, /solo en nuestra sede de Hermosillo/)
+})
+
+test('the course prices are found when the previous question is searched along', () => {
+  const result = searchIndex(placeIndex, 'tiene scursos en hermosillo?\ncuales son los precios?')
+  assert.match(result.contextBlock, /Hidrofacial.*\$2850 MXN/)
+  assert.match(result.contextBlock, /Russian Lips.*\$895 MXN/)
+})
+
+test('a follow-up that names nothing is told apart from a question that names something', () => {
+  for (const q of ['cuales son los precios?', 'y en linea?', 'cuanto cuesta?', 'y las fechas?', 'cuando empieza?']) {
+    assert.equal(namesKnownTopic(placeIndex, q), false, q)
+  }
+  for (const q of ['precio del hidrofacial', 'que cursos tienen', 'donde estan ubicados', 'russian lips online']) {
+    assert.equal(namesKnownTopic(placeIndex, q), true, q)
+  }
+})
+
+test('a misspelled city is corrected with the places in the business location blocks', () => {
+  for (const q of ['tienes cursos en hermosllo?', 'tienes cursos en hermsoillo?', 'tienes cursos en Hermosiyo?']) {
+    const result = searchIndex(placeIndex, q)
+    assert.match(result.contextBlock, /Hidrofacial/, q)
+    assert.match(result.contextBlock, /solo en nuestra sede de Hermosillo/, q)
+  }
+
+  const guadalajaraIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [
+      placeIndex.documents[0],
+      { ...placeIndex.documents[1], content: '[SUCURSALES]\nTenemos sede en Guadalajara, Jalisco.' },
+    ],
+  })
+  const result = searchIndex(guadalajaraIndex, 'tienen cursos en guadalajra?')
+  assert.match(result.contextBlock, /Hidrofacial/)
+  assert.match(result.contextBlock, /sede en Guadalajara/)
+})
+
+test('a city where the business has no branch still gets the courses and where they are given', () => {
+  const result = searchIndex(placeIndex, 'tienen cursos en monterrey?')
+  assert.match(result.contextBlock, /Hidrofacial/)
+  assert.match(result.contextBlock, /solo en nuestra sede de Hermosillo/)
+})
+
+test('an absent item is still not taken for a place', () => {
+  const result = searchIndex(placeIndex, 'tienen curso de microblading?')
+  assert.doesNotMatch(result.contextBlock, /Hidrofacial|Russian Lips/)
 })

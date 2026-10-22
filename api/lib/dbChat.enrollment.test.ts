@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSearchIndex } from './searchIndex.js'
+import { createSearchIndex, searchIndex } from './searchIndex.js'
 import {
   buildClarificationReply,
   findBusinessPaymentBlocks,
+  findPreviousTopicQuestion,
+  hasCatalogInformation,
+  shouldRewriteFollowUp,
   findBusinessProfileBlocks,
   isPaymentConversation,
   findRequirementBlockForCourses,
@@ -281,4 +284,58 @@ test('payment blocks are sent only in payment or enrollment conversations', () =
   assert.equal(isPaymentConversation('como puedo pagar?', []), true)
   assert.equal(isPaymentConversation('Hermosillo', [{ role: 'assistant', content: '¿Desde qué ciudad o país nos escribes?' }]), true)
   assert.equal(isPaymentConversation('que cursos tienen para la cara', [{ role: 'assistant', content: 'Hola, ¿en qué te ayudo?' }]), false)
+})
+
+const followUpIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    {
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: '[CURSO]\nNombre del curso: Hidrofacial\nModalidades: Presencial\nPrecio: $2850 MXN\n\n[CURSO]\nNombre del curso: Mesobotox\nPrecio: $895 MXN',
+    },
+    {
+      id: 'general',
+      title: 'infogeneral.md',
+      docType: 'general',
+      section: 'general',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: '[CURSOS_SUCURSALES]\nLos cursos presenciales se imparten solo en Hermosillo.',
+    },
+  ] as any,
+})
+
+test('a follow-up that names nothing is searched with the earlier question that did', () => {
+  const history: DbConversationMessage[] = [
+    { role: 'user', content: 'hola' },
+    { role: 'user', content: 'tiene scursos en hermosillo?' },
+    { role: 'assistant', content: 'Sí, en Hermosillo impartimos Hidrofacial de forma presencial.' },
+  ]
+  assert.equal(findPreviousTopicQuestion(followUpIndex, history), 'tiene scursos en hermosillo?')
+  assert.equal(findPreviousTopicQuestion(followUpIndex, [{ role: 'user', content: 'hola' }]), null)
+})
+
+test('the model rewrites a follow-up only when the rules found no course, product or treatment', () => {
+  const history: DbConversationMessage[] = [{ role: 'assistant', content: 'Tenemos el curso Hidrofacial.' }]
+  // only general blocks (location, FAQ), as "¿cuales son los precios?" got with the real documents
+  const generalBlock = followUpIndex.blocks.find((block) => block.document.section === 'general')!
+  const nothing = { contextBlock: generalBlock.body, matchedBlocks: [generalBlock] }
+  const courses = searchIndex(followUpIndex, 'que cursos tienen')
+  assert.equal(hasCatalogInformation(nothing), false)
+  assert.equal(hasCatalogInformation({ contextBlock: '(Sin documentos activos)', matchedBlocks: [] }), false)
+  assert.equal(hasCatalogInformation(courses), true)
+
+  assert.equal(shouldRewriteFollowUp('y eso cuanto es?', history, false, nothing), true)
+  // the rules already found the courses
+  assert.equal(shouldRewriteFollowUp('y eso cuanto es?', history, false, courses), false)
+  // the message says what it is about, or is a greeting or a "si", or there is no conversation yet
+  assert.equal(shouldRewriteFollowUp('precio del hidrofacial', history, true, nothing), false)
+  assert.equal(shouldRewriteFollowUp('gracias!', history, false, nothing), false)
+  assert.equal(shouldRewriteFollowUp('si', history, false, nothing), false)
+  assert.equal(shouldRewriteFollowUp('y eso cuanto es?', [], false, nothing), false)
 })
