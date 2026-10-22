@@ -2044,121 +2044,6 @@ app.delete('/api/documents/:fileName', requireAuth, csGuard(CS_AGENT_ROLES), asy
   }
 })
 
-// =====================================
-// Ground Truth determinista para Salubel Institute (tenant 988d43bb-2d2c-4f07-a731-a0a02c9a3060)
-// Normaliza salidas del LLM en casos históricos que siempre se salen del prompt.
-// No depende del modelo, siempre responde igual.
-// F22: Reordenamiento de routers + respuesta completa determinista.
-// =====================================
-function enforceSalubelGroundTruth(userMessage: string, llmAnswer: string): string {
-  const msg = userMessage.toLowerCase()
-  let text = llmAnswer
-
-  const FAQ_UBICACION_VERBATIM = [
-    'Los cursos presenciales únicamente se imparten en nuestra sede en Hermosillo, Sonora, México en esta ubicación: P.º del Arroyo 38a, Valle Verde, 83200 Hermosillo, Son.',
-    'Google Maps: https://maps.app.goo.gl/DWHzxDKb9ENWAjW16',
-    'No contamos con sucursales fuera de Hermosillo.',
-    'Pero nuestros cursos en línea los puedes tomar desde cualquier parte del mundo.',
-  ].join('\n')
-
-  const FAQ_CONTACTO_VERBATIM = [
-    '📞 Nuestros canales oficiales de contacto son: WhatsApp +52 1 662 335 8779, teléfono (662) 335-8779.',
-    'Horarios de atención: Lunes a viernes 9:00 AM a 6:00 PM, sábados 9:00 AM a 5:00 PM. Domingo descanso.',
-    'Quedamos atentos por WhatsApp.',
-  ].join('\n')
-
-  const FAQ_GRAB_BLOQUE = [
-    'Acerca de grabaciones: Únicamente los cursos ONLINE quedan grabados y están disponibles EL LUNES MÁS PRÓXIMO a la fecha en que se impartió el curso. Tendrás acceso DURANTE TODO UN MES para repasar y verlo cuantas veces quieras.',
-    'Los cursos PRESENCIALES NO se graban.',
-    'Si no puedes asistir el día de clase de un curso ONLINE, lo puedes ver después (queda grabado).',
-  ].join('\n')
-
-  const FAQ_GRAB_COMPLETO = FAQ_GRAB_BLOQUE + '\n' +
-    'Los cursos PRESENCIALES NO se graban y no hay repetición del día de clase presencial.\n' +
-    'Si tienes otra duda o te interesa inscribirte: WhatsApp al +52 1 662 335 8779.'
-
-  const CIERRE_CURSO =
-    'Si te interesa inscribirte o confirmar disponibilidad y pago: WhatsApp al +52 1 662 335 8779.'
-
-  const CIERRE_PRODUCTOS =
-    'Si te interesa comprar alguno o saber disponibilidad y envío: WhatsApp al +52 1 662 335 8779.'
-
-  const replaceLastLineWith = (s: string, newLast: string): string => {
-    const lines = s.split(/\r?\n/)
-    while (lines.length && lines[lines.length - 1].trim() === '') lines.pop()
-    if (lines.length === 0) return newLast
-    if (lines[lines.length - 1].trim() === newLast.trim()) return s
-    lines.pop()
-    lines.push(newLast)
-    return lines.join('\n')
-  }
-
-  const KW_CURSO_GENERAL = [
-    'mesobotox', 'hidrofacial', 'limpieza facial', 'dermapen', 'russian lips',
-    'lipoenzimas', 'toxina botulínica', 'toxina botulinica', 'relleno de labios',
-    'relleno labial', 'fibroblast', 'plasmagel', 'peptonas',
-    'rinomodelación', 'rinomodelacion', 'mandibular', 'hiperhidrosis',
-    'maderoterapia', 'microblading', 'micropuntura', 'bb glow', 'bbglow', 'pdrn',
-  ]
-  const hasCursoGeneral = KW_CURSO_GENERAL.some((k) => msg.includes(k))
-
-  const KW_GRAB = [
-    'grabado', 'grabados', 'grabación', 'grabaciones', 'quedan grabados',
-    'queda grabado', 'no puedo asistir', 'cumpleaños', 'cumple años', 'ocupada',
-    'ocupado', 'miércoles', 'miercoles', 'si no asisto', 'pierdo el día',
-  ]
-  const hasGrab = KW_GRAB.some((k) => msg.includes(k))
-
-  // ===== ANTI-LEAK DE PROMPT INTERNO O INSTRUCCIONES INTERNAS (determinista) =====
-  // Detecta leak de pasos, checkmarks, flags de razonamiento, y también las fugas
-  // de capas de retry tipo "⚠️ OBLIGATORIO después de N oraciones".
-  const leakHits = [
-    /PASO\s*1\s*[\.·:：]\s*BUSCAR\s*PRIMERO\s*EN\s*FAQ/i,
-    /PASO\s*2\s*[\.·:：]\s*BUSCAR\s*EN\s*CURSOS/i,
-    /PASO\s*3\s*[\.·:：]\s*BUSCAR\s*EN\s*PRODUCTOS/i,
-    /PASO\s*4\s*[\.·:：]\s*INFO\s*GENERAL/i,
-    /RAG\s+pipeline\s+ordenado/i,
-    /CHEQUEO\s+FINAL\s+ANTES\s+DE\s+RESPONDER/i,
-    /VER[0-9]+:\s*(?:NUNCA|SIEMPRE|PROHIBIDO)/i,
-    /prioridad\s*0[\.·:：]/i,
-    /SÓLO\s+PUEDES\s+MENCIONAR\s+PRECIOS/i,
-    /PRIORIDAD\s+0/i,
-    /ERROR\s+CRÍTICO\s+DE\s+CALIDAD/i,
-    /INFRACCIÓN[:：]/i,
-    /FORBIDDEN\s+RESPONSE/i,
-    /DESPUÉS\s+DE\s+LA\s+\d+(?:[a-zA-Zª]+)?\s+ORACIÓN/i,
-    /(?:NO|NUNCA|JAMÁS|PROHIBIDO)[\s\S]{0,60}(?:escribas|respondas|repitas|uses|parafrasees)/i,
-    /⚠️\s*(?:OBLIGATORIO|REGLAS?)\b/i,
-    /Primero\s+busco|Ahora\s+(?:busco|respondo|reviso|analizo|buscar|responder)/i,
-    /✅\s*Encontr/i,
-  ]
-  const leakCount = leakHits.reduce((acc, re) => acc + (re.test(text) ? 1 : 0), 0)
-  if (leakCount >= 1 || /RAG\s+pipeline|prompt\s+interno|interno del prompt|razonamiento interno|pasos internos/i.test(text)) {
-    // Fallback seguro: NO repetir el leak, dar respuesta válida cierre de WhatsApp
-    let fallbackWA = FAQ_CONTACTO_VERBATIM
-    if (!fallbackWA) fallbackWA = 'Para atenderte mejor házmelo saber por WhatsApp al +52 1 662 335 8779.'
-    return fallbackWA
-  }
-
-  // ===== ROUTER FAQ-GRABACIÓN (solo si NO hay curso general, ya que arriba lo combinamos) =====
-  if (hasGrab && !hasCursoGeneral) {
-    return FAQ_GRAB_COMPLETO
-  }
-
-  // ===== CIERRES CONSISTENTES (SOLO si el LLM NO lo añadió ya) =====
-  // Estas NO destruyen la respuesta: solo reemplazan la ÚLTIMA línea si el usuario preguntó
-  // por curso o por compra pero el LLM terminó con una frase sin WhatsApp. Es estilo, no destruye información.
-  const tieneTemaCurso = /(?:curso|cursos?|clase|diplomado|formación|formacion|inscrip(?:ci[oó]n|ciones?)|calendario|fecha(?:s)?(?: de curso)?|modalidad)/i.test(userMessage)
-  const tieneTemaCompraProducto = /comprar|compraré|compraria|compraría|quiero comprar|deseo comprar|pedido|pedir|reservar|reservación|adquirir|costo de envío|cuánto cuesta el envío|cuanto cuesta el envio|precio del envío|envíame|envíame|mandame|mándame|necesito comprar|pagar|pago|quiero adquirir|(?:producto|productos|ampolleta|catalogo|catálogo)\b|(?:ficha|precio)\s+del\s+producto|precio\s+del\s+producto|productos\s+(?:tienen|disponibles)/i.test(userMessage)
-  if (tieneTemaCurso && hasCursoGeneral && !/WhatsApp al \+\d/.test(text)) {
-    text = replaceLastLineWith(text.trim(), CIERRE_CURSO)
-  }
-  if (tieneTemaCompraProducto && !/WhatsApp al \+\d/.test(text)) {
-    text = replaceLastLineWith(text.trim(), CIERRE_PRODUCTOS)
-  }
-  return text.trim()
-}
-
 app.post('/api/chat', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : ''
@@ -2177,7 +2062,7 @@ app.post('/api/chat', requireAuth, csGuard(CS_ADMIN_ROLES), async (req: Request,
     })
     // ===== ARQUITECTURA SIMPLE: NO hay post-sanitizadores, NO hay enforcement de ground truth.
     // Únicamente prompt del tenant + contexto retrieval + historial → LLM → respuesta.
-    // (Se eliminó enforceSalubelGroundTruth a pedido del usuario para quitar el "mundo de reglas".)
+    // Los datos de cada negocio salen de su prompt y sus documentos, nunca del código.
     res.status(200).json(answer)
   } catch (error) {
     next(error)

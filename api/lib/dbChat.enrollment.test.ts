@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createSearchIndex } from './searchIndex.js'
 import {
+  buildClarificationReply,
+  findBusinessPaymentBlocks,
+  findBusinessProfileBlocks,
+  isPaymentConversation,
+  findRequirementBlockForCourses,
   buildEnrollmentInterestReply,
   buildEnrollmentModalityReply,
   isAuthorizedEnrollmentFlowAnswer,
@@ -87,14 +93,17 @@ test('authorizes only the exact deterministic enrollment flow response', () => {
   assert.equal(isAuthorizedEnrollmentFlowAnswer('No cuento con esa información.', expected), false)
 })
 
-test('authorizes the exact official out-of-scope responses', () => {
-  const general = 'No estoy capacitado para responder dudas externas a Salubel Institute, pero te puedo ayudar con cualquier curso, producto o información oficial de Salubel Institute. ¿En qué te puedo apoyar?'
-  const recommendation = `${general}\nPara cualquier recomendación o asesoría personalizada, por favor envía un mensaje al WhatsApp de Salubel Institute al +52 1 662 335 8779.`
+test('authorizes only official phrases written word for word in the tenant prompt', () => {
+  const general = 'No estoy capacitado para responder dudas externas a Clínica Ejemplo, pero te puedo ayudar con cualquier servicio o información oficial de Clínica Ejemplo. ¿En qué te puedo apoyar?'
+  const recommendation = `${general}\nPara cualquier recomendación personalizada, por favor envía un mensaje al WhatsApp de Clínica Ejemplo al 55 1234 5678.`
+  const tenantPrompt = `Eres el asistente de Clínica Ejemplo.\nSi preguntan algo externo responde: "${general}"\nSi piden recomendación responde:\n${recommendation}\nNo inventes datos.`
 
-  assert.equal(isAuthorizedOutOfScopeAnswer(general), true)
-  assert.equal(isAuthorizedOutOfScopeAnswer(recommendation), true)
-  assert.equal(isAuthorizedOutOfScopeAnswer(`${general} ¿Te ayudo con algo más?`), false)
-  assert.equal(isAuthorizedOutOfScopeAnswer('No cuento con la información en este momento.'), false)
+  assert.equal(isAuthorizedOutOfScopeAnswer(general, tenantPrompt), true)
+  assert.equal(isAuthorizedOutOfScopeAnswer(recommendation, tenantPrompt), true)
+  assert.equal(isAuthorizedOutOfScopeAnswer(`${general} ¿Te ayudo con algo más?`, tenantPrompt), false)
+  assert.equal(isAuthorizedOutOfScopeAnswer('No inventes datos.', tenantPrompt), false)
+  // another business's phrase is not official for this one
+  assert.equal(isAuthorizedOutOfScopeAnswer(general, 'Eres el asistente de Otra Tienda.'), false)
 })
 
 test('approves only prompt-authorized payment data after a location reply', () => {
@@ -165,4 +174,111 @@ Una vez realizado tu pago, por favor envía el comprobante al WhatsApp oficial +
     ),
     false,
   )
+})
+
+test('asks to rephrase twice in a row, then leaves the conversation to a person', () => {
+  const first = buildClarificationReply([{ role: 'user', content: 'ksdj fcl?' }])
+  assert.ok(first)
+
+  const afterOne: DbConversationMessage[] = [
+    { role: 'user', content: 'ksdj fcl?' },
+    { role: 'assistant', content: first },
+    { role: 'user', content: 'xx crs' },
+  ]
+  const second = buildClarificationReply(afterOne)
+  assert.ok(second)
+  assert.notEqual(second, first)
+
+  const afterTwo: DbConversationMessage[] = [...afterOne, { role: 'assistant', content: second }, { role: 'user', content: 'zz' }]
+  assert.equal(buildClarificationReply(afterTwo), null)
+})
+
+test('a real answer between requests to rephrase resets the count', () => {
+  const first = buildClarificationReply([])!
+  const second = buildClarificationReply([{ role: 'assistant', content: first }])!
+  const history: DbConversationMessage[] = [
+    { role: 'assistant', content: first },
+    { role: 'assistant', content: second },
+    { role: 'user', content: 'cursos faciales' },
+    { role: 'assistant', content: 'Tenemos Hidrofacial y Russian Lips.' },
+    { role: 'user', content: 'asdf' },
+  ]
+  assert.equal(buildClarificationReply(history), first)
+})
+
+test('a tenant without a courses document is not offered courses when asked to rephrase', () => {
+  const first = buildClarificationReply([], false)!
+  assert.doesNotMatch(first, /curso/i)
+  assert.match(first, /producto o servicio/)
+  assert.match(buildClarificationReply([], true)!, /curso, producto o servicio/)
+
+  // the no-courses wording still counts toward the limit of two in a row
+  const second = buildClarificationReply([{ role: 'assistant', content: first }], false)!
+  assert.doesNotMatch(second, /curso/i)
+  assert.equal(buildClarificationReply([{ role: 'assistant', content: first }, { role: 'assistant', content: second }], false), null)
+})
+
+test('a course listed in the business requirements block brings that block along', () => {
+  const index = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: [
+        '[REQUISITOS_PARA_TOMAR_CURSOS]',
+        'Se requiere titulo medico para aplicar los tratamientos de estos cursos:',
+        '- Rinomodelacion con acido hialuronico',
+        '- Aplicacion de Botox en tercio superior',
+        '',
+        '[CURSO]', 'Nombre del curso: Rinomodelación.', 'Precio: $895 MXN', '',
+        '[CURSO]', 'Nombre del curso: Toxina Botulínica: Tercio superior.', 'Precio: $895 MXN', '',
+        '[CURSO]', 'Nombre del curso: Mesobotox.', 'Precio: $895 MXN',
+      ].join('\n'),
+    }] as any,
+  })
+  const card = (name: string) => index.blocks.find((block) => block.fields.name.startsWith(name))!
+
+  assert.match(findRequirementBlockForCourses(index.blocks, [card('Rinomodelación')])?.body || '', /titulo medico/)
+  assert.match(findRequirementBlockForCourses(index.blocks, [card('Toxina')])?.body || '', /titulo medico/)
+  assert.equal(findRequirementBlockForCourses(index.blocks, [card('Mesobotox')]), null)
+})
+
+test('the business name, contact and payment blocks come from its general documents', () => {
+  const index = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      id: 'general',
+      title: 'infogeneral.md',
+      docType: 'general',
+      section: 'general',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: [
+        '[NOMBRE_DE_EMPRESA]', 'Clinica Ejemplo', '',
+        '[UBICACION]', 'Av. Principal 123', '',
+        '[WHATSAPP_OFICIAL]', '+52 55 1234 5678', '',
+        '[DATOS_BANCARIOS_PUBLICOS]', 'BBVA cuenta 0123 4567 8901 2345', '',
+        '[FORMAS_DE_PAGO_ACEPTADAS]', 'Transferencia, tarjeta o efectivo.', '',
+        '[MISION]', 'Ayudar a nuestros clientes.',
+      ].join('\n'),
+    }] as any,
+  })
+
+  const profile = findBusinessProfileBlocks(index.blocks, []).map((block) => block.body)
+  assert.deepEqual(profile, ['[NOMBRE_DE_EMPRESA]\nClinica Ejemplo', '[WHATSAPP_OFICIAL]\n+52 55 1234 5678'])
+  const payment = findBusinessPaymentBlocks(index.blocks, []).map((block) => block.body)
+  assert.deepEqual(payment, [
+    '[DATOS_BANCARIOS_PUBLICOS]\nBBVA cuenta 0123 4567 8901 2345',
+    '[FORMAS_DE_PAGO_ACEPTADAS]\nTransferencia, tarjeta o efectivo.',
+  ])
+})
+
+test('payment blocks are sent only in payment or enrollment conversations', () => {
+  assert.equal(isPaymentConversation('como puedo pagar?', []), true)
+  assert.equal(isPaymentConversation('Hermosillo', [{ role: 'assistant', content: '¿Desde qué ciudad o país nos escribes?' }]), true)
+  assert.equal(isPaymentConversation('que cursos tienen para la cara', [{ role: 'assistant', content: 'Hola, ¿en qué te ayudo?' }]), false)
 })
