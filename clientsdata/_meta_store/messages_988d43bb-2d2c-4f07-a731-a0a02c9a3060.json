@@ -39866,7 +39866,8 @@
     "direction": "IN",
     "content": "Más información producto Kit gluteo",
     "sentToUser": false,
-    "createdAt": "2026-09-10T17:25:22.878Z"
+    "createdAt": "2026-09-10T17:25:22.878Z",
+    "readByUserAt": "2026-10-22T16:54:48.264Z"
   },
   {
     "id": "48b735b5-9e2d-44e3-8286-727f348f9324",
@@ -39902,7 +39903,8 @@
         "post_id": "1115938687630698"
       },
       "receivedAt": "2026-10-13T16:16:13.507Z"
-    }
+    },
+    "readByUserAt": "2026-10-22T16:54:48.265Z"
   },
   {
     "id": "ca290613-b5ef-4713-87c8-4a381de8da51",
@@ -89060,7 +89062,8 @@
       "receivedAt": "2026-10-07T00:27:20.951Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-07T00:27:21.783Z"
+    "createdAt": "2026-10-07T00:27:21.783Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "951e0622-137e-4ab2-9147-d02142d99c4f",
@@ -89096,7 +89099,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-07T00:29:12.408Z"
+    "createdAt": "2026-10-07T00:29:12.408Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "c42d9790-efd6-43c4-bbb0-0bcf6de8206d",
@@ -112623,7 +112627,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T06:12:53.015Z"
+    "createdAt": "2026-10-13T06:12:53.015Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "93e3f8d5-d5b4-4674-9cea-f05ba74d2e91",
@@ -112659,7 +112664,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T06:13:56.511Z"
+    "createdAt": "2026-10-13T06:13:56.511Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "ef1d6059-0b5e-46a8-98c0-6d3c69c8cce0",
@@ -112695,7 +112701,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T06:16:27.253Z"
+    "createdAt": "2026-10-13T06:16:27.253Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "e7286b71-5c41-4310-9e92-3ad82045a4ab",
@@ -112753,7 +112760,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T06:17:53.943Z"
+    "createdAt": "2026-10-13T06:17:53.943Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "476d93f6-7719-4f3a-9189-4babe2a6d251",
@@ -113170,7 +113178,8 @@
       "receivedAt": "2026-10-13T13:31:43.040Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T13:31:43.891Z"
+    "createdAt": "2026-10-13T13:31:43.891Z",
+    "readByUserAt": "2026-10-22T16:55:29.430Z"
   },
   {
     "id": "d955a7f2-5912-4cea-93d6-3f8002ed8b45",
@@ -113278,7 +113287,8 @@
       "receivedAt": "2026-10-13T14:14:16.365Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T14:14:17.039Z"
+    "createdAt": "2026-10-13T14:14:17.039Z",
+    "readByUserAt": "2026-10-22T16:55:32.725Z"
   },
   {
     "id": "4abf71c9-2c63-4b99-b008-47ef537c0e6e",
@@ -113358,7 +113368,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T14:46:21.106Z"
+    "createdAt": "2026-10-13T14:46:21.106Z",
+    "readByUserAt": "2026-10-22T16:55:12.852Z"
   },
   {
     "id": "d780e6ef-de51-4ff9-addc-15bbda7e7859",
@@ -113394,7 +113405,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T14:49:13.090Z"
+    "createdAt": "2026-10-13T14:49:13.090Z",
+    "readByUserAt": "2026-10-22T16:55:12.853Z"
   },
   {
     "id": "31a00411-a1d8-4e15-ab75-9f7634e260b4",
@@ -113596,7 +113608,8 @@
       "receivedAt": "2026-10-13T06:12:52.210Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T15:44:40.982Z"
+    "createdAt": "2026-10-13T15:44:40.982Z",
+    "readByUserAt": "2026-10-22T16:55:12.853Z"
   },
   {
     "id": "d9da492e-e734-4530-97ff-03bccf027a54",
@@ -113632,7 +113645,8 @@
       "receivedAt": "2026-10-13T16:16:13.507Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T16:16:14.740Z"
+    "createdAt": "2026-10-13T16:16:14.740Z",
+    "readByUserAt": "2026-10-22T16:54:48.266Z"
   },
   {
     "id": "1b375d86-441f-4ffa-b6d3-54d6821f2c08",
@@ -113667,7 +113681,8 @@
       "receivedAt": "2026-10-13T16:17:34.844Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T16:17:35.265Z"
+    "createdAt": "2026-10-13T16:17:35.265Z",
+    "readByUserAt": "2026-10-22T16:55:08.114Z"
   },
   {
     "id": "7aa9d520-c621-4a43-b026-67597e34198a",
@@ -113810,7 +113825,8 @@
       "receivedAt": "2026-10-13T16:16:13.507Z"
     },
     "sentToUser": false,
-    "createdAt": "2026-10-13T16:32:09.545Z"
+    "createdAt": "2026-10-13T16:32:09.545Z",
+    "readByUserAt": "2026-10-22T16:54:48.266Z"
   },
   {
     "id": "88194b64-e00d-43a2-bf2c-3ec5399c0888",
