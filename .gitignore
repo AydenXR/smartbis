@@ -36,3 +36,9 @@ clientsdata/_whatsapp_store/
 
 # Electron build output (may contain embedded credentials)
 dist-electron/
+
+# Datos de clientes en produccion (los modifica el sistema en uso)
+clientsdata/
+
+# Cache generada por el compilador de TypeScript
+*.tsbuildinfo
