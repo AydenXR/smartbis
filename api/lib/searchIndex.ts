@@ -1150,6 +1150,16 @@ const SECTION_TOPIC_WORDS =
 // Whether a message says what it is about: a section ("cursos", "horarios") or
 // an item the documents name. "¿Cuales son los precios?" or "¿y en linea?" do
 // not: they continue the topic of the previous question
+// The words of a text that the business's documents use. Meta ad titles carry
+// campaign codes ("Relleno de arrugas MXMSVI 1026_Group_1_Image") that would be
+// taken for part of an item name; no document uses them, so they drop out
+export function keepDocumentWords(index: SearchIndex, text: string) {
+  const { known } = getTypoVocabulary(index)
+  const words = normalizeText(text).split(' ').filter((word) => word && !/\d/.test(word) && known.has(word))
+  const namesSomething = words.some((word) => word.length >= 4 && !QUERY_ENTITY_STOP_WORDS.has(word))
+  return namesSomething ? words.join(' ') : ''
+}
+
 export function namesKnownTopic(index: SearchIndex, message: string) {
   const query = correctQueryTypos(index, message)
   if (SECTION_TOPIC_WORDS.test(query)) return true

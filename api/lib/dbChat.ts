@@ -1,4 +1,4 @@
-import { namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
+import { keepDocumentWords, namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
 import { getDbTenantSearchIndex } from './dbWorkspace.js'
 import { DEFAULT_TIME_ZONE, describeTimeZone, detectTimeZoneSetting, getZonedDateParts } from './timeZone.js'
 import {
@@ -1311,7 +1311,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   // for a customer who came from an ad, about what the ad showed
   const previousTopicQuestion = messageNamesTopic
     ? null
-    : findPreviousTopicQuestion(index, input.history || []) || adSearchText(input.referralContext || '') || null
+    : findPreviousTopicQuestion(index, input.history || []) || keepDocumentWords(index, adSearchText(input.referralContext || '')) || null
   let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], previousTopicQuestion)
   let retrieval = buildDbDocumentsContextBlock(index, retrievalQuery, includePayment)
 
