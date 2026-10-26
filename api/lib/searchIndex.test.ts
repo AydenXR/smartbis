@@ -482,3 +482,55 @@ test('an ad title keeps only the words the business documents use, without campa
   assert.match(result.contextBlock, /Relleno de arrugas y revitalización/)
   assert.doesNotMatch(result.contextBlock, /Russian Lips/)
 })
+
+test('asking whether the business sells gets the product catalog, even with unknown words around', () => {
+  for (const q of [
+    'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?',
+    'ustedes venden?',
+    'hacen venta al publico?',
+    'disponen de productos?',
+    'cuentan con productos en venta?',
+  ]) {
+    const result = searchIndex(courseAndProductIndex, q)
+    assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/, q)
+    assert.match(result.contextBlock, /Enzimas \(8 productos\)/, q)
+  }
+})
+
+test('a product that does not exist is still not answered with the catalog', () => {
+  assert.equal(searchIndex(index, 'venden acido tranexamico?').matchedBlocks.length, 0)
+  assert.equal(searchIndex(index, 'precio del acido tranexamico').matchedBlocks.length, 0)
+})
+
+test('asking whether they sell courses gets the courses, not the products', () => {
+  const result = searchIndex(courseAndProductIndex, 'venden cursos?')
+  assert.match(result.contextBlock, /Hidrofacial/)
+  assert.doesNotMatch(result.contextBlock, /Enzimas \(8 productos\)/)
+})
+
+test('asking whether they sell is a topic of its own, not a follow-up of the previous question', () => {
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?'), true)
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'ustedes venden?'), true)
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'cuales son los precios?'), false)
+})
+
+test('a word that only names a general block, like DATOS_BANCARIOS, does not stop the product catalog', () => {
+  const withBankData = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [
+      ...courseAndProductIndex.documents,
+      {
+        id: 'info',
+        title: 'infogeneral.md',
+        docType: 'empresa',
+        section: 'general',
+        content: '[DATOS_BANCARIOS_PUBLICOS]\nBANCO EJEMPLO cuenta 0123\n\n[DATOS_FISCALES_Y_RFC]\nRFC EJEMPLO',
+        isActive: true,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+  })
+  const result = searchIndex(withBankData, 'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?')
+  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/)
+  assert.doesNotMatch(result.contextBlock, /BANCO EJEMPLO|RFC EJEMPLO/)
+})

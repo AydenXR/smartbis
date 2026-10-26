@@ -85,6 +85,7 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   // Verbos de "¿que ofrecen?": preguntan por la oferta, no nombran un elemento
   'brindan', 'brindas', 'brindar', 'brindamos', 'ofreces', 'ofrecer', 'manejan', 'manejas', 'manejar',
   'imparten', 'impartes', 'realizas', 'haces', 'trabajan', 'trabajas', 'tienen', 'vendes', 'proporcionan',
+  'disponen', 'dispones', 'disponemos', 'manejas', 'surten', 'comercializan', 'distribuyen',
   // Preguntas de seguimiento ("¿y en linea?", "¿cuanto cuesta?"): piden un dato del tema ya hablado
   'linea', 'presencial', 'presenciales', 'modalidad', 'modalidades', 'costo', 'costos', 'cuesta', 'cuestan',
   'fecha', 'fechas', 'proxima', 'proximo', 'proximas', 'proximos', 'empieza', 'empiezan', 'inicia', 'inician',
@@ -1081,6 +1082,7 @@ const QUESTION_VOCABULARY = [
   'taller', 'talleres', 'diplomado', 'diplomados', 'sesion', 'sesiones',
   'tienes', 'tienen', 'cuentas', 'cuentan', 'ofrecen', 'venden', 'manejan', 'hacen', 'aplican',
   'brindan', 'brindas', 'ofreces', 'manejas', 'imparten', 'realizan', 'trabajan', 'proporcionan',
+  'disponen', 'dispones', 'venden', 'vendes',
   'disponible', 'disponibles', 'disponibilidad', 'existencia', 'precio', 'precios', 'costo', 'cuanto', 'cuesta',
   'horario', 'horarios', 'fecha', 'fechas', 'cuando', 'donde', 'ubicacion', 'direccion',
   'online', 'linea', 'presencial', 'modalidad', 'informacion', 'quiero', 'necesito', 'busco',
@@ -1162,7 +1164,8 @@ export function keepDocumentWords(index: SearchIndex, text: string) {
 
 export function namesKnownTopic(index: SearchIndex, message: string) {
   const query = correctQueryTypos(index, message)
-  if (SECTION_TOPIC_WORDS.test(query)) return true
+  // "¿ustedes venden?" is about the products, not a follow-up of the previous question
+  if (SECTION_TOPIC_WORDS.test(query) || SELLING_QUESTION.test(query)) return true
   return queryEntityWords(query).some((word) => index.blocks.some((block) => blockNameHasWord(block, word)))
 }
 
@@ -1225,6 +1228,8 @@ export function searchIndex(index: SearchIndex, rawQuery: string): SearchContext
   }
 }
 
+const SELLING_QUESTION = /\b(?:venden|vendes|vendemos|vender|venta|ventas|comercializan|distribuyen)\b/
+
 function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextResult {
   const intent = analyzeQuery(query)
   // Scored once per block: scoring inside the comparator repeated it on every comparison
@@ -1243,6 +1248,28 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
   const entityMatchedBlocks = intent.wantsList
     ? candidateBlocks
     : filterToEntityMatches(candidateBlocks, query, intent)
+
+  // "¿Ustedes venden?", "¿darán datos de proveedores o venden?": whether the
+  // business sells. Unless a product is named, the catalog by category answers
+  // it, though other words of the question are not in the documents
+  // Only products, courses and treatments count: "datos" also titles general
+  // blocks like [DATOS_BANCARIOS_PUBLICOS], which are not something for sale
+  const namesItem = queryEntityWords(query).some((word) =>
+    index.blocks.some((block) => (block.document.section !== 'general' || isTreatmentBlock(block)) && blockNameHasWord(block, word)),
+  )
+  // "¿venden cursos?" asks about courses: their own list answers it
+  if (SELLING_QUESTION.test(query) && !namesItem && !intent.wantsCourses && !intent.wantsServices) {
+    const products = candidateBlocks.filter((block) => block.document.section === 'productos')
+    const summary = products.length > 0 ? buildStructuredCatalogSummary(products, MAX_CONTEXT_CHARS * 2) : ''
+    if (summary) {
+      return {
+        documents: Array.from(new Map(products.map((block) => [block.document.id, block.document])).values()),
+        contextBlock: summary,
+        matchedBlocks: products.slice(0, MAX_CONTEXT_BLOCKS),
+        intent,
+      }
+    }
+  }
 
   const courseAreaSummary = intent.wantsCourses ? buildCourseAreaSummary(candidateBlocks, query) : null
   if (courseAreaSummary) {
