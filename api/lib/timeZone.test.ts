@@ -59,6 +59,17 @@ test('a course date that is today in the business zone is still offered', () => 
   assert.doesNotMatch(inMadrid, /31 de octubre/)
 })
 
+test('a past date is removed when the course has no upcoming date', () => {
+  const index = indexWith('cursos.md', 'cursos', '[FECHAS_CURSOS]\nEn línea:\n✨ 21 Octubre 2026 - Hidrofacial\n✨ 4 Noviembre 2026 - Limpiezas faciales')
+  const instant = new Date(Date.UTC(2026, 9, 26, 22))
+  const answer = 'El costo online es de $595 MXN.\n\nLa próxima fecha disponible es el 21 de octubre de 2026 (en línea). ¿Te gustaría reservar?'
+
+  const result = applyUpcomingCourseDateCorrection(answer, 'es con hidrafacial', index.blocks, instant, 'America/Hermosillo')
+  assert.doesNotMatch(result, /21 de octubre/)
+  assert.match(result, /\$595 MXN/)
+  assert.match(result, /WhatsApp/)
+})
+
 test('the bot gets a quotable time zone line: the business one or Hermosillo', () => {
   const winter = new Date(Date.UTC(2026, 0, 15, 18))
 

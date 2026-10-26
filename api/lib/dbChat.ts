@@ -933,6 +933,41 @@ export function buildCourseListReply(
   return `${sections.join('\n\n')}\n\n${closing}`
 }
 
+// A course with no upcoming dates must not be answered with a date that already passed.
+// Any date written in the answer is compared with today in the business time zone, whatever its source.
+function removeStalePastCourseDates(
+  answer: string,
+  matchedBlocks: IndexedBlock[],
+  now: Date,
+  timeZone: string,
+) {
+  const today = getZonedDateParts(now, timeZone)
+  const dateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-záéíóú]+)(?:\s+(?:de\s+)?(\d{4}))?/gi
+  const schedulingContext = /fecha|curso|pr[oó]xim|disponible|programad|inicia|imparte|taller|sesi[oó]n|reserv/i
+  const alreadyFlagged = /ya\s+pas[oó]/i
+
+  const mentionsPastDate = (text: string) => {
+    if (!schedulingContext.test(text) || alreadyFlagged.test(text)) return false
+    for (const match of text.matchAll(dateRegex)) {
+      const month = COURSE_DATE_MONTHS.get(normalizeText(match[2]))
+      const day = Number(match[1])
+      if (!month || day < 1 || day > 31) continue
+      const year = match[3] ? Number(match[3]) : today.year
+      if (isCourseDatePast({ year, month, day, courseName: '', modality: '' }, today)) return true
+    }
+    return false
+  }
+  if (!mentionsPastDate(answer) && !answer.split(/(?<=[.!?\n])/).some(mentionsPastDate)) return answer
+
+  const paragraphs = answer.split(/\n{2,}/).map((paragraph) => {
+    const sentences = paragraph.match(/[^.!?\n]+[.!?]*\s*|\n/g) || [paragraph]
+    return sentences.filter((sentence) => !mentionsPastDate(sentence)).join('').trim()
+  }).filter(Boolean)
+
+  paragraphs.push('Por el momento no tenemos una fecha próxima confirmada para ese curso. Contáctanos por WhatsApp para conocer las próximas fechas disponibles.')
+  return paragraphs.join('\n\n')
+}
+
 export function applyUpcomingCourseDateCorrection(
   answer: string,
   question: string,
@@ -947,7 +982,7 @@ export function applyUpcomingCourseDateCorrection(
   if (isPaymentAnswer) return answer
 
   const upcomingDates = getUpcomingCourseDates(question, matchedBlocks, now, timeZone)
-  if (!upcomingDates.length) return answer
+  if (!upcomingDates.length) return removeStalePastCourseDates(answer, matchedBlocks, now, timeZone)
 
   // Agrupar fechas por curso para no mezclar nombres con fechas ajenas
   const datesByCourse = new Map<string, ScheduledCourseDate[]>()
