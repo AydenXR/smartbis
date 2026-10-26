@@ -1,4 +1,4 @@
-import { namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
+import { keepDocumentWords, namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
 import { getDbTenantSearchIndex } from './dbWorkspace.js'
 import { DEFAULT_TIME_ZONE, describeTimeZone, detectTimeZoneSetting, getZonedDateParts } from './timeZone.js'
 import {
@@ -994,21 +994,27 @@ export function buildEnrollmentInterestReply(userMessage: string, history: DbCon
   return `¡Excelente! Para avanzar con tu inscripción al curso de ${courseName}, ¿te interesa la modalidad online o presencial?`
 }
 
-const QUESTION_WORDS =
-  /\b(?:que|qué|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|quien|horario|horarios|lugar|ubicacion|direccion|duracion|dura|incluye|incluyen|diferencia|costo|cuesta|precio)\b/
+// Words a customer may wrap a bare modality choice in ("la online por favor",
+// "prefiero presencial"); anything else means they are asking for something
+const MODALITY_CHOICE_FILLER = new Set([
+  'online', 'en', 'linea', 'presencial', 'la', 'el', 'modalidad', 'me', 'interesa', 'quiero', 'prefiero',
+  'seria', 'mejor', 'gustaria', 'quisiera', 'por', 'favor', 'porfavor', 'si', 'claro', 'ok', 'pues', 'que', 'sea', 'opcion', 'gracias',
+])
 
 export function buildEnrollmentModalityReply(userMessage: string, history: DbConversationMessage[]): string | null {
   const normalizedMessage = normalizeConversationReply(userMessage)
   const modality = /\b(online|en linea|presencial)\b/.exec(normalizedMessage)?.[1]
   if (!modality) return null
-  // A question about a modality (schedule, place, price...) is not a choice and must be answered first
-  if (/[?¿]/.test(userMessage) || QUESTION_WORDS.test(normalizedMessage)) return null
+  // "Mas informacion curso online limpieza facial" asks for information, it does not choose
+  if (!normalizedMessage.split(' ').every((word) => MODALITY_CHOICE_FILLER.has(word))) return null
 
+  // Only an answer to the bot asking which modality ("¿te interesa la modalidad
+  // online o presencial?"), not to an answer that merely mentions modalities
   const lastAssistantMessage = [...(history || [])]
     .reverse()
     .find((message) => message.role === 'assistant' && String(message.content || '').trim())
-  // The bot must have actually asked which modality; only mentioning one is not enough
-  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)\s*,?\s*o\s+(?:en\s+l[ií]nea|online|presencial)|(?:online|presencial)\s+o\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
+  const askedForModality = /¿[^?]*\b(?:online|en\s+l[ií]nea)\s+o\s+presencial\b[^?]*\?|¿[^?]*\bpresencial\s+o\s+(?:online|en\s+l[ií]nea)\b[^?]*\?/i
+  if (!lastAssistantMessage || !askedForModality.test(lastAssistantMessage.content)) return null
 
   const hasLocationAlready =
     (history || []).some((message) =>
@@ -1318,7 +1324,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   // for a customer who came from an ad, about what the ad showed
   const previousTopicQuestion = messageNamesTopic
     ? null
-    : findPreviousTopicQuestion(index, input.history || []) || adSearchText(input.referralContext || '') || null
+    : findPreviousTopicQuestion(index, input.history || []) || keepDocumentWords(index, adSearchText(input.referralContext || '')) || null
   let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], previousTopicQuestion)
   let retrieval = buildDbDocumentsContextBlock(index, retrievalQuery, includePayment)
 

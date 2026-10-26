@@ -89,6 +89,50 @@ test('asks for location after online or presencial modality selection', () => {
   )
 })
 
+const priceHistory: DbConversationMessage[] = [{
+  role: 'assistant',
+  content: `Actualmente tenemos la modalidad online disponible y la fecha programada es el 4 de noviembre.
+
+El costo presencial es de $1350 MXN e incluye constancia de participación.
+
+El costo online es de $595 MXN ($33 USD) e incluye práctica demostrativa.
+
+¿Te gustaría inscribirte en este curso, o requieres más detalles?`,
+}]
+
+test('answers a question about the presencial course instead of jumping to the payment flow', () => {
+  const questions = [
+    '¿En qué horario y lugar se realiza la práctica presencial?',
+    'En qué horario y lugar se realiza la práctica presencial ?',
+    'Dónde es la modalidad presencial',
+    'Cuánto dura el curso online?',
+    'La presencial incluye materiales?',
+    'cual es la diferencia entre online y presencial',
+  ]
+  for (const question of questions) {
+    assert.equal(buildEnrollmentModalityReply(question, priceHistory), null, `Should not start payment flow for: ${question}`)
+  }
+})
+
+test('does not read a modality question as a choice even when the bot asked for the modality', () => {
+  const modalityHistory: DbConversationMessage[] = [{
+    role: 'assistant',
+    content: '¡Excelente! Para avanzar con tu inscripción al curso de Limpieza facial, ¿te interesa la modalidad online o presencial?',
+  }]
+  assert.equal(buildEnrollmentModalityReply('¿En qué horario y lugar es la presencial?', modalityHistory), null)
+  assert.equal(buildEnrollmentModalityReply('Cuánto cuesta la presencial', modalityHistory), null)
+})
+
+test('keeps accepting plain modality choices', () => {
+  const modalityHistory: DbConversationMessage[] = [{
+    role: 'assistant',
+    content: '¡Excelente! Para avanzar con tu inscripción al curso de Limpieza facial, ¿te interesa la modalidad online o presencial?',
+  }]
+  for (const message of ['Online', 'presencial', 'La presencial', 'Quiero la modalidad online', 'Me interesa la presencial', 'En línea por favor']) {
+    assert.ok(buildEnrollmentModalityReply(message, modalityHistory), `Expected payment flow for: ${message}`)
+  }
+})
+
 test('authorizes only the exact deterministic enrollment flow response', () => {
   const expected = '¡Perfecto! Para enviarte los datos de inscripción y las opciones de pago, ¿nos puedes indicar desde qué ciudad o país nos escribes?'
 
@@ -164,7 +208,7 @@ Datos de la cuenta y métodos de pago (México):
 - Pagos en tiendas de autoservicio (Banamex):
   5204 1653 7821 9095
 
-Una vez realizado tu pago, por favor envía el comprobante al WhatsApp oficial +52 1 662 335 8779 junto con tu nombre completo y correo para confirmar tu inscripción.`
+Una vez realizado tu pago, por favor envía el comprobante al WhatsApp oficial +52 1 662 335 8779 junto con tu nombre completo, correo y número de teléfono con WhatsApp para confirmar tu inscripción.`
 
   assert.equal(isAuthorizedPaymentFlowAnswer('Hermosillo', paymentHistory, answer, prompt), true)
 
@@ -347,4 +391,25 @@ test('only the ad title reaches the search, never the instructions for the model
   assert.equal(adSearchText(AD_CONTEXT), 'Producto AH Revofil')
   assert.equal(adSearchText(`${AD_CONTEXT} · referencia promo-octubre`), 'Producto AH Revofil promo-octubre')
   assert.equal(adSearchText(''), '')
+})
+
+test('a request for more information is not taken for a modality choice', () => {
+  const courseInfo: DbConversationMessage[] = [
+    { role: 'user', content: 'Mas informacion curso online limpieza Facial' },
+    { role: 'assistant', content: 'El curso de Limpieza facial se imparte en modalidad online y presencial. Precio online: $595 MXN. ¿Te gustaría inscribirte?' },
+  ]
+  // the customer repeats the request: the bot keeps giving the information
+  assert.equal(buildEnrollmentModalityReply('Mas informacion curso online limpieza Facial', courseInfo), null)
+  assert.equal(buildEnrollmentModalityReply('cuanto cuesta el online?', courseInfo), null)
+  // a bare modality answer to an answer that did not ask for it is not a choice either
+  assert.equal(buildEnrollmentModalityReply('online', courseInfo), null)
+
+  const modalityQuestion: DbConversationMessage[] = [{
+    role: 'assistant',
+    content: '¡Excelente! Para avanzar con tu inscripción al curso de Limpieza facial, ¿te interesa la modalidad online o presencial?',
+  }]
+  for (const choice of ['online', 'en linea', 'la presencial por favor', 'prefiero online', 'Me gustaría la modalidad online']) {
+    assert.ok(buildEnrollmentModalityReply(choice, modalityQuestion), choice)
+  }
+  assert.equal(buildEnrollmentModalityReply('Mas informacion curso online limpieza Facial', modalityQuestion), null)
 })

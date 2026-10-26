@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createSearchIndex, namesKnownTopic, searchIndex } from './searchIndex.js'
+import { createSearchIndex, keepDocumentWords, namesKnownTopic, searchIndex } from './searchIndex.js'
 import type { WorkspaceDocument } from './workspace.js'
 
 const document: WorkspaceDocument = {
@@ -461,4 +461,24 @@ test('a city where the business has no branch still gets the courses and where t
 test('an absent item is still not taken for a place', () => {
   const result = searchIndex(placeIndex, 'tienen curso de microblading?')
   assert.doesNotMatch(result.contextBlock, /Hidrofacial|Russian Lips/)
+})
+
+test('an ad title keeps only the words the business documents use, without campaign codes', () => {
+  const adIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...facialCoursesIndex.documents[0],
+      content: [
+        '[CURSO]', 'Nombre del curso: Relleno de arrugas y revitalización con Hyaluron Pen', 'Precio: $895 MXN', '',
+        '[CURSO]', 'Nombre del curso: Russian Lips', 'Precio: $895 MXN',
+      ].join('\n'),
+    }],
+  })
+  assert.equal(keepDocumentWords(adIndex, 'Relleno de arrugas MXMSVI 1026_Group_1_Image'), 'relleno de arrugas')
+  assert.equal(keepDocumentWords(adIndex, 'Russian Lips USMSVI 1026'), 'russian lips')
+  assert.equal(keepDocumentWords(adIndex, 'Campaña MXMSVI 0926_Group_1_Image'), '')
+
+  const result = searchIndex(adIndex, `${keepDocumentWords(adIndex, 'Relleno de arrugas MXMSVI 1026_Group_1_Image')}\ninformacion`)
+  assert.match(result.contextBlock, /Relleno de arrugas y revitalización/)
+  assert.doesNotMatch(result.contextBlock, /Russian Lips/)
 })
