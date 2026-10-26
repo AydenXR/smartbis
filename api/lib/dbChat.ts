@@ -994,15 +994,21 @@ export function buildEnrollmentInterestReply(userMessage: string, history: DbCon
   return `¡Excelente! Para avanzar con tu inscripción al curso de ${courseName}, ¿te interesa la modalidad online o presencial?`
 }
 
+const QUESTION_WORDS =
+  /\b(?:que|qué|cual|cuales|cuanto|cuantos|cuanta|cuantas|como|donde|cuando|quien|horario|horarios|lugar|ubicacion|direccion|duracion|dura|incluye|incluyen|diferencia|costo|cuesta|precio)\b/
+
 export function buildEnrollmentModalityReply(userMessage: string, history: DbConversationMessage[]): string | null {
   const normalizedMessage = normalizeConversationReply(userMessage)
   const modality = /\b(online|en linea|presencial)\b/.exec(normalizedMessage)?.[1]
   if (!modality) return null
+  // A question about a modality (schedule, place, price...) is not a choice and must be answered first
+  if (/[?¿]/.test(userMessage) || QUESTION_WORDS.test(normalizedMessage)) return null
 
   const lastAssistantMessage = [...(history || [])]
     .reverse()
     .find((message) => message.role === 'assistant' && String(message.content || '').trim())
-  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
+  // The bot must have actually asked which modality; only mentioning one is not enough
+  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)\s*,?\s*o\s+(?:en\s+l[ií]nea|online|presencial)|(?:online|presencial)\s+o\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
 
   const hasLocationAlready =
     (history || []).some((message) =>
@@ -1290,6 +1296,7 @@ function buildPaymentFlowGuard(userMessage: string, history: DbConversationMessa
 La conversación ya está dentro del flujo de inscripción o compra. No respondas con frases de falta de información, no derives al contacto por no encontrar un bloque de documentos y no reinicies la conversación preguntando si busca cursos o productos.
 Entrega los métodos de pago que el prompt del negocio o el bloque [Pagos del negocio] indiquen para la ubicación que confirmó el cliente (y para la modalidad, si el negocio distingue presencial y en línea), copiando cuentas, montos y enlaces tal como están escritos ahí, sin agregar métodos que no correspondan a ese caso.
 Nunca inventes cuentas, precios ni enlaces. Si el negocio indica cómo enviar el comprobante, cierra pidiéndolo por ese medio con los datos que solicite.
+Cuando el cliente ya envió su comprobante y faltan sus datos, solicita siempre nombre completo, correo electrónico y número de teléfono con WhatsApp (los tres, solo los que falten).
 === FIN CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===`
 }
 
