@@ -773,10 +773,46 @@ const COURSE_QUERY_STOP_WORDS = new Set([
 ])
 
 type ScheduledCourseDate = {
+  year: number
   day: number
   month: number
   courseName: string
   modality: string
+}
+
+function parseScheduledCourseDates(matchedBlocks: IndexedBlock[], currentYear: number): ScheduledCourseDate[] {
+  const dates: ScheduledCourseDate[] = []
+  for (const block of matchedBlocks) {
+    if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) continue
+
+    let modality = 'programada'
+    for (const line of block.body.split(/\r?\n/)) {
+      if (/en\s+l[ií]nea|online/i.test(line)) {
+        modality = 'en línea'
+        continue
+      }
+      if (/presencial/i.test(line)) {
+        modality = 'presencial'
+        continue
+      }
+
+      // "26 de noviembre de 2026 - Curso"; the year is optional and then the current one applies
+      const match = /^\s*(?:[✨*•-]\s*)?(\d{1,2})\s+(?:de\s+)?([a-záéíóú]+)(?:\s+(?:de\s+)?(\d{4}))?\s*[-–:]\s*(.+?)\s*$/i.exec(line)
+      if (!match) continue
+
+      const day = Number(match[1])
+      const month = COURSE_DATE_MONTHS.get(normalizeText(match[2]))
+      if (!month || day < 1 || day > 31) continue
+
+      const courseName = match[4].replace(/[.。]\s*$/, '').trim()
+      dates.push({ year: match[3] ? Number(match[3]) : currentYear, day, month, courseName, modality })
+    }
+  }
+  return dates
+}
+
+function isCourseDatePast(date: ScheduledCourseDate, today: { year: number; month: number; day: number }) {
+  return date.year * 10000 + date.month * 100 + date.day < today.year * 10000 + today.month * 100 + today.day
 }
 
 function getUpcomingCourseDates(
@@ -795,46 +831,105 @@ function getUpcomingCourseDates(
   const currentDate = getZonedDateParts(now, timeZone)
   const matchingDates = new Map<string, ScheduledCourseDate>()
 
-  for (const block of matchedBlocks) {
-    if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) continue
+  for (const date of parseScheduledCourseDates(matchedBlocks, currentDate.year)) {
+    const courseTokens = normalizeText(date.courseName)
+      .split(' ')
+      .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
+    const matchedTokenCount = courseTokens.filter((token) =>
+      Array.from(queryTokens).some((queryToken) => queryToken === token || (queryToken.length >= 5 && token.length >= 5 && (token.startsWith(queryToken) || queryToken.startsWith(token)))),
+    ).length
+    const smallerTokenCount = Math.min(courseTokens.length, queryTokens.size)
+    const requiredMatches = Math.min(2, courseTokens.length, queryTokens.size)
+    if (matchedTokenCount < requiredMatches || matchedTokenCount / smallerTokenCount < 0.8) continue
 
-    let modality = 'programada'
-    for (const line of block.body.split(/\r?\n/)) {
-      if (/en\s+l[ií]nea|online/i.test(line)) {
-        modality = 'en línea'
-        continue
-      }
-      if (/presencial/i.test(line)) {
-        modality = 'presencial'
-        continue
-      }
+    if (isCourseDatePast(date, currentDate)) continue
 
-      const match = /^\s*(?:[✨*•-]\s*)?(\d{1,2})\s+([a-záéíóú]+)\s*[-–:]\s*(.+?)\s*$/i.exec(line)
-      if (!match) continue
-
-      const day = Number(match[1])
-      const month = COURSE_DATE_MONTHS.get(normalizeText(match[2]))
-      if (!month || day < 1 || day > 31) continue
-
-      const courseName = match[3].replace(/[.。]\s*$/, '').trim()
-      const courseTokens = normalizeText(courseName)
-        .split(' ')
-        .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
-      const matchedTokenCount = courseTokens.filter((token) =>
-        Array.from(queryTokens).some((queryToken) => queryToken === token || (queryToken.length >= 5 && token.length >= 5 && (token.startsWith(queryToken) || queryToken.startsWith(token)))),
-      ).length
-      const smallerTokenCount = Math.min(courseTokens.length, queryTokens.size)
-      const requiredMatches = Math.min(2, courseTokens.length, queryTokens.size)
-      if (matchedTokenCount < requiredMatches || matchedTokenCount / smallerTokenCount < 0.8) continue
-
-      if (month < currentDate.month || (month === currentDate.month && day < currentDate.day)) continue
-
-      const scheduledDate = { day, month, courseName, modality }
-      matchingDates.set(`${day}-${month}-${normalizeText(courseName)}-${modality}`, scheduledDate)
-    }
+    matchingDates.set(`${date.year}-${date.month}-${date.day}-${normalizeText(date.courseName)}-${date.modality}`, date)
   }
 
   return Array.from(matchingDates.values())
+}
+
+const COURSE_LIST_FILLER = new Set([
+  'hola', 'buenas', 'buenos', 'buen', 'dia', 'dias', 'tarde', 'tardes', 'noche', 'noches', 'por', 'favor', 'porfa', 'porfavor',
+  'gracias', 'me', 'podrias', 'podria', 'pueden', 'puedes', 'dar', 'darme', 'pasar', 'pasas', 'pasan', 'compartir', 'compartes',
+  'quisiera', 'quiero', 'saber', 'conocer', 'ver', 'los', 'las', 'todos', 'todas', 'que', 'tienen', 'tiene', 'cuales', 'cual', 'son',
+  'mas', 'informacion', 'info', 'de', 'sobre', 'el', 'la', 'un', 'una', 'listado', 'lista', 'disponibles', 'disponible', 'ofrecen',
+  'hay', 'tienes', 'manejan', 'imparten', 'y', 'a', 'en', 'hacerca', 'acerca', 'sus', 'tus', 'si',
+])
+const MORE_INFO_FILLER = new Set([
+  'hola', 'buenas', 'buenos', 'buen', 'dia', 'dias', 'tarde', 'tardes', 'noche', 'noches', 'por', 'favor', 'porfa', 'porfavor',
+  'gracias', 'me', 'podrias', 'podria', 'pueden', 'puedes', 'dar', 'darme', 'pasar', 'quisiera', 'quiero', 'saber', 'conocer',
+  'y', 'a', 'un', 'poco', 'poquito', 'algo', 'de',
+])
+
+function contentTokens(message: string, filler: Set<string>) {
+  return normalizeText(message)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token && !filler.has(token))
+}
+
+// "más información" alone, greetings and courtesies aside: the customer has not said about what
+export function isBareMoreInfoRequest(message: string) {
+  const rest = contentTokens(message, MORE_INFO_FILLER).join(' ')
+  return /^(?:mas\s+)?(?:informacion|info)$/.test(rest)
+}
+
+// The tenant prompt owns the wording of this answer (EX2); without it the model answers as before
+export function buildBareMoreInfoReply(message: string, tenantPrompt: string): string | null {
+  if (!isBareMoreInfoRequest(message)) return null
+  const ex2Line = String(tenantPrompt || '').split(/\r?\n/).find((line) => /^\s*(?:[-*]\s*)?EX2\)/.test(line))
+  const quoted = ex2Line ? Array.from(ex2Line.matchAll(/"([^"]+)"/g)).map((m) => m[1].trim()) : []
+  const reply = quoted[quoted.length - 1]
+  return reply && reply.length > 20 ? reply : null
+}
+
+export function isCourseListRequest(message: string) {
+  const tokens = contentTokens(message, COURSE_LIST_FILLER)
+  const normalized = normalizeText(message)
+  return /\bcursos?\b/.test(normalized) && tokens.length === 1 && /^cursos?$/.test(tokens[0])
+}
+
+export function buildCourseListReply(
+  message: string,
+  tenantPrompt: string,
+  blocks: IndexedBlock[],
+  now = new Date(),
+  timeZone = DEFAULT_TIME_ZONE,
+): string | null {
+  if (!isCourseListRequest(message)) return null
+  if (!blocks.some((block) => /^\[FECHAS_CURSOS\]/im.test(block.body))) return null
+
+  const today = getZonedDateParts(now, timeZone)
+  const all = parseScheduledCourseDates(blocks, today.year)
+  if (!all.length) return null
+  const sortKey = (d: ScheduledCourseDate) => d.year * 10000 + d.month * 100 + d.day
+  const upcoming = all.filter((date) => !isCourseDatePast(date, today)).sort((a, b) => sortKey(a) - sortKey(b))
+
+  const formatDate = (date: ScheduledCourseDate) => {
+    const monthName = new Intl.DateTimeFormat('es-MX', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(date.year, date.month - 1, date.day)))
+    return `${date.day} de ${monthName} de ${date.year}`
+  }
+
+  if (!upcoming.length) {
+    return 'Por el momento no hay fechas vigentes de cursos. Cuando se publiquen nuevas fechas te las compartimos. Mientras tanto, cuéntame qué curso te interesa y te doy su información.'
+  }
+
+  const section = (title: string, modality: string) => {
+    const dates = upcoming.filter((date) => date.modality === modality)
+    return dates.length ? `${title}\n${dates.map((date) => `- ${formatDate(date)}: ${date.courseName}`).join('\n')}` : ''
+  }
+  const sections = [
+    section('Cursos en línea (fechas tentativas):', 'en línea'),
+    section('Cursos presenciales:', 'presencial'),
+    section('Otros cursos con fecha:', 'programada'),
+  ].filter(Boolean)
+
+  const closing =
+    /Estos son los únicos cursos con fecha disponible\.[^"\n]*/.exec(String(tenantPrompt || ''))?.[0].trim() ||
+    'Estos son los únicos cursos con fecha disponible.'
+  return `${sections.join('\n\n')}\n\n${closing}`
 }
 
 export function applyUpcomingCourseDateCorrection(
@@ -875,13 +970,12 @@ export function applyUpcomingCourseDateCorrection(
     month: 'long',
     timeZone: 'UTC',
   })
-  const year = String(getZonedDateParts(now, timeZone).year)
 
   const corrections = relevantCourseEntries.map(([courseName, dates]) => {
     const dateSummary = dates
       .map((date) => {
-        const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
-        return `${date.day} de ${monthName} de ${year} (${date.modality})`
+        const monthName = monthFormatter.format(new Date(Date.UTC(date.year, date.month - 1, date.day)))
+        return `${date.day} de ${monthName} de ${date.year} (${date.modality})`
       })
       .join(' y ')
     return dates.length === 1
@@ -894,7 +988,7 @@ export function applyUpcomingCourseDateCorrection(
     const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [paragraph]
     const retainedSentences = sentences.filter((sentence) => {
       const repeatsAuthoritativeDate = upcomingDates.some((date) => {
-        const monthName = monthFormatter.format(new Date(Date.UTC(Number(year), date.month - 1, date.day)))
+        const monthName = monthFormatter.format(new Date(Date.UTC(date.year, date.month - 1, date.day)))
         const escapedMonth = monthName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         return new RegExp(`\\b(?:el\\s+)?(?:d[ií]a\\s+)?0?${date.day}\\s+(?:de\\s+)?${escapedMonth}\\b`, 'i').test(sentence)
       })
@@ -1381,11 +1475,23 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   const enrollmentReply =
     buildEnrollmentModalityReply(input.message, input.history || []) ||
     buildEnrollmentInterestReply(input.message, input.history || [])
+  // These two never reach the model: the list comes from the dated schedule and the
+  // bare "más información" only asks what the customer is looking for
+  const fixedReply = enrollmentReply
+    ? null
+    : (previousTopicQuestion ? null : buildBareMoreInfoReply(input.message, input.prompt || '')) ||
+      buildCourseListReply(input.message, input.prompt || '', index.blocks, new Date(), timeZone)
   const completion = enrollmentReply
     ? {
         answer: enrollmentReply,
         finishReason: 'enrollment-interest-flow',
         modelUsed: 'deterministic-enrollment-flow',
+      }
+    : fixedReply
+    ? {
+        answer: fixedReply,
+        finishReason: 'fixed-reply',
+        modelUsed: 'deterministic-fixed-reply',
       }
     : await requestCompletion({
         apiKey,
@@ -1444,6 +1550,13 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
     markerEval = {
       category: 'noinfo',
       reason: 'El modelo respondió [NO_RESPONDER]: entendió la pregunta pero la información no está en los documentos.',
+    }
+  }
+
+  if (fixedReply) {
+    markerEval = {
+      category: 'correct',
+      reason: 'Respuesta fija generada por reglas desde los documentos y el prompt del negocio; no pasa por el modelo ni por el juez.',
     }
   }
 

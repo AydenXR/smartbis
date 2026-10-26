@@ -1,3 +1,465 @@
+[REQUISITOS_PARA_TOMAR_CURSOS_Y_APLICAR_TRATAMIENTOS]
+Cualquier persona puede tomar los cursos; no se requieren estudios ni experiencia previa para inscribirse.
+
+Requisito distinto para aplicar tratamientos: se requiere titulo medico para aplicar los tratamientos asociados a los siguientes cursos. Este requisito es para la aplicacion del tratamiento, no para tomar el curso:
+- Rinomodelacion con acido hialuronico
+- Russian Lips + Tecnica francesa
+- Aplicacion de Botox en tercio superior
+- Aplicacion de Botox en tercio inferior
+- Manejo de hiperhidrosis
+
+[TEMARIOS]
+FIBROBLAST
+[Temario]
+Temario FIBROBLAST
+Introducción
+Antecedentes
+¿Qué es el plasma?
+Plasma Pen
+Indicaciones
+Usos del Plasma Pen
+Ventajas del Plasma Pen
+Piel
+Estructura de la piel
+Epidermis
+Tipos de piel
+Envejecimiento cutáneo
+Factores que aceleran el envejecimiento
+Tipos de envejecimiento
+Clasificación del envejecimiento
+Fototipos
+Alteraciones de la piel
+Verrugas
+Tipos de verrugas
+Alteraciones de la piel
+Tatuajes
+Lesiones de la piel
+Historia clínica
+Consentimiento informado
+No candidatos
+Procedimiento
+Tratamiento previo
+Lifting de párpado
+Arrugas
+Lifting de abdomen y eliminación de estrías
+Eliminación de verrugas
+Eliminación de tatuajes
+Eliminación de manchas
+Cuidados Post Procedimiento
+
+PDRN SALMÓN
+[Temario]
+Temario:
+PDRN
+Mecanismo de acción
+Relación con el envejecimiento
+Efectos en cicatrización y envejecimiento
+Evidencia clínica
+Indicaciones y beneficios
+Productos que contienen PDRN
+Técnicas de administración
+¿Qué es la técnica de microagujas?
+Dermapen, equipo y agujas
+Usos del dermapen
+Mesoterapia
+Tipos de técnicas
+Historia clínica
+Consentimiento informado
+Opciones de procedimiento
+Protocolo de aplicación
+Cuidados post procedimiento
+Contraindicaciones y precauciones
+Posibles efectos adversos, complicaciones
+
+BÓTOX INF Y SUP
+[Temario]
+Temario:
+Obejtivos
+Toxina Botulínica
+Historia
+Aplicaciones cosméticas
+Mecanismo de acción
+Anatomía
+Nervio facial
+Músculo de la mímica facial
+Exploración del paciente
+Fotografía
+Consentimiento informado
+Tono muscular y su influencia en la dosis
+Mímica y repercusión en los resultados
+Expectativa dosis-resultado estético y duración del resultado
+Relación dosis-resultado estético-duración
+Pautas de revisión, retoque y reinyección
+Repercusión sobre el músculo tras reinyecciones continuadas
+Reconstitución de toxina botulínica
+Precauciones antes de proceder a la inyección
+Tercio superior de la cara
+Tercio medio de la cara
+Hiperhidrosis axilar
+Recomendaciones postratamiento
+Efectos indeseables y reacciones adversas
+Conclusiones
+
+HIDROFACIAL
+[Temario]
+TEMARIO TÉCNICO EN HIDRO-FACIAL
+Introducción
+Cuál es mi valor
+Presentación de la cabia y de la esteticista
+Muebles para una cabina
+Ropa necesaria en cabina
+Ropa para el cliente
+Higiene y asepsia- presentación de la cabina
+Anatomía
+La célula
+Organelos celulares
+Tejidos
+Tejido conjuntivo
+Fibras del tejido conjuntivo
+Tipos de tejidos conjuntivos
+Tejido adiposo
+Tejido cartilaginoso
+Tipos de xcartílago
+Tejido óseo
+Tipos de tejido óseo
+Tejido sanguíneo
+Células del tejido sanguíneo
+Tejido muscular
+Metabolismo
+Sistema tegumentario
+La piel
+Estructura de la piel
+Dermis
+Anexos cutáneos de la dermis
+Folículo piloso
+Glándulas sebáseas
+Glándulas sudoríparas
+Epidermis
+Componentes de la epidermis
+PH de la piel y manto hidrolipídico
+Tipos de piel (características constitutivas y otros estados facultativos)
+Los poros
+Alteraciones de la piel primarias
+Alteraciones de la pigmentación
+Alteraciones de la glándula sebácea
+Dermatitis seborreica
+Rosácea
+Acné y tipos de acné
+Descripción de lesiones
+Reacciones acneiformes
+Hidrafacial
+TIPS
+Vacumterapia
+Beneficios de la vacumterapia
+Compuestos activos básicos que contienenlas soluciones
+Ácido glicólico
+Ácido láctico
+Ácido salicílico
+Ácido azelaico
+Protocolo
+Casos en los que aplica el tratamiento
+Precauciones y contraindicaciones
+¿Qué ofrecer a los clientes?
+Tratamiento
+Recomendaciones para el mantenimiento de la piel
+Documentación del cliente que debe conservarse
+Historia clínica
+Ficha técnica
+Contrato y consentimiento informado
+Diagnóstico de la piel y ficha técnica
+Carta de autorización
+Libro de registro
+Medios de diagnóstico
+¿En qué consiste una limpieza con hidrofacial?
+Procedimiento hidrofacial
+Conclusiones
+
+LIMPIEZAS FACIALES
+[Temario]
+Temario: Limpiezas faciales
+Introducción
+Emprendiendo mi negocio
+Cuál es mi valor
+Presentación de la cabina y de la Esteticista
+Muebles para una cabina
+Desechables en cabina
+Historia clínica
+Contrato y consentimiento informado
+Anatomía
+Sistema Tegumentario
+La piel
+Estructura de la piel
+Dermis
+Anexos cutáneos de la dermis
+Folículo piloso
+Epidermis
+Ph de la piel
+Tipos de piel
+Alteraciones de la piel
+Alteraciones de la pigmentación
+Alteraciones de la glándula sebácea
+Tipos de acné
+Dermatitis seborreica
+Rosácea
+Lesiones de la piel
+Medios de diagnóstico
+Diagnóstico de la piel y ficha técnica
+Lupa
+Equipos basados en la luz de wood
+Exámen con lámpara wood paso a paso
+Diagnóstico con lámpara de wood
+Limpieza facial profunda
+¿En qué consiste una limpieza facial profunda?
+Descripción y función de algunos de los procesos y productos que se utilizan en una limpieza facial
+Documentación del cliente que debe conservarse
+Ficha técnica
+Consentimiento informado
+Carta de autorización
+Libro de registro
+Desmaquillantes
+Gel limpiador facial o leche limpiadora
+Tonificación
+Exfoliación mecánica, física o química
+Aceites desincrustantes
+Vaporización o compresas
+Extracción de impurezas
+Alta frecuencia
+Ampolleta hidratante o gel antiinflamatorio
+Mascarilla limpiadora o hidratante
+Suero hidratante
+Protector solar
+Masaje facial
+Beneficios del masaje facial
+Tipos de masaje 
+Masaje facial clásico
+Lisage básicos
+
+RELLENO DE LABIOS
+[Temario]
+Temario relleno de labios
+Selección del material de relleno
+Conoce el dispositivo Hyaluron pen
+Llenado de jeringa para pasar a cartucho
+Como utilizar Hyaluron pen
+Antes de iniciar con el procedimiento
+Diseño de labios
+Protocolo en labios
+Puntos a trabajar en labios
+Pre – Boosting
+Contraindicaciones
+Complicaciones 
+TIPS
+
+TIPS
+
+MADEROTERAPIA
+[Temario]
+Temario:
+Bienvenida
+Introducción
+¿Emprendimiento o crecimiento?
+¿Cuál es mi valor?
+Servicio al cliente
+Presentación de la esteticista
+Historia clínica | Su objetivo
+Consentimiento informado
+La peil
+Estructura de la piel
+Sistema circulatorio
+Sistema linfático
+Sistema muscular
+Sistema óseo
+Antecedentes
+Efectos fisiológicos de la maderoterapia
+Maderoterapia en la estética
+Instrumentos más utilizados
+Beeficios
+Aplicaciones de la maderoterapia
+Protocolo
+Movimientos con rodillos
+Rejuvenecimiento de brazos
+Protocolo brazos
+Protocolo abdomen
+Tratamiento lipodrenante muslo completo
+Protocolo muslo completo
+Liporeductor de piernas en zonas localizadas
+Protocolo liporeductor piernas
+Tratamiento push up glúteos
+Limpieza y mantenimiento de las maderas
+Precauciones
+Efectos secundarios
+Contraindicaciones
+No candidatos
+Cuidados post procedimiento
+Conclusión
+
+REJUV Y ELIM
+[Temario]
+Temario:
+La piel y su estructura
+Tipos de piel
+Fototipos
+Melanina
+Hiperpigmentaciones
+Tipos de envejecimiento
+Tipos de arrugas
+Ácido hialurónico y envejecimiento
+Compuestos activos despigmentantes
+Ácidos que inhiben la tirosina
+Activos revitalizantes
+Cócteles
+Historia clínica
+Consentimiento informado
+Técnica de microagujas
+Dermapen
+Procedimiento
+Protocolo
+Cuidados post procedimiento
+Apoyo en casa
+Complicaciones
+
+MICROPUNTURA ESTRÍAS
+[Temario]
+TEMARIO
+Introducción
+La piel
+Estructura de la piel
+Dermis
+Epidermis
+¿Qué son las estrías?
+Causas de la formación de estrías
+Histología evolutiva de las estrías
+Las 4 fases de formación de la estrías
+Micropuntura
+Proceso inflamatorio
+Cicatrización 4 fases
+Historia clínica
+Fototitpos
+Consentimiento informado
+Materiales
+Electroporación
+Alta frecuencia
+Activos que puedes utilizarse con Micropuntura
+Recomendaciones pre-tratamiento
+Normas de higiene
+Asepsia
+Procedimiento
+Técnicas de micropuntura
+Recomendaciones post tratamiento
+Cuidados post procedimiento
+Contraindicaciones
+Conclusiones
+
+SOFT PLASMA
+[Temario]
+TEMARIO SOFT PLASMA
+
+VENTAJAS
+FOTOTIPOS
+NO CANDIDATOS
+CONTRAINDICACIONES
+TRATAMIENTO PREVIO
+PROCEDIMIENTOS DE TRABAJO CON FIBROBLAST 
+COMO ELIJO LA INTENSIDAD DE TRABAJO 
+PROCEDIMIENTO
+CONSIDERACIONES  PARA MEJORES RESULTADOS
+PROTOCOLO
+CUIDADOS POST PROCEDIMIENTO
+CUIDADOS POST PROCEDIMIENTO 2ª. etapa
+CUIDADOS POST PROCEDIMIENTO 3ª Etapa
+NORMAS DE HIGIENE
+
+BOTOX TER SUP
+[Temario]
+Temario:
+Obejtivos
+Toxina Botulínica
+Historia
+Aplicaciones cosméticas
+Mecanismo de acción
+Anatomía
+Nervio facial
+Músculo de la mímica facial
+Exploración del paciente
+Fotografía
+Consentimiento informado
+Tono muscular y su influencia en la dosis
+Mímica y repercusión en los resultados
+Expectativa dosis-resultado estético y duración del resultado
+Relación dosis-resultado estético-duración
+Pautas de revisión, retoque y reinyección
+Repercusión sobre el músculo tras reinyecciones continuadas
+Reconstitución de toxina botulínica
+Precauciones antes de proceder a la inyección
+Tercio superior de la cara
+Recomendaciones postratamiento
+Efectos indeseables y reacciones adversas
+Conclusiones
+
+
+[HORARIOS]
+10:00 AM - 2:00 PM
+- Microrellenos
+- Relleno de labios con HP
+- Lipoenzimas
+- Eliminación de verrugas y manchas con Fibroblast
+- Peptonas
+- Relleno de arrugas y revitalización con Hyaluronic Pen
+- Rejuvenecimiento y eliminación de manchas con Dermapen
+- Hidrofacial
+- Limpiezas faciales
+- Mesobotox
+- Peeling químico
+- Exosomas
+- Bioestimulación con PDRN de Salmón
+- Microrellenos con Hyalnano Filling
+- Relleno de labios con Hyaluron Pen
+- Lifting de párpados con Fibroblast
+- Verrugas y manchas con Fibroblast
+- Brotes de acné con Fibroblast
+- Manejo de estrías y cicatrices con Fibroblast y Dermapen
+- Soft Plasma
+- Eliminación de tatuajes con Fibroblast
+- BB Glow
+- Maderoterapia
+- Russian Lips + técnica francesa
+- Rinomodelación
+- Marcaje mandibular
+
+9:00 AM - 6:00 PM
+- Hyaluron Pen
+- Dermapen y BB Glow
+- Microrellenos con Hyalnano
+- Peptonas y Lipoenzimas
+- Hidrofacial
+- Mesobotox
+- Lifting de párpados (horario específico: 10:00 AM - 2:30 PM)
+- Relleno de labios con Hyaluron Pen
+
+9:00 AM - 8:00 PM
+- Fibroblast (horario general; excepto Lifting de párpados con Fibroblast)
+
+10:00 AM - 2:30 PM
+- Lifting de párpados con Fibroblast
+
+[FECHAS_CURSOS]
+En línea tenemos tentativamente programados para 2026:
+16 de octubre de 2026 - Rejuvenecimiento y eliminación de manchas con Dermapen
+21 de octubre de 2026 - Hidrofacial
+3 de noviembre de 2026 - Toxina Botulínica: Tercio superior
+4 de noviembre de 2026 - Limpiezas faciales
+11 de noviembre de 2026 - Peeling químico
+18 de noviembre de 2026 - Bioestimulación con PDRN de salmón
+25 de noviembre de 2026 - Lipoenzimas
+
+Presencial tenemos programados para 2026:
+22 de octubre de 2026 - Lipoenzimas
+29 de octubre de 2026 - Eliminación de verrugas y manchas con Fibroblast
+5 de noviembre de 2026 - Rejuvenecimiento y eliminación de manchas con Dermapen
+12 de noviembre de 2026 - Manejo de estrías y cicatrices con Dermapen y Fibroblast
+19 de noviembre de 2026 - Limpiezas faciales
+26 de noviembre de 2026 - Relleno de arrugas y revitalización con Hyaluronic Pen
+
 [CURSO]
 Nombre del curso: Bioestimulación con PDRN de salmón.
 
@@ -5,7 +467,7 @@ Descripción: Aprenderás a utilizar el PDRN de salmón para estimular la regene
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1750 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -18,7 +480,7 @@ Descripción: Aprenderás técnicas para la aplicación de microrellenos enfocad
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -31,7 +493,7 @@ Descripción: Especialización en técnicas de diseño y proyección de labios u
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $2850 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -44,7 +506,7 @@ Descripción: Capacitación en el uso de instrumentos de madera anatómicos para
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -56,7 +518,7 @@ Descripción: Aprendizaje de la técnica de aplicación de enzimas lipolíticas 
 
 Modalidades: Online, Presencial
 
-Precio: Online: $595 MXN / Presencial: $1350 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -69,7 +531,7 @@ Descripción: Técnica avanzada de cauterización controlada mediante Fibroblast
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -82,7 +544,7 @@ Descripción: Técnica para el aumento de glúteos y mejora de la calidad de la 
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -95,7 +557,7 @@ Descripción: Uso de tecnología de plasma para tratar y eliminar brotes de acn�
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -108,11 +570,13 @@ Descripción: Técnica no invasiva para la atenuación de líneas de expresión 
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1450 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
 Presencial: Constancia de participación, práctica con modelo real, materiales para la práctica, manual digital, protocolo de procedimiento, historia clínica, consentimiento informado.
+Práctica presencial: Salubel proporciona la herramienta Hyaluron Pen para la práctica; el alumno no necesita llevarla.
+Práctica online: La Dra. Lydia Coronado realiza el procedimiento como demostración mientras los alumnos observan.
 
 [CURSO]
 Nombre del curso: Lifting de párpados con Fibroblast.
@@ -121,7 +585,9 @@ Descripción: Procedimiento para tensar y rejuvenecer la zona periocular mediant
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
+
+Horario presencial: 10:00 AM a 2:30 PM
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -136,7 +602,7 @@ Descripción: Tratamiento de rejuvenecimiento e iluminación facial que combina 
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -149,7 +615,7 @@ Descripción: Técnica de microneedling para estimular la producción de coláge
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -162,7 +628,7 @@ Descripción: Protocolo combinado avanzado para tratar estrías y cicatrices per
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -175,7 +641,7 @@ Descripción: Técnica estética no invasiva que utiliza energía de plasma para
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -188,22 +654,20 @@ Descripción: Protocolo especializado para la eliminación progresiva de tatuaje
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
 Presencial: Constancia de participación, práctica con modelo real, materiales para la práctica, manual digital, protocolo de procedimiento, historia clínica, consentimiento informado.
 
-Aquí tienes los cursos del 16 al 20 con el formato solicitado:
-
 [CURSO]
-Nombre del curso: Hidrofacial técnico.
+Nombre del curso: Hidrofacial 
 
 Descripción: Capacitación en el protocolo de limpieza profunda, exfoliación, extracción de impurezas e hidratación profunda utilizando tecnología de succión e infusión de activos.
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -215,7 +679,7 @@ Descripción: Fundamentos y técnicas profesionales para la limpieza, exfoliaci�
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -228,7 +692,7 @@ Descripción: Técnica de aplicación intradérmica de toxina botulínica diluid
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -241,7 +705,7 @@ Descripción: Tratamiento especializado que utiliza radiofrecuencia fraccionada 
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -253,7 +717,7 @@ Descripción: Aplicación de radiofrecuencia fraccionada para estimular la sínt
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 [CURSO]
 Nombre del curso: Tratamientos corporales con Radiofrecuencia Fraccionada.
@@ -262,7 +726,7 @@ Descripción: Aplicación de tecnología de radiofrecuencia fraccionada para ten
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -274,7 +738,7 @@ Descripción: Técnica para el tratamiento de estrías y cicatrices mediante la 
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -286,7 +750,7 @@ Descripción: Especialización en el uso de ácidos cosméticos de grado profesi
 
 Modalidades: Online, Presencial
 
-Precio: Online: $895 MXN / Presencial: $2850 MXN
+Precio: Online: $595 MXN ($33 USD) / Presencial: $2500 MXN
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -301,7 +765,7 @@ Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el trat
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -315,7 +779,7 @@ Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el trat
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -327,7 +791,7 @@ Descripción: Técnica de armonización facial mediante rellenos dérmicos para 
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -341,7 +805,7 @@ Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el trat
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -355,7 +819,7 @@ Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el trat
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -367,7 +831,7 @@ Descripción: Formación en el uso de exosomas para potenciar la regeneración c
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $595 MXN ($33 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
@@ -381,7 +845,7 @@ Nota: Puedes tomar el curso sin tener título médico, pero para aplicar el trat
 
 Modalidades: Online
 
-Precio: Online: $895 MXN
+Precio: Online: $895 MXN ($48 USD)
 
 Incluye:
 Online: Práctica demostrativa, protocolo de procedimiento, constancia de participación. (Garantía de devolución 7 días).
