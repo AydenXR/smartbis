@@ -1,4 +1,4 @@
-import { namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
+import { keepDocumentWords, namesKnownTopic, normalizeText, searchIndex, type IndexedBlock, type SearchIndex } from './searchIndex.js'
 import { getDbTenantSearchIndex } from './dbWorkspace.js'
 import { DEFAULT_TIME_ZONE, describeTimeZone, detectTimeZoneSetting, getZonedDateParts } from './timeZone.js'
 import {
@@ -994,15 +994,27 @@ export function buildEnrollmentInterestReply(userMessage: string, history: DbCon
   return `¡Excelente! Para avanzar con tu inscripción al curso de ${courseName}, ¿te interesa la modalidad online o presencial?`
 }
 
+// Words a customer may wrap a bare modality choice in ("la online por favor",
+// "prefiero presencial"); anything else means they are asking for something
+const MODALITY_CHOICE_FILLER = new Set([
+  'online', 'en', 'linea', 'presencial', 'la', 'el', 'modalidad', 'me', 'interesa', 'quiero', 'prefiero',
+  'seria', 'mejor', 'gustaria', 'quisiera', 'por', 'favor', 'porfavor', 'si', 'claro', 'ok', 'pues', 'que', 'sea', 'opcion', 'gracias',
+])
+
 export function buildEnrollmentModalityReply(userMessage: string, history: DbConversationMessage[]): string | null {
   const normalizedMessage = normalizeConversationReply(userMessage)
   const modality = /\b(online|en linea|presencial)\b/.exec(normalizedMessage)?.[1]
   if (!modality) return null
+  // "Mas informacion curso online limpieza facial" asks for information, it does not choose
+  if (!normalizedMessage.split(' ').every((word) => MODALITY_CHOICE_FILLER.has(word))) return null
 
+  // Only an answer to the bot asking which modality ("¿te interesa la modalidad
+  // online o presencial?"), not to an answer that merely mentions modalities
   const lastAssistantMessage = [...(history || [])]
     .reverse()
     .find((message) => message.role === 'assistant' && String(message.content || '').trim())
-  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
+  const askedForModality = /¿[^?]*\b(?:online|en\s+l[ií]nea)\s+o\s+presencial\b[^?]*\?|¿[^?]*\bpresencial\s+o\s+(?:online|en\s+l[ií]nea)\b[^?]*\?/i
+  if (!lastAssistantMessage || !askedForModality.test(lastAssistantMessage.content)) return null
 
   const hasLocationAlready =
     (history || []).some((message) =>
@@ -1290,6 +1302,7 @@ function buildPaymentFlowGuard(userMessage: string, history: DbConversationMessa
 La conversación ya está dentro del flujo de inscripción o compra. No respondas con frases de falta de información, no derives al contacto por no encontrar un bloque de documentos y no reinicies la conversación preguntando si busca cursos o productos.
 Entrega los métodos de pago que el prompt del negocio o el bloque [Pagos del negocio] indiquen para la ubicación que confirmó el cliente (y para la modalidad, si el negocio distingue presencial y en línea), copiando cuentas, montos y enlaces tal como están escritos ahí, sin agregar métodos que no correspondan a ese caso.
 Nunca inventes cuentas, precios ni enlaces. Si el negocio indica cómo enviar el comprobante, cierra pidiéndolo por ese medio con los datos que solicite.
+Cuando el cliente ya envió su comprobante y faltan sus datos, solicita siempre nombre completo, correo electrónico y número de teléfono con WhatsApp (los tres, solo los que falten).
 === FIN CONTROL DETERMINISTA DEL FLUJO DE PAGOS ===`
 }
 
@@ -1311,7 +1324,7 @@ export async function generateDbAgentAnswer(input: DbChatInput, opts: GenAnswerO
   // for a customer who came from an ad, about what the ad showed
   const previousTopicQuestion = messageNamesTopic
     ? null
-    : findPreviousTopicQuestion(index, input.history || []) || adSearchText(input.referralContext || '') || null
+    : findPreviousTopicQuestion(index, input.history || []) || keepDocumentWords(index, adSearchText(input.referralContext || '')) || null
   let retrievalQuery = buildEnhancedQuery(input.message, input.history || [], previousTopicQuestion)
   let retrieval = buildDbDocumentsContextBlock(index, retrievalQuery, includePayment)
 
