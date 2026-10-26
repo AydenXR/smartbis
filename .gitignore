@@ -42,3 +42,9 @@ clientsdata/
 
 # Cache generada por el compilador de TypeScript
 *.tsbuildinfo
+supabase/migrations/20261024_prompt_salubel_datos_cliente_whatsapp.sql
+package-lock.json
+.gitignore
+testprompt.ordenado.md
+package-lock.json
+prompt.md
