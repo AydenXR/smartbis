@@ -86,6 +86,9 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   'brindan', 'brindas', 'brindar', 'brindamos', 'ofreces', 'ofrecer', 'manejan', 'manejas', 'manejar',
   'imparten', 'impartes', 'realizas', 'haces', 'trabajan', 'trabajas', 'tienen', 'vendes', 'proporcionan',
   'disponen', 'dispones', 'disponemos', 'manejas', 'surten', 'comercializan', 'distribuyen',
+  // Preguntas sobre un curso ya hablado ("¿que temas trata la clase?", "¿cuanto dura?")
+  'tema', 'temas', 'trata', 'tratan', 'clase', 'clases', 'tiempo', 'dura', 'duran', 'duracion',
+  'incluye', 'incluyen', 'contenido', 'contenidos', 'modulos', 'horas',
   // Preguntas de seguimiento ("¿y en linea?", "¿cuanto cuesta?"): piden un dato del tema ya hablado
   'linea', 'presencial', 'presenciales', 'modalidad', 'modalidades', 'costo', 'costos', 'cuesta', 'cuestan',
   'fecha', 'fechas', 'proxima', 'proximo', 'proximas', 'proximos', 'empieza', 'empiezan', 'inicia', 'inician',
@@ -572,7 +575,8 @@ function splitDocumentIntoBlocks(document: WorkspaceDocument) {
 
 function extractFieldValue(block: string, labels: string[]) {
   for (const label of labels) {
-    const match = block.match(new RegExp(`(?:^|\\n)${label}\\s*:\\s*(.+)`, 'i'))
+    // Lines may start with spaces (" Nombre del curso: ..."), as in the database documents
+    const match = block.match(new RegExp(`(?:^|\\n)[ \\t]*${label}\\s*:\\s*(.+)`, 'i'))
     if (match?.[1]) {
       return match[1].trim()
     }
@@ -670,7 +674,7 @@ function detectBlockKind(block: string, fields: Record<string, string>, section:
 
   if (
     section !== 'general' ||
-    /(?:^|\n)(?:Nombre del [^:]+|Nombre|Curso|Producto|Servicio|Taller|Tratamiento|Paquete)\s*:/i.test(
+    /(?:^|\n)[ \t]*(?:Nombre del [^:]+|Nombre|Curso|Producto|Servicio|Taller|Tratamiento|Paquete)\s*:/i.test(
       block,
     )
   ) {
@@ -1083,6 +1087,7 @@ const QUESTION_VOCABULARY = [
   'tienes', 'tienen', 'cuentas', 'cuentan', 'ofrecen', 'venden', 'manejan', 'hacen', 'aplican',
   'brindan', 'brindas', 'ofreces', 'manejas', 'imparten', 'realizan', 'trabajan', 'proporcionan',
   'disponen', 'dispones', 'venden', 'vendes',
+  'temas', 'trata', 'clase', 'clases', 'tiempo', 'dura', 'duracion', 'incluye', 'contenido',
   'disponible', 'disponibles', 'disponibilidad', 'existencia', 'precio', 'precios', 'costo', 'cuanto', 'cuesta',
   'horario', 'horarios', 'fecha', 'fechas', 'cuando', 'donde', 'ubicacion', 'direccion',
   'online', 'linea', 'presencial', 'modalidad', 'informacion', 'quiero', 'necesito', 'busco',
@@ -1105,7 +1110,11 @@ function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
   const places = new Set<string>()
   for (const block of index.blocks) {
     for (const token of block.bodyTokens) known.add(token)
-    for (const token of block.titleTokens) if (token.length >= 5) names.add(token)
+    // Item names only: a general block title ("[PERSONAL_CLAVE]") would turn
+    // "clase" into "clave"
+    if (block.document.section !== 'general' || isTreatmentBlock(block)) {
+      for (const token of block.titleTokens) if (token.length >= 5) names.add(token)
+    }
     if (isLocationBlock(block)) {
       for (const token of block.bodyTokens) if (token.length >= 5 && !/\d/.test(token)) places.add(token)
     }
@@ -1147,7 +1156,8 @@ function correctQueryTypos(index: SearchIndex, query: string) {
 }
 
 const SECTION_TOPIC_WORDS =
-  /\b(?:cursos?|productos?|tratamientos?|servicios?|talleres|taller|diplomados?|kits?|ubicacion|direccion|donde|sucursal(?:es)?|sede|horarios?|telefono|whatsapp|pagos?|temarios?)\b/
+  // "temario" alone ("¿y el temario?") is about the course already talked about
+  /\b(?:cursos?|productos?|tratamientos?|servicios?|talleres|taller|diplomados?|kits?|ubicacion|direccion|donde|sucursal(?:es)?|sede|horarios?|telefono|whatsapp|pagos?)\b/
 
 // Whether a message says what it is about: a section ("cursos", "horarios") or
 // an item the documents name. "¿Cuales son los precios?" or "¿y en linea?" do
