@@ -348,3 +348,24 @@ test('only the ad title reaches the search, never the instructions for the model
   assert.equal(adSearchText(`${AD_CONTEXT} · referencia promo-octubre`), 'Producto AH Revofil promo-octubre')
   assert.equal(adSearchText(''), '')
 })
+
+test('a request for more information is not taken for a modality choice', () => {
+  const courseInfo: DbConversationMessage[] = [
+    { role: 'user', content: 'Mas informacion curso online limpieza Facial' },
+    { role: 'assistant', content: 'El curso de Limpieza facial se imparte en modalidad online y presencial. Precio online: $595 MXN. ¿Te gustaría inscribirte?' },
+  ]
+  // the customer repeats the request: the bot keeps giving the information
+  assert.equal(buildEnrollmentModalityReply('Mas informacion curso online limpieza Facial', courseInfo), null)
+  assert.equal(buildEnrollmentModalityReply('cuanto cuesta el online?', courseInfo), null)
+  // a bare modality answer to an answer that did not ask for it is not a choice either
+  assert.equal(buildEnrollmentModalityReply('online', courseInfo), null)
+
+  const modalityQuestion: DbConversationMessage[] = [{
+    role: 'assistant',
+    content: '¡Excelente! Para avanzar con tu inscripción al curso de Limpieza facial, ¿te interesa la modalidad online o presencial?',
+  }]
+  for (const choice of ['online', 'en linea', 'la presencial por favor', 'prefiero online']) {
+    assert.ok(buildEnrollmentModalityReply(choice, modalityQuestion), choice)
+  }
+  assert.equal(buildEnrollmentModalityReply('Mas informacion curso online limpieza Facial', modalityQuestion), null)
+})

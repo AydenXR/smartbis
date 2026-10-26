@@ -994,15 +994,27 @@ export function buildEnrollmentInterestReply(userMessage: string, history: DbCon
   return `¡Excelente! Para avanzar con tu inscripción al curso de ${courseName}, ¿te interesa la modalidad online o presencial?`
 }
 
+// Words a customer may wrap a bare modality choice in ("la online por favor",
+// "prefiero presencial"); anything else means they are asking for something
+const MODALITY_CHOICE_FILLER = new Set([
+  'online', 'en', 'linea', 'presencial', 'la', 'el', 'modalidad', 'me', 'interesa', 'quiero', 'prefiero',
+  'seria', 'mejor', 'por', 'favor', 'porfavor', 'si', 'claro', 'ok', 'pues', 'que', 'sea', 'opcion', 'gracias',
+])
+
 export function buildEnrollmentModalityReply(userMessage: string, history: DbConversationMessage[]): string | null {
   const normalizedMessage = normalizeConversationReply(userMessage)
   const modality = /\b(online|en linea|presencial)\b/.exec(normalizedMessage)?.[1]
   if (!modality) return null
+  // "Mas informacion curso online limpieza facial" asks for information, it does not choose
+  if (!normalizedMessage.split(' ').every((word) => MODALITY_CHOICE_FILLER.has(word))) return null
 
+  // Only an answer to the bot asking which modality ("¿te interesa la modalidad
+  // online o presencial?"), not to an answer that merely mentions modalities
   const lastAssistantMessage = [...(history || [])]
     .reverse()
     .find((message) => message.role === 'assistant' && String(message.content || '').trim())
-  if (!lastAssistantMessage || !/modalidad\s+(?:online|presencial)/i.test(lastAssistantMessage.content)) return null
+  const askedForModality = /¿[^?]*\b(?:online|en\s+l[ií]nea)\s+o\s+presencial\b[^?]*\?|¿[^?]*\bpresencial\s+o\s+(?:online|en\s+l[ií]nea)\b[^?]*\?/i
+  if (!lastAssistantMessage || !askedForModality.test(lastAssistantMessage.content)) return null
 
   const hasLocationAlready =
     (history || []).some((message) =>
