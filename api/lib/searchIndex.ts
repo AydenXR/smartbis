@@ -85,6 +85,10 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   // Verbos de "¿que ofrecen?": preguntan por la oferta, no nombran un elemento
   'brindan', 'brindas', 'brindar', 'brindamos', 'ofreces', 'ofrecer', 'manejan', 'manejas', 'manejar',
   'imparten', 'impartes', 'realizas', 'haces', 'trabajan', 'trabajas', 'tienen', 'vendes', 'proporcionan',
+  'disponen', 'dispones', 'disponemos', 'manejas', 'surten', 'comercializan', 'distribuyen',
+  // Preguntas sobre un curso ya hablado ("¿que temas trata la clase?", "¿cuanto dura?")
+  'tema', 'temas', 'trata', 'tratan', 'clase', 'clases', 'tiempo', 'dura', 'duran', 'duracion',
+  'incluye', 'incluyen', 'contenido', 'contenidos', 'modulos', 'horas',
   // Preguntas de seguimiento ("¿y en linea?", "¿cuanto cuesta?"): piden un dato del tema ya hablado
   'linea', 'presencial', 'presenciales', 'modalidad', 'modalidades', 'costo', 'costos', 'cuesta', 'cuestan',
   'fecha', 'fechas', 'proxima', 'proximo', 'proximas', 'proximos', 'empieza', 'empiezan', 'inicia', 'inician',
@@ -571,7 +575,8 @@ function splitDocumentIntoBlocks(document: WorkspaceDocument) {
 
 function extractFieldValue(block: string, labels: string[]) {
   for (const label of labels) {
-    const match = block.match(new RegExp(`(?:^|\\n)${label}\\s*:\\s*(.+)`, 'i'))
+    // Lines may start with spaces (" Nombre del curso: ..."), as in the database documents
+    const match = block.match(new RegExp(`(?:^|\\n)[ \\t]*${label}\\s*:\\s*(.+)`, 'i'))
     if (match?.[1]) {
       return match[1].trim()
     }
@@ -669,7 +674,7 @@ function detectBlockKind(block: string, fields: Record<string, string>, section:
 
   if (
     section !== 'general' ||
-    /(?:^|\n)(?:Nombre del [^:]+|Nombre|Curso|Producto|Servicio|Taller|Tratamiento|Paquete)\s*:/i.test(
+    /(?:^|\n)[ \t]*(?:Nombre del [^:]+|Nombre|Curso|Producto|Servicio|Taller|Tratamiento|Paquete)\s*:/i.test(
       block,
     )
   ) {
@@ -1081,6 +1086,8 @@ const QUESTION_VOCABULARY = [
   'taller', 'talleres', 'diplomado', 'diplomados', 'sesion', 'sesiones',
   'tienes', 'tienen', 'cuentas', 'cuentan', 'ofrecen', 'venden', 'manejan', 'hacen', 'aplican',
   'brindan', 'brindas', 'ofreces', 'manejas', 'imparten', 'realizan', 'trabajan', 'proporcionan',
+  'disponen', 'dispones', 'venden', 'vendes',
+  'temas', 'trata', 'clase', 'clases', 'tiempo', 'dura', 'duracion', 'incluye', 'contenido',
   'disponible', 'disponibles', 'disponibilidad', 'existencia', 'precio', 'precios', 'costo', 'cuanto', 'cuesta',
   'horario', 'horarios', 'fecha', 'fechas', 'cuando', 'donde', 'ubicacion', 'direccion',
   'online', 'linea', 'presencial', 'modalidad', 'informacion', 'quiero', 'necesito', 'busco',
@@ -1103,7 +1110,11 @@ function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
   const places = new Set<string>()
   for (const block of index.blocks) {
     for (const token of block.bodyTokens) known.add(token)
-    for (const token of block.titleTokens) if (token.length >= 5) names.add(token)
+    // Item names only: a general block title ("[PERSONAL_CLAVE]") would turn
+    // "clase" into "clave"
+    if (block.document.section !== 'general' || isTreatmentBlock(block)) {
+      for (const token of block.titleTokens) if (token.length >= 5) names.add(token)
+    }
     if (isLocationBlock(block)) {
       for (const token of block.bodyTokens) if (token.length >= 5 && !/\d/.test(token)) places.add(token)
     }
@@ -1145,7 +1156,8 @@ function correctQueryTypos(index: SearchIndex, query: string) {
 }
 
 const SECTION_TOPIC_WORDS =
-  /\b(?:cursos?|productos?|tratamientos?|servicios?|talleres|taller|diplomados?|kits?|ubicacion|direccion|donde|sucursal(?:es)?|sede|horarios?|telefono|whatsapp|pagos?|temarios?)\b/
+  // "temario" alone ("¿y el temario?") is about the course already talked about
+  /\b(?:cursos?|productos?|tratamientos?|servicios?|talleres|taller|diplomados?|kits?|ubicacion|direccion|donde|sucursal(?:es)?|sede|horarios?|telefono|whatsapp|pagos?)\b/
 
 // Whether a message says what it is about: a section ("cursos", "horarios") or
 // an item the documents name. "¿Cuales son los precios?" or "¿y en linea?" do
@@ -1162,7 +1174,8 @@ export function keepDocumentWords(index: SearchIndex, text: string) {
 
 export function namesKnownTopic(index: SearchIndex, message: string) {
   const query = correctQueryTypos(index, message)
-  if (SECTION_TOPIC_WORDS.test(query)) return true
+  // "¿ustedes venden?" is about the products, not a follow-up of the previous question
+  if (SECTION_TOPIC_WORDS.test(query) || SELLING_QUESTION.test(query)) return true
   return queryEntityWords(query).some((word) => index.blocks.some((block) => blockNameHasWord(block, word)))
 }
 
@@ -1225,6 +1238,8 @@ export function searchIndex(index: SearchIndex, rawQuery: string): SearchContext
   }
 }
 
+const SELLING_QUESTION = /\b(?:venden|vendes|vendemos|vender|venta|ventas|comercializan|distribuyen)\b/
+
 function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextResult {
   const intent = analyzeQuery(query)
   // Scored once per block: scoring inside the comparator repeated it on every comparison
@@ -1243,6 +1258,28 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
   const entityMatchedBlocks = intent.wantsList
     ? candidateBlocks
     : filterToEntityMatches(candidateBlocks, query, intent)
+
+  // "¿Ustedes venden?", "¿darán datos de proveedores o venden?": whether the
+  // business sells. Unless a product is named, the catalog by category answers
+  // it, though other words of the question are not in the documents
+  // Only products, courses and treatments count: "datos" also titles general
+  // blocks like [DATOS_BANCARIOS_PUBLICOS], which are not something for sale
+  const namesItem = queryEntityWords(query).some((word) =>
+    index.blocks.some((block) => (block.document.section !== 'general' || isTreatmentBlock(block)) && blockNameHasWord(block, word)),
+  )
+  // "¿venden cursos?" asks about courses: their own list answers it
+  if (SELLING_QUESTION.test(query) && !namesItem && !intent.wantsCourses && !intent.wantsServices) {
+    const products = candidateBlocks.filter((block) => block.document.section === 'productos')
+    const summary = products.length > 0 ? buildStructuredCatalogSummary(products, MAX_CONTEXT_CHARS * 2) : ''
+    if (summary) {
+      return {
+        documents: Array.from(new Map(products.map((block) => [block.document.id, block.document])).values()),
+        contextBlock: summary,
+        matchedBlocks: products.slice(0, MAX_CONTEXT_BLOCKS),
+        intent,
+      }
+    }
+  }
 
   const courseAreaSummary = intent.wantsCourses ? buildCourseAreaSummary(candidateBlocks, query) : null
   if (courseAreaSummary) {

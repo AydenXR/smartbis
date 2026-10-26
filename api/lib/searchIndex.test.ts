@@ -482,3 +482,123 @@ test('an ad title keeps only the words the business documents use, without campa
   assert.match(result.contextBlock, /Relleno de arrugas y revitalización/)
   assert.doesNotMatch(result.contextBlock, /Russian Lips/)
 })
+
+test('asking whether the business sells gets the product catalog, even with unknown words around', () => {
+  for (const q of [
+    'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?',
+    'ustedes venden?',
+    'hacen venta al publico?',
+    'disponen de productos?',
+    'cuentan con productos en venta?',
+  ]) {
+    const result = searchIndex(courseAndProductIndex, q)
+    assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/, q)
+    assert.match(result.contextBlock, /Enzimas \(8 productos\)/, q)
+  }
+})
+
+test('a product that does not exist is still not answered with the catalog', () => {
+  assert.equal(searchIndex(index, 'venden acido tranexamico?').matchedBlocks.length, 0)
+  assert.equal(searchIndex(index, 'precio del acido tranexamico').matchedBlocks.length, 0)
+})
+
+test('asking whether they sell courses gets the courses, not the products', () => {
+  const result = searchIndex(courseAndProductIndex, 'venden cursos?')
+  assert.match(result.contextBlock, /Hidrofacial/)
+  assert.doesNotMatch(result.contextBlock, /Enzimas \(8 productos\)/)
+})
+
+test('asking whether they sell is a topic of its own, not a follow-up of the previous question', () => {
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?'), true)
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'ustedes venden?'), true)
+  assert.equal(namesKnownTopic(courseAndProductIndex, 'cuales son los precios?'), false)
+})
+
+test('a word that only names a general block, like DATOS_BANCARIOS, does not stop the product catalog', () => {
+  const withBankData = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [
+      ...courseAndProductIndex.documents,
+      {
+        id: 'info',
+        title: 'infogeneral.md',
+        docType: 'empresa',
+        section: 'general',
+        content: '[DATOS_BANCARIOS_PUBLICOS]\nBANCO EJEMPLO cuenta 0123\n\n[DATOS_FISCALES_Y_RFC]\nRFC EJEMPLO',
+        isActive: true,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+  })
+  const result = searchIndex(withBankData, 'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?')
+  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/)
+  assert.doesNotMatch(result.contextBlock, /BANCO EJEMPLO|RFC EJEMPLO/)
+})
+
+const staffIndex = createSearchIndex({
+  tenantId: 'tenant',
+  documents: [
+    {
+      ...facialCoursesIndex.documents[0],
+      content: [
+        '[CURSO]', 'Nombre del curso: Limpiezas faciales', 'Duración: 4 horas', 'Temario: extracción, exfoliación, mascarillas', 'Precio: $595 MXN', '',
+        '[CURSO]', 'Nombre del curso: Russian Lips', 'Precio: $895 MXN',
+      ].join('\n'),
+    },
+    {
+      id: 'info',
+      title: 'infogeneral.md',
+      docType: 'empresa',
+      section: 'general',
+      content: '[PERSONAL_CLAVE]\nDra. Ejemplo: directora.',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ],
+})
+
+test('a question about a course syllabus or length is a follow-up, not a new topic', () => {
+  // "clase" must not be "corrected" into "clave" from a general block title
+  assert.equal(namesKnownTopic(staffIndex, 'Que temas trata la clase y cuanto tiempo es?'), false)
+  assert.equal(namesKnownTopic(staffIndex, 'cuanto dura?'), false)
+  assert.equal(namesKnownTopic(staffIndex, 'y el temario?'), false)
+  assert.equal(namesKnownTopic(staffIndex, 'temario de russian lips'), true)
+
+  const result = searchIndex(staffIndex, 'curso de limpieza facial tienes?\nQue temas trata la clase y cuanto tiempo es?')
+  assert.match(result.contextBlock, /Duración: 4 horas/)
+  assert.match(result.contextBlock, /extracción, exfoliación/)
+  assert.doesNotMatch(result.contextBlock, /directora/)
+})
+
+test('card fields are read even when their lines start with spaces, as in the database documents', () => {
+  const indented = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...facialCoursesIndex.documents[0],
+      content: '[CURSO]\n Nombre del curso: Limpiezas faciales.\n\n Modalidades: Online, Presencial\n\n Precio: Online: $595 MXN\n\n[CURSO]\n Nombre del curso: Russian Lips\n Precio: $895 MXN',
+    }],
+  })
+  assert.deepEqual(indented.blocks.map((block) => block.title), ['Limpiezas faciales.', 'Russian Lips'])
+  assert.equal(indented.blocks[0].fields.price, 'Online: $595 MXN')
+  const list = searchIndex(indented, 'que cursos tienen?')
+  assert.match(list.contextBlock, /- Limpiezas faciales\. \| Modalidades: Online, Presencial \| Precio: Online: \$595 MXN/)
+})
+
+test('asking for the syllabus or length after an area question gets course details, not the name list', () => {
+  const detailsIndex = createSearchIndex({
+    tenantId: 'tenant',
+    documents: [{
+      ...facialCoursesIndex.documents[0],
+      content: [
+        '[HORARIOS]', 'Presencial:', '10:00 AM - 2:30 PM', '- Limpiezas faciales', '', '[FECHAS_CURSOS]', 'En línea:', '✨ 04 Noviembre - Limpieza facial', '',
+        '[CURSO]', ' Nombre del curso: Limpiezas faciales.', ' Descripción: Limpieza y cuidado de la piel del rostro.', ' Precio: $595 MXN', '',
+        'Limpiezas faciales', '[Temario]', 'Temario: Limpiezas faciales', 'Tipos de piel', 'Extracción', '',
+        '[CURSO]', ' Nombre del curso: Hidrofacial', ' Descripción: Limpieza profunda facial.', ' Precio: $895 MXN',
+      ].join('\n'),
+    }],
+  })
+  const result = searchIndex(detailsIndex, 'tienes curso de facial?\nQue temas trata la clase  y cuanto tiempo es?')
+  assert.doesNotMatch(result.contextBlock, /^Catalogo resumido/)
+  assert.match(result.contextBlock, /Tipos de piel/)
+  assert.match(result.contextBlock, /10:00 AM - 2:30 PM/)
+})
