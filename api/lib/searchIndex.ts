@@ -410,7 +410,9 @@ function analyzeQuery(query: string) {
     )
   const wantsSchedule = /\bhorario\b|\bhorarios\b/.test(normalizedQuery)
   const wantsDetails =
-    /\bmas\b|\binformacion\b|\bficha\b|\bdetalle\b|\bdetalles\b/.test(normalizedQuery)
+    /\bmas\b|\binformacion\b|\bficha\b|\bdetalle\b|\bdetalles\b|\btemario\b|\btemarios\b|\btema\b|\btemas\b|\bcontenido\b|\bcontenidos\b|\bmodulo\b|\bmodulos\b|\bduracion\b|\bdura\b|\bduran\b|\btiempo\b|\bhoras?\b/.test(
+      normalizedQuery,
+    )
   const mentionsPluralCatalog =
     /\bproductos\b|\bcursos\b|\bservicios\b|\btalleres\b|\btratamientos\b|\bprocedimientos\b/.test(
       normalizedQuery,
@@ -785,6 +787,10 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
   }
 
   if ((queryIntent.wantsLocation || queryIntent.wantsSchedule) && (block.kind === 'location' || block.kind === 'contact' || block.kind === 'schedule')) {
+    score += 18
+  }
+
+  if (queryIntent.wantsDetails && queryIntent.wantsCourses && block.kind === 'schedule') {
     score += 18
   }
 
@@ -1281,7 +1287,9 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
     }
   }
 
-  const courseAreaSummary = intent.wantsCourses ? buildCourseAreaSummary(candidateBlocks, query) : null
+  const courseAreaSummary = intent.wantsCourses && !intent.wantsDetails
+    ? buildCourseAreaSummary(candidateBlocks, query)
+    : null
   if (courseAreaSummary) {
     return {
       documents: Array.from(new Map(courseAreaSummary.blocks.map((block) => [block.document.id, block.document])).values()),
