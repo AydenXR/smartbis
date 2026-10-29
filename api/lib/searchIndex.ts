@@ -9,6 +9,8 @@ const MAX_SUMMARY_ITEMS = 12
 // A full course list ("que cursos tienen") must name every course, not the first 12
 const MAX_LIST_ITEMS = 40
 const NOISE_BLOCK_TITLE_MIN_SCORE = -99999
+const MIN_STRONG_FAQ_SCORE = 12
+const WEAK_BLOCK_RATIO = 0.6
 const NOISE_TITLE_PATTERNS: readonly RegExp[] = [
   /^\s*aqu[ií]\s+tienes\s+la\s+lista\s+de\s+los\s+primeros\s+\d+\s+productos/i,
   /^\s*aqu[ií]\s+tienes\s+la\s+lista\s+de\s+los\s+primeros\s+\d+/i,
@@ -715,6 +717,24 @@ function isCatalogLikeBlock(block: IndexedBlock) {
   return block.kind === 'catalog_item'
 }
 
+const FAQ_QUESTION_TOKENS = new WeakMap<IndexedBlock, string[]>()
+
+function isFaqBlock(block: IndexedBlock) {
+  return /^\[FAQ\]/i.test(block.body)
+}
+
+// The question (or customer message) of a FAQ is what a customer will resemble,
+// so its words weigh like a title; the answer's words are only body text
+function faqQuestionTokens(block: IndexedBlock) {
+  let tokens = FAQ_QUESTION_TOKENS.get(block)
+  if (!tokens) {
+    const lines = block.body.split(/\r?\n/).filter((line) => /^\s*(?:Pregunta|Mensaje)\s*:/i.test(line))
+    tokens = extractQueryWords(lines.join(' '))
+    FAQ_QUESTION_TOKENS.set(block, tokens)
+  }
+  return tokens
+}
+
 function scoreIndexedBlock(block: IndexedBlock, query: string) {
   const queryIntent = analyzeQuery(query)
   const queryWords = extractQueryWords(query)
@@ -819,6 +839,7 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
 
   let exactMatches = 0
   let partialMatches = 0
+  let faqQuestionHits = 0
   let isNoiseBlock = false
   for (const pattern of NOISE_TITLE_PATTERNS) {
     if (pattern.test(block.title || '')) {
@@ -836,6 +857,17 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
     if (block.titleTokens.includes(word) || (allowsSubstring && block.normalizedTitle.includes(word))) {
       score += 8
       exactMatches += 1
+      continue
+    }
+
+    // "grabado" asks what the question "grabada" asks: a shared start of 5+ letters
+    if (
+      isFaqBlock(block) &&
+      faqQuestionTokens(block).some((token) => token === word || (word.length >= 5 && sharedPrefixLength(token, word) >= 5))
+    ) {
+      score += 8
+      exactMatches += 1
+      faqQuestionHits += 1
       continue
     }
 
@@ -905,6 +937,11 @@ function scoreIndexedBlock(block: IndexedBlock, query: string) {
       score += 2
       partialMatches += 1
     }
+  }
+
+  // The customer's question is the FAQ's question: nothing else answers it better
+  if (queryWords.length >= 1 && faqQuestionHits === queryWords.length) {
+    score += 20
   }
 
   if (queryWords.length > 0 && exactMatches === queryWords.length) {
@@ -1378,9 +1415,17 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
   const candidateBlocks = intent.wantsLocation
     ? rankedBlocks.filter((block) => block.document.section === 'general')
     : rankedBlocks
-  const entityMatchedBlocks = intent.wantsList
+  const filteredBlocks = intent.wantsList
     ? candidateBlocks
     : filterToEntityMatches(candidateBlocks, query, intent)
+  // A FAQ that answers the question well must not be diluted by weak matches
+  // (every product matches "precio"): they distract the model into "no information"
+  const topBlock = filteredBlocks[0]
+  const topScore = topBlock ? scores.get(topBlock) ?? 0 : 0
+  const entityMatchedBlocks =
+    !intent.wantsList && topBlock && isFaqBlock(topBlock) && topScore >= MIN_STRONG_FAQ_SCORE
+      ? filteredBlocks.filter((block) => isFaqBlock(block) || (scores.get(block) ?? 0) >= topScore * WEAK_BLOCK_RATIO)
+      : filteredBlocks
 
   // "¿Ustedes venden?", "¿darán datos de proveedores o venden?": whether the
   // business sells. Unless a product is named, the catalog by category answers
