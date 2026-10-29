@@ -28,6 +28,8 @@ import {
   type ItemKind,
   type PosBranch,
   type PosCatalogItem,
+  type PosInventoryLoss,
+  type PosInventoryLossReason,
   type PosMdFileInfo,
   type PromoGroup,
   posBranches,
@@ -35,6 +37,8 @@ import {
   posCatalogSave,
   posCatalogDelete,
   posCatalogAdjustStock,
+  posInventoryLosses,
+  posInventoryLossCreate,
   posCatalogSyncFromDocs,
   posDocsList,
   posDocsWrite,
@@ -46,7 +50,7 @@ import {
   resolveApiUrl,
 } from '@/lib/api'
 
-type TabKind = 'all' | ItemKind | 'promo_groups'
+type TabKind = 'all' | ItemKind | 'promo_groups' | 'inventory_losses'
 
 const tabs: Array<{ id: TabKind; label: string; icon?: string }> = [
   { id: 'all', label: 'Todos' },
@@ -55,7 +59,21 @@ const tabs: Array<{ id: TabKind; label: string; icon?: string }> = [
   { id: 'course', label: '🎓 Cursos' },
   { id: 'menu_item', label: '🍕 Menú' },
   { id: 'promo_groups', label: '🏷️ Grupos promoción' },
+  { id: 'inventory_losses', label: '⚠️ Mermas' },
 ]
+
+const inventoryLossReasons: Array<{ value: PosInventoryLossReason; label: string }> = [
+  { value: 'expired', label: 'Producto caducado' },
+  { value: 'poor_condition', label: 'Mal estado' },
+  { value: 'damaged', label: 'Producto dañado' },
+  { value: 'other', label: 'Otro motivo' },
+]
+
+function todayForDateInput() {
+  const date = new Date()
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
+  return date.toISOString().slice(0, 10)
+}
 
 function kindBadgeClass(k: ItemKind) {
   switch (k) {
@@ -132,6 +150,7 @@ type StockAdjust = {
 
 export default function CrmInventoryView() {
   const [items, setItems] = useState<PosCatalogItem[]>([])
+  const [inventoryLossesList, setInventoryLossesList] = useState<PosInventoryLoss[]>([])
   const [branches, setBranches] = useState<PosBranch[]>([])
   const [mdFiles, setMdFiles] = useState<PosMdFileInfo[]>([])
   const [promoGroups, setPromoGroups] = useState<PromoGroup[]>([])
@@ -150,6 +169,14 @@ export default function CrmInventoryView() {
   const stockCount = stockCountRaw.trim() === '' ? 0 : Number.parseInt(stockCountRaw, 10)
   const [stockReason, setStockReason] = useState('')
   const [savingStock, setSavingStock] = useState(false)
+  const [lossModalOpen, setLossModalOpen] = useState(false)
+  const [lossItemId, setLossItemId] = useState('')
+  const [lossBranchId, setLossBranchId] = useState('')
+  const [lossQty, setLossQty] = useState('1')
+  const [lossDate, setLossDate] = useState(todayForDateInput)
+  const [lossReason, setLossReason] = useState<PosInventoryLossReason>('expired')
+  const [lossNotes, setLossNotes] = useState('')
+  const [savingLoss, setSavingLoss] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [importing, setImporting] = useState(false)
 
@@ -186,20 +213,24 @@ export default function CrmInventoryView() {
   const [previewDocContent, setPreviewDocContent] = useState<string>('')
   const [loadingPreview, setLoadingPreview] = useState(false)
 
-  async function loadAll() {
+  async function loadAll(options: { tab?: TabKind; search?: string } = {}) {
     setLoading(true)
     setError('')
     try {
-      const [cRes, bRes, docs, gRes] = await Promise.all([
+      const activeTab = options.tab ?? tab
+      const activeSearch = options.search ?? search
+      const [cRes, bRes, docs, gRes, lossesRes] = await Promise.all([
         posCatalog({
-          kinds: tab !== 'all' && tab !== 'promo_groups' ? [tab as ItemKind] : undefined,
-          search: search.trim() || undefined,
+          kinds: activeTab !== 'all' && activeTab !== 'promo_groups' && activeTab !== 'inventory_losses' ? [activeTab as ItemKind] : undefined,
+          search: activeTab === 'inventory_losses' ? undefined : activeSearch.trim() || undefined,
         }),
         posBranches(),
         posDocsList().catch(() => ({ files: [] })),
         posPromoGroups().catch(() => ({ groups: [] as PromoGroup[] })),
+        posInventoryLosses(),
       ])
       setItems(cRes.items)
+      setInventoryLossesList(lossesRes.losses)
       // cRes.promoGroups also available but prefer dedicated endpoint result
       setPromoGroups(Array.isArray((gRes as any)?.groups) ? (gRes as any).groups : Array.isArray((cRes as any).promoGroups) ? (cRes as any).promoGroups : [])
       setBranches(bRes.branches)
@@ -473,6 +504,48 @@ export default function CrmInventoryView() {
     }
   }
 
+  function openInventoryLossModal() {
+    const firstBranch = branches.find(branch => branch.isMain) || branches[0]
+    const firstItem = items.find(item => item.kind === 'product' && (item.stocks?.[firstBranch?.id] ?? 0) > 0)
+      || items.find(item => item.kind === 'product')
+    setLossItemId(firstItem?.id || '')
+    setLossBranchId(firstBranch?.id || '')
+    setLossQty('1')
+    setLossDate(todayForDateInput())
+    setLossReason('expired')
+    setLossNotes('')
+    setError('')
+    setLossModalOpen(true)
+  }
+
+  async function handleSaveInventoryLoss() {
+    const item = items.find(candidate => candidate.id === lossItemId && candidate.kind === 'product')
+    const qty = Number(lossQty)
+    if (!item || !lossBranchId || !Number.isInteger(qty) || qty < 1 || qty > (item.stocks?.[lossBranchId] ?? 0)) {
+      setError('Selecciona un producto y una sucursal con existencias suficientes, e indica una cantidad válida')
+      return
+    }
+    setSavingLoss(true)
+    setError('')
+    try {
+      const { loss } = await posInventoryLossCreate({
+        itemId: item.id,
+        branchId: lossBranchId,
+        date: lossDate,
+        qty,
+        reason: lossReason,
+        notes: lossNotes.trim() || undefined,
+      })
+      setLossModalOpen(false)
+      showToast(`Merma registrada: ${loss.qty} unidad(es) de ${loss.itemName}`)
+      await loadAll()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'No se pudo registrar la merma')
+    } finally {
+      setSavingLoss(false)
+    }
+  }
+
   // ====== IMPORT FILE ======
   async function onPickImportFile(ev: React.ChangeEvent<HTMLInputElement>) {
     const f = ev.target.files?.[0]
@@ -657,7 +730,7 @@ export default function CrmInventoryView() {
 
   const filteredItems = useMemo(() => {
     let list = items
-    if (tab !== 'all' && tab !== 'promo_groups') list = list.filter((i) => i.kind === tab)
+    if (tab !== 'all' && tab !== 'promo_groups' && tab !== 'inventory_losses') list = list.filter((i) => i.kind === tab)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(
@@ -687,6 +760,20 @@ export default function CrmInventoryView() {
     return [...list].sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || a.name.localeCompare(b.name))
   }, [promoGroups, search, items])
 
+  const filteredInventoryLosses = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return inventoryLossesList
+    return inventoryLossesList.filter(loss => {
+      const branchName = branches.find(branch => branch.id === loss.branchId)?.name || ''
+      const reasonLabel = inventoryLossReasons.find(reason => reason.value === loss.reason)?.label || loss.reason
+      return [loss.itemName, loss.sku, loss.notes || '', branchName, reasonLabel, loss.userEmail]
+        .some(value => value.toLowerCase().includes(query))
+    })
+  }, [branches, inventoryLossesList, search])
+
+  const selectedLossItem = items.find(item => item.id === lossItemId)
+  const selectedLossStock = selectedLossItem?.stocks?.[lossBranchId] ?? 0
+
   function stockCellClass(stock: number, kind: ItemKind) {
     if (kind === 'service' || kind === 'course') return 'text-slate-400'
     if (stock <= 0) return 'text-rose-300/80 line-through'
@@ -703,10 +790,10 @@ export default function CrmInventoryView() {
           </div>
           <div>
             <h2 className="text-[22px] font-bold tracking-tight text-slate-50">
-              Inventario · Catálogo
+              {tab === 'inventory_losses' ? 'Inventario · Mermas' : 'Inventario · Catálogo'}
             </h2>
             <span className="rounded-full border border-[#1090D0]/40 bg-[#1090D0]/10 px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wider text-[#5bbfe5]">
-              Importar / Exportar · docs .md
+              {tab === 'inventory_losses' ? 'Registro histórico · ajustes de existencias' : 'Importar / Exportar · docs .md'}
             </span>
           </div>
         </div>
@@ -726,43 +813,56 @@ export default function CrmInventoryView() {
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             Refrescar
           </button>
-          <button
-            type="button"
-            onClick={() => void handleSync()}
-            disabled={syncing}
-            className="flex h-9 items-center gap-2 rounded-[14px] border border-[#1090D0]/40 bg-[#1090D0]/10 px-3.5 text-[12px] font-semibold text-[#5bbfe5] transition hover:bg-[#1090D0]/20 disabled:opacity-50"
-            title="Lee TODOS los documentos .md del tenant y carga/sincroniza items al inventario (el de arriba es SOLO el seleccionado)."
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
-            Sincronizar TODOS los documentos
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleExportExcel()}
-            className="flex h-9 items-center gap-2 rounded-[14px] border border-sky-500/40 bg-sky-500/10 px-3.5 text-[12px] font-bold text-sky-300 transition hover:bg-sky-500/20 hover:text-white"
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" />
-            Descargar Excel
-          </button>
-          <button
-            type="button"
-            onClick={openImportModal}
-            className="flex h-9 items-center gap-2 rounded-[14px] border border-emerald-500/40 bg-emerald-500/10 px-3.5 text-[12px] font-bold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Importar productos
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (tab === 'promo_groups') openCreateGroup()
-              else openCreate()
-            }}
-            className="flex h-9 items-center gap-2 rounded-[14px] bg-[#1090D0] px-4 text-[12px] font-bold text-white transition hover:bg-[#0c79ae]"
-          >
-            <Plus className="h-4 w-4" />
-            {tab === 'promo_groups' ? 'Nuevo grupo promoción' : 'Nuevo item'}
-          </button>
+          {tab === 'inventory_losses' ? (
+            <button
+              type="button"
+              onClick={openInventoryLossModal}
+              className="flex h-9 items-center gap-2 rounded-[14px] bg-rose-500 px-4 text-[12px] font-bold text-white transition hover:bg-rose-600"
+            >
+              <Plus className="h-4 w-4" />
+              Registrar merma
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleSync()}
+                disabled={syncing}
+                className="flex h-9 items-center gap-2 rounded-[14px] border border-[#1090D0]/40 bg-[#1090D0]/10 px-3.5 text-[12px] font-semibold text-[#5bbfe5] transition hover:bg-[#1090D0]/20 disabled:opacity-50"
+                title="Lee TODOS los documentos .md del tenant y carga/sincroniza items al inventario (el de arriba es SOLO el seleccionado)."
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+                Sincronizar TODOS los documentos
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExportExcel()}
+                className="flex h-9 items-center gap-2 rounded-[14px] border border-sky-500/40 bg-sky-500/10 px-3.5 text-[12px] font-bold text-sky-300 transition hover:bg-sky-500/20 hover:text-white"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Descargar Excel
+              </button>
+              <button
+                type="button"
+                onClick={openImportModal}
+                className="flex h-9 items-center gap-2 rounded-[14px] border border-emerald-500/40 bg-emerald-500/10 px-3.5 text-[12px] font-bold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Importar productos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tab === 'promo_groups') openCreateGroup()
+                  else openCreate()
+                }}
+                className="flex h-9 items-center gap-2 rounded-[14px] bg-[#1090D0] px-4 text-[12px] font-bold text-white transition hover:bg-[#0c79ae]"
+              >
+                <Plus className="h-4 w-4" />
+                {tab === 'promo_groups' ? 'Nuevo grupo promoción' : 'Nuevo item'}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -776,7 +876,7 @@ export default function CrmInventoryView() {
               type="button"
               onClick={() => {
                 setTab(t.id)
-                void loadAll()
+                void loadAll({ tab: t.id })
               }}
               className={cn(
                 'rounded-[10px] px-3.5 py-2 text-[12px] font-semibold transition whitespace-nowrap',
@@ -800,21 +900,96 @@ export default function CrmInventoryView() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void loadAll()
               }}
-              placeholder={tab === 'promo_groups' ? 'Buscar grupo por nombre o producto incluido...' : 'Buscar por nombre, SKU, familia, categoría...'}
+              placeholder={
+                tab === 'promo_groups'
+                  ? 'Buscar grupo por nombre o producto incluido...'
+                  : tab === 'inventory_losses'
+                  ? 'Buscar por producto, sucursal o motivo...'
+                  : 'Buscar por nombre, SKU, familia, categoría...'
+              }
               className="flex-1 bg-transparent text-[13.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
             />
           </div>
         </div>
 
         <div className="rounded-[12px] border border-[#1a3a5a] bg-[#0b2641]/60 px-3 py-1.5 text-[11.5px] text-slate-300">
-          {tab === 'promo_groups'
+          {tab === 'inventory_losses'
+            ? `${filteredInventoryLosses.length} merma${filteredInventoryLosses.length === 1 ? '' : 's'}`
+            : tab === 'promo_groups'
             ? `${filteredPromoGroups.length} grupo${filteredPromoGroups.length === 1 ? '' : 's'}`
             : `${filteredItems.length} items`}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-[20px] border border-[#1a3a5a] bg-[#0f3151]">
-        {tab === 'promo_groups' ? (
+        {tab === 'inventory_losses' ? (
+          loading && inventoryLossesList.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-[12.5px] text-slate-400">
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[#1090D0]" />
+              Cargando mermas...
+            </div>
+          ) : filteredInventoryLosses.length === 0 ? (
+            <div className="py-16 text-center text-[12.5px] text-slate-400">
+              <div className="font-semibold text-slate-200">
+                {search.trim() ? 'No se encontraron mermas con esa búsqueda.' : 'Aún no hay mermas registradas.'}
+              </div>
+              {!search.trim() ? (
+                <>
+                  <p className="mt-2">Registra productos caducados, dañados o en mal estado para descontarlos del inventario y conservar el historial.</p>
+                  <button
+                    type="button"
+                    onClick={openInventoryLossModal}
+                    className="mt-5 inline-flex items-center gap-1.5 rounded-[14px] bg-rose-500 px-4 py-2 text-[12px] font-bold text-white transition hover:bg-rose-600"
+                  >
+                    <Plus className="h-4 w-4" /> Registrar primera merma
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-[#1a3a5a] bg-[#0b2641]/90 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 backdrop-blur">
+                  <tr>
+                    <th className="px-4 py-3">Fecha</th>
+                    <th className="px-4 py-3">Producto</th>
+                    <th className="px-4 py-3">Sucursal</th>
+                    <th className="px-4 py-3 text-right">Cantidad</th>
+                    <th className="px-4 py-3">Motivo</th>
+                    <th className="px-4 py-3">Observaciones</th>
+                    <th className="px-4 py-3 text-right">Costo de merma</th>
+                    <th className="px-4 py-3">Registró</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInventoryLosses.map(loss => (
+                    <tr key={loss.id} className="border-b border-[#1a3a5a]/40 last:border-0 hover:bg-[#11375a]/40">
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-300">
+                        {new Date(`${loss.date}T00:00:00`).toLocaleDateString('es-MX')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-100">{loss.itemName}</div>
+                        <div className="font-mono text-[10.5px] text-slate-400">{loss.sku}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-300">
+                        {branches.find(branch => branch.id === loss.branchId)?.name || 'Sucursal eliminada'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-rose-300">{loss.qty}</td>
+                      <td className="px-4 py-3 text-slate-200">
+                        {inventoryLossReasons.find(reason => reason.value === loss.reason)?.label || loss.reason}
+                      </td>
+                      <td className="max-w-[240px] px-4 py-3 text-slate-400">{loss.notes || '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-slate-300">
+                        ${Number(loss.totalCost).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 text-[11px] text-slate-400">{loss.userEmail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : tab === 'promo_groups' ? (
           loading && filteredPromoGroups.length === 0 ? (
             <div className="flex items-center justify-center py-12 text-[12.5px] text-slate-400">
               <RefreshCw className="mr-2 h-4 w-4 animate-spin text-[#1090D0]" />
@@ -1645,6 +1820,129 @@ export default function CrmInventoryView() {
                     <Check className="h-4 w-4" /> Aplicar ajuste
                   </span>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lossModalOpen ? (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-[20px] border border-[#1a3a5a] bg-[#0f3151] shadow-2xl shadow-black/50">
+            <div className="flex items-center justify-between border-b border-[#1a3a5a] px-5 py-4">
+              <div>
+                <h3 className="text-[16px] font-bold text-slate-50">Registrar merma</h3>
+                <p className="mt-0.5 text-[11.5px] text-slate-400">La cantidad se descontará del inventario de la sucursal.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLossModalOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#0b2641] hover:text-slate-100"
+                aria-label="Cerrar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto p-5">
+              <div>
+                <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Producto</label>
+                <select
+                  value={lossItemId}
+                  onChange={event => setLossItemId(event.target.value)}
+                  className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 text-[13px] text-slate-100 outline-none focus:border-[#1090D0]/60"
+                >
+                  <option value="">Selecciona un producto</option>
+                  {items.filter(item => item.kind === 'product').map(item => (
+                    <option key={item.id} value={item.id}>{item.name} · {item.sku}</option>
+                  ))}
+                </select>
+                {items.every(item => item.kind !== 'product') ? (
+                  <p className="mt-1.5 text-[11px] text-rose-300">No hay productos disponibles en el catálogo.</p>
+                ) : null}
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Sucursal</label>
+                  <select
+                    value={lossBranchId}
+                    onChange={event => setLossBranchId(event.target.value)}
+                    className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 text-[13px] text-slate-100 outline-none focus:border-[#1090D0]/60"
+                  >
+                    <option value="">Selecciona una sucursal</option>
+                    {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Fecha</label>
+                  <input
+                    type="date"
+                    value={lossDate}
+                    onChange={event => setLossDate(event.target.value)}
+                    className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 text-[13px] text-slate-100 outline-none focus:border-[#1090D0]/60"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Cantidad</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={selectedLossStock}
+                    step="1"
+                    value={lossQty}
+                    onChange={event => setLossQty(event.target.value)}
+                    className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 font-mono text-[16px] font-bold text-slate-100 outline-none focus:border-[#1090D0]/60"
+                  />
+                  <p className="mt-1.5 text-[10.5px] text-slate-400">Disponibles: <strong>{selectedLossStock}</strong></p>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Motivo</label>
+                  <select
+                    value={lossReason}
+                    onChange={event => setLossReason(event.target.value as PosInventoryLossReason)}
+                    className="h-11 w-full rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 text-[13px] text-slate-100 outline-none focus:border-[#1090D0]/60"
+                  >
+                    {inventoryLossReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">Observaciones (opcional)</label>
+                <textarea
+                  value={lossNotes}
+                  onChange={event => setLossNotes(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  placeholder="Lote, fecha de caducidad u otros detalles..."
+                  className="w-full resize-y rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5 text-[13px] text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#1090D0]/60"
+                />
+              </div>
+              <div className="rounded-[14px] border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-[11.5px] text-rose-100">
+                Se actualizará el stock y quedará un registro de la merma en el historial.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[#1a3a5a] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setLossModalOpen(false)}
+                className="rounded-[14px] border border-[#1a3a5a] bg-[#11375a] px-4 py-2 text-[12.5px] font-semibold text-slate-200 transition hover:text-white"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveInventoryLoss()}
+                disabled={savingLoss || !selectedLossItem || !lossBranchId || !lossDate || !Number.isInteger(Number(lossQty)) || Number(lossQty) < 1 || Number(lossQty) > selectedLossStock}
+                className="inline-flex items-center gap-1.5 rounded-[14px] bg-rose-500 px-5 py-2 text-[12.5px] font-bold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingLoss ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {savingLoss ? 'Guardando...' : 'Registrar merma'}
               </button>
             </div>
           </div>
