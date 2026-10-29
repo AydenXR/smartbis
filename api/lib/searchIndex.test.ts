@@ -671,3 +671,22 @@ test('asking for products or courses of an amount lists the items priced around 
   assert.match(inPerson.contextBlock, /BB Glow/)
   assert.doesNotMatch(inPerson.contextBlock, /Peptonas/)
 })
+
+test('asking for a course leaves out a treatment with the same name when there is a course for it', () => {
+  const both = createSearchIndex({ tenantId: 'tenant', documents: [
+    { id: 'courses', title: 'cursos.md', docType: 'cursos', section: 'cursos', isActive: true, updatedAt: '2026-01-01T00:00:00.000Z', content: [
+      '[FECHAS_CURSOS]', 'En línea:', '✨ 03 Noviembre - Rejuvenecimiento facial en tercio superior (Botox superior)', '',
+      '[CURSO]', 'Nombre del curso: Toxina Botulínica: Tercio superior.', 'Descripción: Aplicación de toxina en el tercio superior facial.', 'Precio: $895 MXN',
+    ].join('\n') },
+    { id: 'treatments', title: 'tratamientos.md', docType: 'general', section: 'general', isActive: true, updatedAt: '2026-01-01T00:00:00.000Z', content: [
+      '[TRATAMIENTO: Rejuvenecimiento facial - Tercio superior]', 'DURACION: 2 horas.', 'PRECIO APROXIMADO: $1,300',
+    ].join('\n') },
+  ] })
+
+  const course = searchIndex(both, 'Mas informacion del curso rejuvenecimiento facial tercio superior')
+  assert.ok(course.matchedBlocks.some((block) => block.title.startsWith('Toxina Botulínica')))
+  assert.ok(!course.matchedBlocks.some((block) => block.document.id === 'treatments'))
+
+  const treatment = searchIndex(both, 'informacion del tratamiento rejuvenecimiento facial tercio superior')
+  assert.ok(treatment.matchedBlocks.some((block) => block.document.id === 'treatments'))
+})
