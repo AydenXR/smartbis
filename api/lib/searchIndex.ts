@@ -89,6 +89,10 @@ const QUERY_ENTITY_STOP_WORDS = new Set([
   // Preguntas sobre un curso ya hablado ("¿que temas trata la clase?", "¿cuanto dura?")
   'tema', 'temas', 'trata', 'tratan', 'clase', 'clases', 'tiempo', 'dura', 'duran', 'duracion',
   'incluye', 'incluyen', 'contenido', 'contenidos', 'modulos', 'horas',
+  // "¿cursos gratuitos?", "¿algo economico?": preguntan por el precio, no nombran un elemento
+  'gratis', 'gratuito', 'gratuitos', 'gratuita', 'gratuitas', 'economico', 'economicos', 'economica',
+  'economicas', 'barato', 'baratos', 'barata', 'baratas', 'pesos', 'peso', 'dolares', 'dolar',
+  'muestra', 'muestras', 'regalo', 'regalan', 'regalas', 'cortesia',
   // Preguntas de seguimiento ("¿y en linea?", "¿cuanto cuesta?"): piden un dato del tema ya hablado
   'linea', 'presencial', 'presenciales', 'modalidad', 'modalidades', 'costo', 'costos', 'cuesta', 'cuestan',
   'fecha', 'fechas', 'proxima', 'proximo', 'proximas', 'proximos', 'empieza', 'empiezan', 'inicia', 'inician',
@@ -106,7 +110,7 @@ const TREATMENT_AREA_WORDS = new Set([
 function queryEntityWords(query: string) {
   return normalizeText(query)
     .split(' ')
-    .filter((word) => word.length >= 4 && !QUERY_ENTITY_STOP_WORDS.has(word))
+    .filter((word) => word.length >= 4 && !QUERY_ENTITY_STOP_WORDS.has(word) && !/^\d+$/.test(word))
 }
 
 function blockMatchesEntityWord(block: IndexedBlock, word: string) {
@@ -984,16 +988,46 @@ function buildOfferOverview(blocks: IndexedBlock[]) {
 // bot never presents the first few items as the whole catalog
 function buildCategoryCatalogSummary(blocks: IndexedBlock[]) {
   const counts = new Map<string, number>()
+  const lowestPrices = new Map<string, { amount: number; text: string }>()
   for (const block of blocks) {
     const category = block.fields.category.trim()
-    if (category) counts.set(category, (counts.get(category) || 0) + 1)
+    if (!category) continue
+    counts.set(category, (counts.get(category) || 0) + 1)
+    const price = lowestPrice(block.fields.price)
+    const known = lowestPrices.get(category)
+    if (price && (!known || price.amount < known.amount)) lowestPrices.set(category, price)
   }
   if (counts.size === 0) return ''
 
+  // The lowest price per category answers "¿tienen algo gratis / de 100 pesos?"
+  // without listing hundreds of products
   const lines = [...counts.entries()]
     .sort((left, right) => right[1] - left[1])
-    .map(([category, count]) => `- ${category} (${count} ${count === 1 ? 'producto' : 'productos'})`)
+    .map(([category, count]) => {
+      const price = lowestPrices.get(category)
+      return `- ${category} (${count} ${count === 1 ? 'producto' : 'productos'}${price ? `, desde ${price.text}` : ''})`
+    })
   return `Catalogo resumido encontrado en los documentos (${blocks.length} productos en total, por categoria; pregunta al cliente que categoria o producto busca):\n${lines.join('\n')}`
+}
+
+// "$1,350 MXN" or "Online: $595 MXN / Presencial: $1350 MXN" to its lowest amount;
+// $0 is a price nobody filled in, not a free item
+function lowestPrice(price: string) {
+  return priceAmounts(price).sort((left, right) => left.amount - right.amount)[0] || null
+}
+
+// Every amount of a price ("Online: $595 MXN ($33 USD) / Presencial: $1350 MXN");
+// the dollar equivalents only when the price has nothing else
+function priceAmounts(price: string) {
+  const amounts: Array<{ amount: number; text: string; dollars: boolean }> = []
+  for (const match of price.matchAll(/\$\s*(\d[\d,]*(?:\.\d+)?)(?:\s*(MXN|USD|pesos|dolares|dólares))?/gi)) {
+    const amount = Number(match[1].replace(/,/g, ''))
+    if (Number.isFinite(amount) && amount > 0) {
+      amounts.push({ amount, text: match[0].trim(), dollars: /^(?:usd|dolares|dólares)$/i.test(match[2] || '') })
+    }
+  }
+  const local = amounts.filter((item) => !item.dollars)
+  return (local.length > 0 ? local : amounts).map(({ amount, text }) => ({ amount, text }))
 }
 
 function buildStructuredCatalogSummary(blocks: IndexedBlock[], maxChars: number) {
@@ -1090,6 +1124,7 @@ function typoDistance(a: string, b: string, max: number) {
 const QUESTION_VOCABULARY = [
   'curso', 'cursos', 'producto', 'productos', 'servicio', 'servicios', 'tratamiento', 'tratamientos',
   'taller', 'talleres', 'diplomado', 'diplomados', 'sesion', 'sesiones',
+  'gratis', 'gratuito', 'gratuitos', 'gratuita', 'gratuitas', 'economico', 'barato',
   'tienes', 'tienen', 'cuentas', 'cuentan', 'ofrecen', 'venden', 'manejan', 'hacen', 'aplican',
   'brindan', 'brindas', 'ofreces', 'manejas', 'imparten', 'realizan', 'trabajan', 'proporcionan',
   'disponen', 'dispones', 'venden', 'vendes',
@@ -1114,8 +1149,17 @@ function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
   // Cities and places the business writes in its location blocks ("Hermosillo",
   // "Guadalajara"): customers misspell them as often as item names
   const places = new Set<string>()
+  const counts = new Map<string, number>()
   for (const block of index.blocks) {
-    for (const token of block.bodyTokens) known.add(token)
+    // Every word, also those left out of the tokens ("productos")
+    for (const word of normalizeText(`${block.title} ${block.body}`).split(' ')) {
+      if (word) counts.set(word, (counts.get(word) || 0) + 1)
+    }
+  }
+  for (const block of index.blocks) {
+    for (const token of block.bodyTokens) {
+      if (!known.has(token) && !isDocumentTypo(token, counts)) known.add(token)
+    }
     // Item names only: a general block title ("[PERSONAL_CLAVE]") would turn
     // "clase" into "clave"
     if (block.document.section !== 'general' || isTreatmentBlock(block)) {
@@ -1128,6 +1172,17 @@ function getTypoVocabulary(index: SearchIndex): TypoVocabulary {
   const vocabulary = { known, names: [...names], places: [...places] }
   typoVocabularies.set(index, vocabulary)
   return vocabulary
+}
+
+// Documents have typos too ("¿Como puedo adquirir sus produtos?" in a FAQ): a word
+// written once or twice that is one edit from a question word the documents use
+// far more ("productos") is that word misspelled, not a word to keep as written
+function isDocumentTypo(token: string, counts: Map<string, number>) {
+  const count = counts.get(token) || 0
+  if (token.length < 6 || count > 2) return false
+  return QUESTION_VOCABULARY.some(
+    (word) => word !== token && (counts.get(word) || 0) >= count * 10 && typoDistance(token, word, 1) <= 1,
+  )
 }
 
 function correctWord(word: string, vocabulary: TypoVocabulary) {
@@ -1244,6 +1299,68 @@ export function searchIndex(index: SearchIndex, rawQuery: string): SearchContext
   }
 }
 
+const AMOUNT_WORDS: Record<string, number> = {
+  cien: 100, ciento: 100, doscientos: 200, trescientos: 300, cuatrocientos: 400, quinientos: 500,
+  seiscientos: 600, setecientos: 700, ochocientos: 800, novecientos: 900,
+  un: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
+}
+
+// The amount a question asks about: "1000", "1,500 pesos", "$500", "mil",
+// "dos mil", "quinientos pesos". A small number needs a currency word or "$",
+// and a number with a unit ("aguja 30 g", "toxina 100 u", "500 ml") is not a price
+const AMOUNT_UNITS = new Set(['g', 'gr', 'mg', 'kg', 'ml', 'l', 'u', 'ui', 'mm', 'cm', 'cap', 'piezas', 'pzas', 'unidades', 'puntas', 'horas', 'dias'])
+
+function findAskedAmount(query: string): number | null {
+  // The search gets "1,500" already normalized to "1 500"
+  const words = normalizeText(query.replace(/(\d),(\d{3})\b/g, '$1$2'))
+    .replace(/\b(\d{1,3}) (\d{3})\b/g, '$1$2')
+    .split(' ')
+  const mentionsMoney = /\$|\b(?:pesos?|mxn|dolares?|usd|precio|precios|cuesten|cuestan|cueste|cuesta)\b/i.test(query)
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]
+    if (/^\d+$/.test(word)) {
+      if (AMOUNT_UNITS.has(words[i + 1])) continue
+      const amount = Number(word) * (words[i + 1] === 'mil' ? 1000 : 1)
+      if (amount >= 10 && (mentionsMoney || amount >= 100)) return amount
+      continue
+    }
+    if (word === 'mil') {
+      const before = AMOUNT_WORDS[words[i - 1]] || 0
+      const after = AMOUNT_WORDS[words[i + 1]] >= 100 ? AMOUNT_WORDS[words[i + 1]] : 0
+      return (before > 0 && before < 100 ? before : 1) * 1000 + after
+    }
+    if ((AMOUNT_WORDS[word] || 0) >= 100 && mentionsMoney) return AMOUNT_WORDS[word]
+  }
+  return null
+}
+
+// The items whose price is close to the asked amount (±25%), or else the nearest
+// ones, so the bot can say "around $1,000 we have..." or "our prices start at..."
+function buildPriceRangeSummary(blocks: IndexedBlock[], amount: number) {
+  const priced = blocks
+    .filter((block) => isCatalogLikeBlock(block) && block.fields.name)
+    // A course priced online and in person counts by the price closest to the amount
+    .map((block) => ({
+      block,
+      price: priceAmounts(block.fields.price).sort((left, right) => Math.abs(left.amount - amount) - Math.abs(right.amount - amount))[0],
+    }))
+    .filter((item): item is { block: IndexedBlock; price: { amount: number; text: string } } => Boolean(item.price))
+  if (priced.length === 0) return null
+
+  const near = priced.filter(({ price }) => Math.abs(price.amount - amount) <= amount * 0.25)
+  // The closest to the amount first, then listed from cheapest to most expensive
+  const chosen = [...(near.length > 0 ? near : priced)]
+    .sort((left, right) => Math.abs(left.price.amount - amount) - Math.abs(right.price.amount - amount))
+    .slice(0, 25)
+    .sort((left, right) => left.price.amount - right.price.amount)
+  const amounts = priced.flatMap(({ block }) => priceAmounts(block.fields.price).map((price) => price.amount))
+  const header = near.length > 0
+    ? `Catalogo con precio cercano a $${amount} encontrado en los documentos (${near.length} en total${near.length > chosen.length ? ', se muestran algunos' : ''}):`
+    : `Ningun elemento cuesta cerca de $${amount}; los precios van de $${Math.min(...amounts)} a $${Math.max(...amounts)}. Los mas cercanos:`
+  const lines = chosen.map(({ block }) => `- ${block.fields.name} | Precio: ${block.fields.price}`)
+  return { contextBlock: `${header}\n${lines.join('\n')}`, blocks: chosen.map(({ block }) => block) }
+}
+
 const SELLING_QUESTION = /\b(?:venden|vendes|vendemos|vender|venta|ventas|comercializan|distribuyen)\b/
 
 function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextResult {
@@ -1282,6 +1399,22 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
         documents: Array.from(new Map(products.map((block) => [block.document.id, block.document])).values()),
         contextBlock: summary,
         matchedBlocks: products.slice(0, MAX_CONTEXT_BLOCKS),
+        intent,
+      }
+    }
+  }
+
+  // "¿productos de mil pesos?", "¿cursos de 500?": the items priced around that
+  // amount, since a summary by category cannot say which ones cost it
+  const askedAmount = findAskedAmount(query)
+  if (askedAmount && !namesItem && (intent.wantsProducts || intent.wantsCourses)) {
+    const section = intent.wantsCourses && !intent.wantsProducts ? 'cursos' : 'productos'
+    const summary = buildPriceRangeSummary(candidateBlocks.filter((block) => block.document.section === section), askedAmount)
+    if (summary) {
+      return {
+        documents: Array.from(new Map(summary.blocks.map((block) => [block.document.id, block.document])).values()),
+        contextBlock: summary.contextBlock,
+        matchedBlocks: summary.blocks.slice(0, MAX_CONTEXT_BLOCKS),
         intent,
       }
     }
