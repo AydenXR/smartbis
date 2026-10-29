@@ -342,8 +342,8 @@ test('a course price question ranks the course above a product with the same nam
 
 test('a product list question summarizes a large catalog by category', () => {
   const result = searchIndex(courseAndProductIndex, 'que productos venden')
-  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/)
-  assert.match(result.contextBlock, /Enzimas \(8 productos\)/)
+  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos[,)]/)
+  assert.match(result.contextBlock, /Enzimas \(8 productos[,)]/)
   assert.doesNotMatch(result.contextBlock, /Hidrofacial/)
 })
 
@@ -492,8 +492,8 @@ test('asking whether the business sells gets the product catalog, even with unkn
     'cuentan con productos en venta?',
   ]) {
     const result = searchIndex(courseAndProductIndex, q)
-    assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/, q)
-    assert.match(result.contextBlock, /Enzimas \(8 productos\)/, q)
+    assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos[,)]/, q)
+    assert.match(result.contextBlock, /Enzimas \(8 productos[,)]/, q)
   }
 })
 
@@ -505,7 +505,7 @@ test('a product that does not exist is still not answered with the catalog', () 
 test('asking whether they sell courses gets the courses, not the products', () => {
   const result = searchIndex(courseAndProductIndex, 'venden cursos?')
   assert.match(result.contextBlock, /Hidrofacial/)
-  assert.doesNotMatch(result.contextBlock, /Enzimas \(8 productos\)/)
+  assert.doesNotMatch(result.contextBlock, /Enzimas \(8 productos[,)]/)
 })
 
 test('asking whether they sell is a topic of its own, not a follow-up of the previous question', () => {
@@ -531,7 +531,7 @@ test('a word that only names a general block, like DATOS_BANCARIOS, does not sto
     ],
   })
   const result = searchIndex(withBankData, 'Buenas tardes, me gustaria saber si daran datos de proveedores o ustedes venden?')
-  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos\)/)
+  assert.match(result.contextBlock, /Ácido Hialurónico \(7 productos[,)]/)
   assert.doesNotMatch(result.contextBlock, /BANCO EJEMPLO|RFC EJEMPLO/)
 })
 
@@ -601,4 +601,73 @@ test('asking for the syllabus or length after an area question gets course detai
   assert.doesNotMatch(result.contextBlock, /^Catalogo resumido/)
   assert.match(result.contextBlock, /Tipos de piel/)
   assert.match(result.contextBlock, /10:00 AM - 2:30 PM/)
+})
+
+test('asking for free or cheap courses lists the courses with their prices, not nothing', () => {
+  for (const q of ['tienes cursos gratuitos?', 'hay cursos gratis?', 'tienen algun curso economico?']) {
+    const result = searchIndex(facialCoursesIndex, q)
+    assert.match(result.contextBlock, /Hidrofacial/, q)
+    assert.match(result.contextBlock, /Maderoterapia/, q)
+    assert.match(result.contextBlock, /\$895 MXN/, q)
+  }
+})
+
+test('asking for a course by price lists the courses with their prices', () => {
+  for (const q of ['tienes cursos de 100 pesos?', 'hay cursos de 1500 pesos?']) {
+    const result = searchIndex(facialCoursesIndex, q)
+    assert.match(result.contextBlock, /Hidrofacial/, q)
+    assert.match(result.contextBlock, /\$895 MXN/, q)
+  }
+})
+
+test('a long product catalog summary shows the lowest real price of each category', () => {
+  const products = Array.from({ length: 60 }, (_, i) => [
+    '[PRODUCTO]', `Nombre del producto: Aguja ${i + 1}`, 'Categoría: Insumos', `Precio: $${i === 0 ? 0 : 10 + i} MXN`, '',
+  ].join('\n'))
+  const catalog = createSearchIndex({ tenantId: 'tenant', documents: [{
+    id: 'products', title: 'productos.md', docType: 'productos', section: 'productos', content: products.join('\n'),
+    isActive: true, updatedAt: '2026-01-01T00:00:00.000Z',
+  }] })
+  for (const q of ['tienes productos gratis?', 'cuentas con productos de muestra?']) {
+    const result = searchIndex(catalog, q)
+    assert.match(result.contextBlock, /Insumos \(60 productos, desde \$11 MXN\)/, q)
+  }
+})
+
+test('a typo the documents also make, like "produtos" in a FAQ, is still corrected', () => {
+  const products = Array.from({ length: 20 }, (_, i) => [
+    '[PRODUCTO]', `Nombre del producto: Aguja ${i + 1}`, 'Categoría: Insumos', 'Descripción: Insumo para productos de belleza.', `Precio: $${10 + i} MXN`, '',
+  ].join('\n'))
+  const catalog = createSearchIndex({ tenantId: 'tenant', documents: [
+    { id: 'products', title: 'productos.md', docType: 'productos', section: 'productos', content: products.join('\n'), isActive: true, updatedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'faqs', title: 'faqs.md', docType: 'general', section: 'general', content: '[FAQ]\nPregunta: Como puedo adquirir sus produtos?\nRespuesta: Por WhatsApp.', isActive: true, updatedAt: '2026-01-01T00:00:00.000Z' },
+  ] })
+  const result = searchIndex(catalog, 'tienes produtos de muestra?')
+  assert.equal(result.intent.wantsProducts, true)
+  assert.match(result.contextBlock, /Insumos \(20 productos, desde \$10 MXN\)/)
+})
+
+test('asking for products or courses of an amount lists the items priced around it', () => {
+  const products = [['Aguja', '$3 MXN'], ['Mascarilla', '$938 MXN'], ['Kit flacidez', '$1,050 MXN'], ['Dermapen', '$1,250 MXN'], ['Plasma pen', '$9,000 MXN']]
+    .map(([name, price]) => `[PRODUCTO]\nNombre del producto: ${name}\nCategoría: Insumos\nPrecio: ${price}\n`)
+  const courses = ['[CURSO]\nNombre del curso: Peptonas\nPrecio: Online: $595 MXN ($33 USD) / Presencial: $1350 MXN\n', '[CURSO]\nNombre del curso: BB Glow\nPrecio: Online: $895 MXN ($48 USD) / Presencial: $2850 MXN\n']
+  const catalog = createSearchIndex({ tenantId: 'tenant', documents: [
+    { id: 'products', title: 'productos.md', docType: 'productos', section: 'productos', content: products.join('\n'), isActive: true, updatedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'courses', title: 'cursos.md', docType: 'cursos', section: 'cursos', content: courses.join('\n'), isActive: true, updatedAt: '2026-01-01T00:00:00.000Z' },
+  ] })
+
+  for (const q of ['tiene sproductos de mil pesos?', 'productos de 1,000?', 'tienes productos de $1000']) {
+    const result = searchIndex(catalog, q)
+    assert.match(result.contextBlock, /cercano a \$1000/, q)
+    assert.match(result.contextBlock, /Kit flacidez/, q)
+    assert.match(result.contextBlock, /Mascarilla/, q)
+    assert.doesNotMatch(result.contextBlock, /Plasma pen/, q)
+  }
+
+  const cheap = searchIndex(catalog, 'tienes cursos de 100 pesos?')
+  assert.match(cheap.contextBlock, /Ningun elemento cuesta cerca de \$100; los precios van de \$595 a \$2850/)
+  const inPerson = searchIndex(catalog, 'cursos de dos mil quinientos pesos')
+  assert.match(inPerson.contextBlock, /cercano a \$2500/)
+  assert.match(inPerson.contextBlock, /BB Glow/)
+  assert.doesNotMatch(inPerson.contextBlock, /Peptonas/)
 })
