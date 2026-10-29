@@ -266,6 +266,24 @@ export interface PosPurchaseOrder {
   createdAt: string
 }
 
+export type PosInventoryLossReason = 'expired' | 'poor_condition' | 'damaged' | 'other'
+
+export interface PosInventoryLoss {
+  id: string
+  itemId: string
+  itemName: string
+  sku: string
+  branchId: string
+  date: string
+  qty: number
+  reason: PosInventoryLossReason
+  notes?: string
+  unitCost: number
+  totalCost: number
+  userEmail: string
+  createdAt: string
+}
+
 export interface PosShift {
   id: string
   branchId: string
@@ -335,6 +353,7 @@ export interface PosAuditLog {
     | 'product_delete'
     | 'purchase_create'
     | 'purchase_delete'
+    | 'inventory_loss'
     | 'sale_create'
     | 'sale_quote'
     | 'cash_withdrawal'
@@ -415,6 +434,7 @@ export interface TenantPosData {
   catalogItems: PosCatalogItem[]
   promoGroups: PromoGroup[]
   purchases: PosPurchaseOrder[]
+  inventoryLosses: PosInventoryLoss[]
   shifts: PosShift[]
   sales: PosSale[]
   audit: PosAuditLog[]
@@ -468,6 +488,7 @@ function defaultPosData(tenantId: string): TenantPosData {
     catalogItems: [],
     promoGroups: [],
     purchases: [],
+    inventoryLosses: [],
     shifts: [],
     sales: [],
     audit: [],
@@ -517,6 +538,7 @@ export async function readPosStore(tenantId: string): Promise<TenantPosData> {
   if (!data.catalogItems) data.catalogItems = []
   if (!Array.isArray(data.promoGroups)) data.promoGroups = []
   if (!data.purchases) data.purchases = []
+  if (!Array.isArray(data.inventoryLosses)) data.inventoryLosses = []
   if (!data.shifts) data.shifts = []
   if (!data.sales) data.sales = []
   if (!data.subusers) data.subusers = []
@@ -871,6 +893,79 @@ export async function adjustStock(
   const target = it.sourceDocId || docHintForKind(it.kind)
   try { await syncCatalogWriteToMd(tenantId, 'stock', it, target, userEmail) } catch {}
   return next
+}
+
+export async function listInventoryLosses(tenantId: string): Promise<PosInventoryLoss[]> {
+  const s = await readPosStore(tenantId)
+  return [...s.inventoryLosses].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+export async function createInventoryLoss(
+  tenantId: string,
+  input: {
+    itemId: string
+    branchId: string
+    date: string
+    qty: number
+    reason: PosInventoryLossReason
+    notes?: string
+    userEmail: string
+    userId?: string
+  },
+): Promise<PosInventoryLoss> {
+  const s = await readPosStore(tenantId)
+  const item = s.catalogItems.find(candidate => candidate.id === input.itemId)
+  if (!item || item.kind !== 'product') throw new Error('ITEM_NOT_FOUND')
+  const branch = s.branches.find(candidate => candidate.id === input.branchId && candidate.active)
+  if (!branch) throw new Error('BRANCH_NOT_FOUND')
+  if (!Number.isInteger(input.qty) || input.qty < 1) throw new Error('INVALID_INVENTORY_LOSS')
+  if (!['expired', 'poor_condition', 'damaged', 'other'].includes(input.reason)) {
+    throw new Error('INVALID_INVENTORY_LOSS')
+  }
+  const lossDate = new Date(`${input.date}T00:00:00.000Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !Number.isFinite(lossDate.getTime()) || lossDate.toISOString().slice(0, 10) !== input.date) {
+    throw new Error('INVALID_INVENTORY_LOSS')
+  }
+
+  const currentStock = Math.max(0, Number(item.stocks?.[branch.id] || 0))
+  if (input.qty > currentStock) throw new Error('INSUFFICIENT_STOCK')
+  const consumed = consumeItemLots(item, branch.id, input.qty)
+  updateItemCostFromLots(item)
+  const createdAt = nowISO()
+  const loss: PosInventoryLoss = {
+    id: `loss_${uid()}`,
+    itemId: item.id,
+    itemName: item.name,
+    sku: item.sku,
+    branchId: branch.id,
+    date: input.date,
+    qty: input.qty,
+    reason: input.reason,
+    notes: input.notes?.trim() || undefined,
+    unitCost: Math.round((consumed.costTotal / input.qty) * 100) / 100,
+    totalCost: consumed.costTotal,
+    userEmail: input.userEmail,
+    createdAt,
+  }
+
+  item.stocks[branch.id] = currentStock - input.qty
+  item.updatedAt = createdAt
+  s.inventoryLosses.unshift(loss)
+  if (s.inventoryLosses.length > 10_000) s.inventoryLosses.length = 10_000
+  s.audit.unshift({
+    id: `audit_${uid()}`,
+    tenantId,
+    at: createdAt,
+    userId: input.userId,
+    userEmail: input.userEmail,
+    branchId: branch.id,
+    kind: 'inventory_loss',
+    message: `Merma de ${input.qty} unidad(es) de ${item.name} · ${input.reason} · ${branch.name}`,
+    details: loss,
+  })
+  if (s.audit.length > 10_000) s.audit.length = 10_000
+  await writePosStore(tenantId, s)
+  return loss
 }
 
 // ============ PROMO GROUPS (GRUPOS DE PRODUCTOS PARA PROMOCIONES) ============
