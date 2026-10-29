@@ -1478,12 +1478,21 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
     }
   }
 
+  // "Más información del curso rejuvenecimiento facial tercio superior": a
+  // treatment named like that is not what was asked when there is a course for
+  // it ("Toxina Botulínica: Tercio superior"); with both, the bot may answer
+  // that the course does not exist
+  const asksForCourse = intent.wantsCourses && !intent.wantsServices
+  const selectableBlocks = asksForCourse && entityMatchedBlocks.some((block) => block.document.section === 'cursos')
+    ? entityMatchedBlocks.filter((block) => !isTreatmentBlock(block))
+    : entityMatchedBlocks
+
   let remainingChars = MAX_CONTEXT_CHARS
   const documents = new Map<string, WorkspaceDocument>()
   const matchedBlocks: IndexedBlock[] = []
   const selectedBlocks: string[] = []
 
-  for (const block of entityMatchedBlocks) {
+  for (const block of selectableBlocks) {
     if (remainingChars <= 0 || selectedBlocks.length >= MAX_CONTEXT_BLOCKS) {
       break
     }
