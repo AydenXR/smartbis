@@ -48,3 +48,8 @@ package-lock.json
 testprompt.ordenado.md
 package-lock.json
 prompt.md
+content/cursos.ordenado.md
+content/faqs.md
+content/cursos.md
+content/faqs.md
+.gitignore
