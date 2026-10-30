@@ -52,6 +52,8 @@ import {
   getCatalogItem,
   upsertCatalogItem,
   deleteCatalogItem,
+  listInventoryLosses,
+  createInventoryLoss,
   listPromoGroups,
   getPromoGroup,
   upsertPromoGroup,
@@ -88,6 +90,7 @@ import {
   setAdministrationConfig,
   type PosRole,
   type PosPurchaseLine,
+  type PosInventoryLossReason,
 } from './lib/posStore.js'
 
 dotenv.config()
@@ -1746,6 +1749,67 @@ app.post('/api/pos/catalog/:id/stock', requireAuth, cashierGuard(POS_ADMIN_ROLES
     if (!Number.isFinite(delta)) { res.status(400).json({ error: 'delta inválido' }); return }
     const next = await (await import('./lib/posStore.js')).adjustStock(user.tenantId, String(req.params.id), branchId, delta, String(b.reason || 'Ajuste manual'), user.email)
     res.json({ stock: next })
+  } catch (e) {
+    next(e)
+  }
+})
+
+app.get('/api/pos/inventory-losses', requireAuth, cashierGuard([...POS_ADMIN_ROLES, 'cashier']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    res.json({ losses: await listInventoryLosses(user.tenantId) })
+  } catch (e) {
+    next(e)
+  }
+})
+app.post('/api/pos/inventory-losses', requireAuth, cashierGuard(POS_ADMIN_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    const body = req.body || {}
+    const reasons: PosInventoryLossReason[] = ['expired', 'poor_condition', 'damaged', 'other']
+    if (typeof body.itemId !== 'string' || !body.itemId.trim()) { res.status(400).json({ error: 'Selecciona un producto' }); return }
+    if (typeof body.branchId !== 'string' || !body.branchId.trim()) { res.status(400).json({ error: 'Selecciona una sucursal' }); return }
+    if (!Number.isInteger(body.qty) || body.qty < 1) { res.status(400).json({ error: 'La cantidad debe ser un entero mayor a cero' }); return }
+    if (typeof body.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) { res.status(400).json({ error: 'La fecha no es válida' }); return }
+    const lossDate = new Date(`${body.date}T00:00:00.000Z`)
+    if (!Number.isFinite(lossDate.getTime()) || lossDate.toISOString().slice(0, 10) !== body.date) { res.status(400).json({ error: 'La fecha no es válida' }); return }
+    if (!reasons.includes(body.reason)) { res.status(400).json({ error: 'Selecciona un motivo válido para la merma' }); return }
+    if (body.notes !== undefined && (typeof body.notes !== 'string' || body.notes.length > 500)) {
+      res.status(400).json({ error: 'Las observaciones no pueden superar 500 caracteres' })
+      return
+    }
+
+    try {
+      const loss = await createInventoryLoss(user.tenantId, {
+        itemId: body.itemId.trim(),
+        branchId: body.branchId.trim(),
+        date: body.date,
+        qty: body.qty,
+        reason: body.reason,
+        notes: body.notes,
+        userEmail: user.email,
+        userId: user.id,
+      })
+      res.status(201).json({ loss })
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INSUFFICIENT_STOCK') {
+        res.status(409).json({ error: 'La cantidad supera las existencias disponibles en esa sucursal' })
+        return
+      }
+      if (error instanceof Error && error.message === 'ITEM_NOT_FOUND') {
+        res.status(404).json({ error: 'El producto no existe o no es un artículo de inventario' })
+        return
+      }
+      if (error instanceof Error && error.message === 'BRANCH_NOT_FOUND') {
+        res.status(404).json({ error: 'La sucursal no existe o está inactiva' })
+        return
+      }
+      if (error instanceof Error && error.message === 'INVALID_INVENTORY_LOSS') {
+        res.status(400).json({ error: 'Los datos de la merma no son válidos' })
+        return
+      }
+      throw error
+    }
   } catch (e) {
     next(e)
   }

@@ -583,6 +583,24 @@ export interface PosPurchaseOrder {
   createdAt: string
 }
 
+export type PosInventoryLossReason = 'expired' | 'poor_condition' | 'damaged' | 'other'
+
+export interface PosInventoryLoss {
+  id: string
+  itemId: string
+  itemName: string
+  sku: string
+  branchId: string
+  date: string
+  qty: number
+  reason: PosInventoryLossReason
+  notes?: string
+  unitCost: number
+  totalCost: number
+  userEmail: string
+  createdAt: string
+}
+
 export interface PromoGroup {
   id: string
   name: string
@@ -733,6 +751,24 @@ export async function posCatalogAdjustStock(id: string, branchId: string, delta:
   return requestJson<{ stock: number }>(`/api/pos/catalog/${encodeURIComponent(id)}/stock`, {
     method: 'POST',
     body: { branchId, delta, reason },
+  })
+}
+
+export async function posInventoryLosses() {
+  return requestJson<{ losses: PosInventoryLoss[] }>('/api/pos/inventory-losses')
+}
+
+export async function posInventoryLossCreate(input: {
+  itemId: string
+  branchId: string
+  date: string
+  qty: number
+  reason: PosInventoryLossReason
+  notes?: string
+}) {
+  return requestJson<{ loss: PosInventoryLoss }>('/api/pos/inventory-losses', {
+    method: 'POST',
+    body: input,
   })
 }
 
