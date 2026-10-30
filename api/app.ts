@@ -252,7 +252,7 @@ const csGuard = cashierGuard
 app.get('/api/health', (_req: Request, res: Response): void => {
   res.status(200).json({
     success: true,
-    message: 'ok',
+    message: 'ok1',
   })
 })
 
