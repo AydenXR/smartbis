@@ -153,7 +153,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               {[
                 '✅ Test Mode incluido',
                 '✅ Multi-tenant privado',
-                '✅ Prompt ++ Docs .md',
+                '✅ Prompssat + Docs .md',
                 '✅ Sin tarjeta',
               ].map((t) => (
                 <li key={t} className="inline-flex items-center gap-1.5">
