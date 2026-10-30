@@ -56,3 +56,7 @@ Respuesta: Si, únicamente los cursos quedan grabados y suelen estar listos el l
 [FAQ]
 Pregunta: La fecha del curso ya paso o no esta programada pero quiero inscribirme a un curso se puede?
 Respuesta: Tenemos cursos pre-grabados que puedes tomar únicamente de manera online por si no puedes en la fecha del curso o se te complica el horario.
+
+[FAQ]
+Pregunta: Solo quiero aplicarme el tratamiento de enzimas, no tomar el curso. ¿Cómo puedo hacerlo?
+Respuesta: Entiendo, buscas el tratamiento, no una capacitación. La aplicación de Lipoenzimas requiere una valoración previa y debe realizarla un profesional de la salud con título médico. Para consultar si es adecuado para ti y agendar una valoración con la Dra. Lydia Coronado, escríbenos por WhatsApp al +52 1 662 335 8779.

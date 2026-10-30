@@ -647,6 +647,39 @@ test('a typo the documents also make, like "produtos" in a FAQ, is still correct
   assert.match(result.contextBlock, /Insumos \(20 productos, desde \$10 MXN\)/)
 })
 
+test('a request to receive enzyme treatment prioritizes the treatment FAQ over its course', () => {
+  const index = createSearchIndex({ tenantId: 'tenant', documents: [
+    {
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      content: '[CURSO]\nNombre del curso: Lipoenzimas\nPrecio: $1,350 MXN',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'faqs',
+      title: 'faqs.md',
+      docType: 'general',
+      section: 'general',
+      content: [
+        '[FAQ]',
+        'Pregunta: Solo quiero aplicarme el tratamiento de enzimas, no tomar el curso. ¿Cómo puedo hacerlo?',
+        'Respuesta: Entiendo, buscas el tratamiento, no una capacitación. La aplicación de Lipoenzimas requiere una valoración previa y debe realizarla un profesional de la salud con título médico. Para consultar si es adecuado para ti y agendar una valoración con la Dra. Lydia Coronado, escríbenos por WhatsApp al +52 1 662 335 8779.',
+      ].join('\n'),
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ] })
+
+  const result = searchIndex(index, 'Solo quiero aplicar lo de las enzimas')
+
+  assert.equal(result.matchedBlocks[0]?.document.id, 'faqs')
+  assert.match(result.contextBlock, /requiere una valoración previa/)
+  assert.doesNotMatch(result.contextBlock, /\$1,350 MXN/)
+})
+
 test('asking for products or courses of an amount lists the items priced around it', () => {
   const products = [['Aguja', '$3 MXN'], ['Mascarilla', '$938 MXN'], ['Kit flacidez', '$1,050 MXN'], ['Dermapen', '$1,250 MXN'], ['Plasma pen', '$9,000 MXN']]
     .map(([name, price]) => `[PRODUCTO]\nNombre del producto: ${name}\nCategoría: Insumos\nPrecio: ${price}\n`)
