@@ -690,3 +690,85 @@ test('asking for a course leaves out a treatment with the same name when there i
   const treatment = searchIndex(both, 'informacion del tratamiento rejuvenecimiento facial tercio superior')
   assert.ok(treatment.matchedBlocks.some((block) => block.document.id === 'treatments'))
 })
+
+test('a first-person request to receive a procedure uses tratamientos.md instead of a same-named course', () => {
+  const both = createSearchIndex({ tenantId: 'tenant', documents: [
+    {
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: '[CURSO]\nNombre del curso: Lipoenzimas\nPrecio: $1,350 MXN\n\n[CURSO]\nNombre del curso: Hidrofacial\nPrecio: $895 MXN',
+    },
+    {
+      id: 'treatments',
+      title: 'tratamientos.md',
+      docType: 'general',
+      section: 'general',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: '[TRATAMIENTO: Lipoenzimas]\nDURACION: 1 hora\nREQUIERE VALORACION: Sí\nPRECIO APROXIMADO: $1,500 MXN\n\n[TRATAMIENTO: Hidrofacial]\nDURACION: 1 hora\nREQUIERE VALORACION: Sí\nPRECIO APROXIMADO: $800 MXN',
+    },
+  ] })
+
+  for (const [query, treatment] of [
+    ['Solo quiero aplicar lo de las enzimas', 'Lipoenzimas'],
+    ['quiero aplicarme lipoenzimas', 'Lipoenzimas'],
+    ['solo quiero el tratamiento de enzimas', 'Lipoenzimas'],
+    ['quiero que me hagan el hidrofacial', 'Hidrofacial'],
+  ]) {
+    const result = searchIndex(both, query)
+    assert.ok(result.matchedBlocks.some((block) => block.document.id === 'treatments'), query)
+    assert.ok(!result.matchedBlocks.some((block) => block.document.id === 'courses'), query)
+    assert.match(result.contextBlock, new RegExp(`\\[TRATAMIENTO: ${treatment}\\]`), query)
+    assert.match(result.contextBlock, /REQUIERE VALORACION/, query)
+    assert.doesNotMatch(result.contextBlock, /\$1,350 MXN|\$895 MXN/, query)
+  }
+
+  for (const query of ['quiero tomar el curso de lipoenzimas', 'quiero aprender a aplicar lipoenzimas']) {
+    const course = searchIndex(both, query)
+    assert.ok(course.matchedBlocks.some((block) => block.document.id === 'courses'), query)
+    assert.ok(!course.matchedBlocks.some((block) => block.document.id === 'treatments'), query)
+  }
+})
+
+test('a bare procedure mention stays ambiguous between a treatment and a course', () => {
+  const index = createSearchIndex({ tenantId: 'tenant', documents: [
+    ...courseAndProductIndex.documents,
+    treatmentDocs[0],
+  ] })
+  const result = searchIndex(index, 'enzimas')
+
+  assert.equal(result.intent.wantsDirectTreatment, false)
+  assert.equal(result.intent.wantsCourses, false)
+  assert.equal(result.intent.wantsServices, false)
+})
+
+test('first-person service intent does not send an unknown treatment request to a course', () => {
+  const index = createSearchIndex({ tenantId: 'tenant', documents: [
+    {
+      id: 'courses',
+      title: 'cursos.md',
+      docType: 'cursos',
+      section: 'cursos',
+      content: '[CURSO]\nNombre del curso: Lipoenzimas\nPrecio: $1,350 MXN',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'treatments',
+      title: 'tratamientos.md',
+      docType: 'general',
+      section: 'general',
+      content: '[TRATAMIENTO: Lipoenzimas]\nPRECIO APROXIMADO: $1,500 MXN',
+      isActive: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ] })
+  const result = searchIndex(index, 'quiero aplicarme un procedimiento desconocido')
+
+  assert.equal(result.matchedBlocks.length, 0)
+  assert.doesNotMatch(result.contextBlock, /Nombre del curso/)
+})

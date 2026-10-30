@@ -55,7 +55,7 @@ const QUERY_STOP_WORDS = new Set([
   'delos',
   'las',
   'si', 'no', 'ok', 'okay', 'vale', 'perfecto', 'genial', 'bien', 'claro',
-  'gracias', 'dale', 'listo',
+  'gracias', 'dale', 'listo', 'solo', 'unicamente',
   'producto', 'productos', 'curso', 'cursos', 'precio', 'precios',
   'cuanto', 'cuantos', 'cuanta', 'cuantas', 'kit', 'kits',
   'informacion', 'info', 'detalle', 'detalles',
@@ -428,13 +428,18 @@ function analyzeQuery(query: string) {
     /\bfecha\b|\bfechas\b|\bproxima\b|\bproximo\b|\bcuando\b|\bdisponible\b|\bdisponibles\b|\bcalendario\b|\bdia\b|\bdias\b|\bprogramado\b|\bprogramados\b|\bagendado\b|\bagendados\b|\bturno\b|\bcupo\b|\bcupos\b/.test(
       normalizedQuery,
     )
-  const wantsCourses = /\bcurso\b|\bcursos\b|\bdiplomado\b|\bdiplomados\b|\bcapacitacion\b|\bcapacitaciones\b/.test(
+  const wantsCourses = /\bcurso\b|\bcursos\b|\bdiplomado\b|\bdiplomados\b|\bcapacitacion\b|\bcapacitaciones\b|\baprendizaje\b|\baprender\b|\bestudiar\b|\bcapacitarme\b|\binscribirme\b|\binscripcion\b|\btemario\b/.test(
     normalizedQuery,
   )
+  const wantsDirectTreatment =
+    !wantsCourses &&
+    /\b(?:quiero|quisiera|me gustaria|busco)\b.{0,40}\b(?:aplicarme|aplicar|que me apliquen|que me hagan|hacerme|recibir|agendar|atenderme|(?:el|un|una)?\s*tratamiento|una sesion|una cita|el procedimiento)\b/.test(
+      normalizedQuery,
+    )
   const namesProducts = /\bproducto\b|\bproductos\b|\bserum\b|\bkit\b|\bampolla\b|\bampolletas\b|\bexistencia\b|\bexistencias\b|\binventario\b|\binventarios\b|\bstock\b|\bcomprar\b|\bcompro\b|\bcompras\b|\bvendemos\b|\bvenden\b|\bvender\b|\btienda\b|\btiendas\b|\bcodigo\b|\bcodigos\b|\bfamilia\b|\bfamilias\b|\bcategoria\b|\bcategorias\b/.test(
     normalizedQuery,
   )
-  const wantsServices = /\bservicio\b|\bservicios\b|\btaller\b|\btalleres\b|\btratamiento\b|\btratamientos\b|\bprocedimiento\b|\bprocedimientos\b/.test(
+  const wantsServices = wantsDirectTreatment || /\bservicio\b|\bservicios\b|\btaller\b|\btalleres\b|\btratamiento\b|\btratamientos\b|\bprocedimiento\b|\bprocedimientos\b/.test(
     normalizedQuery,
   )
   // Price, availability or ordering words apply to courses and treatments too:
@@ -448,6 +453,7 @@ function analyzeQuery(query: string) {
     wantsCourses,
     wantsProducts,
     wantsServices,
+    wantsDirectTreatment,
     wantsLocation,
     wantsSchedule,
     wantsDates,
@@ -1528,9 +1534,11 @@ function searchCorrectedQuery(index: SearchIndex, query: string): SearchContextR
   // it ("Toxina Botulínica: Tercio superior"); with both, the bot may answer
   // that the course does not exist
   const asksForCourse = intent.wantsCourses && !intent.wantsServices
-  const selectableBlocks = asksForCourse && entityMatchedBlocks.some((block) => block.document.section === 'cursos')
-    ? entityMatchedBlocks.filter((block) => !isTreatmentBlock(block))
-    : entityMatchedBlocks
+  const selectableBlocks = intent.wantsDirectTreatment
+    ? entityMatchedBlocks.filter(isTreatmentBlock)
+    : asksForCourse && entityMatchedBlocks.some((block) => block.document.section === 'cursos')
+      ? entityMatchedBlocks.filter((block) => !isTreatmentBlock(block))
+      : entityMatchedBlocks
 
   let remainingChars = MAX_CONTEXT_CHARS
   const documents = new Map<string, WorkspaceDocument>()
