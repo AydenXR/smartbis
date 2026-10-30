@@ -22,6 +22,12 @@ jobs:
             git fetch origin main
             git checkout main
             git reset --hard origin/main
+            
+            # 1. Instalar dependencias y compilar el frontend para generar la carpeta 'dist' nueva
+            npm ci
+            npm run build
+            
+            # 2. Reconstruir los contenedores tomando la carpeta 'dist' recién creada
             docker compose down
             docker compose build --no-cache
             docker compose up -d
