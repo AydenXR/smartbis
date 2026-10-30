@@ -18,7 +18,7 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.PORT }}
           script: |
-            cd /var/www/***
+            cd /var/www/smartbis
             git fetch origin main
             git checkout main
             git reset --hard origin/main
