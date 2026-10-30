@@ -18,12 +18,9 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.PORT }}
           script: |
-            cd /var/www/smartbis
+            cd /var/www/***
             git fetch origin main
             git checkout main
             git reset --hard origin/main
-            npm ci
-            npm run build
-            pm2 reload smartbis || pm2 start npm --name "smartbis" -- start
             docker compose up -d --build
             docker compose ps
