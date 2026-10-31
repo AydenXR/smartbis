@@ -1327,6 +1327,63 @@ async function rewriteFollowUpQuestion(args: {
   return question && question.length <= 300 ? question : null
 }
 
+// Messenger rejects texts over 2000 characters ("Length of param message[text]
+// must be less than or equal to 2000"), and the customer then gets nothing. The
+// margin covers emojis and characters Meta may count differently.
+export const MESSENGER_MAX_TEXT = 1900
+
+const SHORTEN_FOR_MESSENGER_PROMPT = `Resume la respuesta de un asesor para enviarla por Messenger, que solo admite mensajes cortos.
+Reglas:
+- Máximo 1500 caracteres en total.
+- Mismo idioma, mismo tono y mismo trato al cliente que la respuesta original.
+- Conserva los datos que el cliente necesita: nombres, precios, fechas, horarios, modalidades, direcciones, teléfonos, enlaces y pasos a seguir, escritos exactamente igual.
+- Si la respuesta es una lista larga, deja los elementos más relevantes para la pregunta y termina invitando a pedir el resto.
+- No agregues información que no esté en la respuesta original ni cambies ningún dato.
+- Devuelve solo el mensaje resumido, sin comentarios ni comillas.`
+
+// The longest start of the text that fits, ending at a paragraph, line or
+// sentence so the customer never gets half a word or half a price
+export function cutAtBoundary(text: string, max = MESSENGER_MAX_TEXT): string {
+  const value = String(text || '').trim()
+  if (value.length <= max) return value
+  const head = value.slice(0, max)
+  const boundaries = [head.lastIndexOf('\n\n'), head.lastIndexOf('\n'), Math.max(head.lastIndexOf('. '), head.lastIndexOf('? '), head.lastIndexOf('! '))]
+  const cut = boundaries.find((index) => index >= max * 0.5)
+  const kept = cut !== undefined ? head.slice(0, cut + 1) : head.slice(0, head.lastIndexOf(' ') > 0 ? head.lastIndexOf(' ') : max)
+  return kept.trim()
+}
+
+// A bot answer short enough for Messenger: as is when it fits, summarized by the
+// model when it does not, and cut at a sentence if the summary fails or is still long
+export async function shortenForMessenger(answer: string): Promise<string> {
+  const text = String(answer || '').trim()
+  if (text.length <= MESSENGER_MAX_TEXT) return text
+
+  const apiKey = getConfiguredApiKey()
+  if (apiKey) {
+    try {
+      const completion = await requestCompletion({
+        apiKey,
+        baseUrl: getConfiguredBaseUrl(),
+        model: getConfiguredModel(),
+        fallbackModel: getConfiguredFallbackModel(),
+        maxTokens: 700,
+        messages: [
+          { role: 'system', content: SHORTEN_FOR_MESSENGER_PROMPT },
+          { role: 'user', content: text },
+        ],
+      })
+      const summary = String(completion.answer || '').trim()
+      if (completion.finishReason !== 'fallback_models_unavailable' && summary && summary.length <= MESSENGER_MAX_TEXT) {
+        return summary
+      }
+    } catch (error: any) {
+      console.warn('[shortenForMessenger] no se pudo resumir:', error?.message || error)
+    }
+  }
+  return cutAtBoundary(text)
+}
+
 // The customer's latest earlier question that said what it was about, for a
 // follow-up that does not ("¿cuales son los precios?" after "¿tienen cursos en Hermosillo?")
 export function findPreviousTopicQuestion(index: SearchIndex, history: DbConversationMessage[]): string | null {

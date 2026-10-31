@@ -438,6 +438,8 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                   </button>
                 </li>
                 <li className="text-slate-500">Soporte · hola@smartbis.ai</li>
+                <li><a className="hover:text-white transition" href="/privacidad/index.html">Política de privacidad</a></li>
+                <li><a className="hover:text-white transition" href="/eliminar-datos/index.html">Eliminación de datos</a></li>
               </ul>
             </div>
           </div>

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
-import { generateDbAgentAnswer } from './dbChat.js'
+import { generateDbAgentAnswer, MESSENGER_MAX_TEXT, shortenForMessenger } from './dbChat.js'
 import { type DbAuthUser, loadDbWorkspace } from './dbWorkspace.js'
 import { createAutoEval } from './posStore.js'
 import { maybeAutoConfirmRegistration } from './paymentAutoConfirm.js'
@@ -752,6 +752,14 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
   const evalId = autoEval?.id || undefined
   const evalReason = autoEval?.judgeReason || ''
   const effectiveBlockedByAutocurator = blockedByAutocurator || unsafeFallback
+
+  // Messenger rechaza textos de más de 2000 caracteres y el cliente no recibe nada:
+  // una respuesta larga se resume (o se corta en una oración) antes de enviarla
+  if (!effectiveBlockedByAutocurator && answer.length > MESSENGER_MAX_TEXT) {
+    const originalLength = answer.length
+    answer = await shortenForMessenger(answer)
+    console.log(`[meta] respuesta larga resumida para Messenger: ${originalLength} → ${answer.length} caracteres (PSID ${psid})`)
+  }
 
   // Si el cliente escribió de nuevo mientras se generaba, esta respuesta ya no aplica:
   // la siguiente ronda responderá a todos los mensajes juntos.
