@@ -21,9 +21,11 @@ jobs:
             # Detener el despliegue en el primer error, para no dejar el servidor a medias
             set -e
             cd /var/www/smartbis
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
+            # Sin hooks: el hook de Git LFS falla porque git-lfs no está instalado en el
+            # servidor, y LFS solo guarda los instaladores .exe, que aquí no se usan
+            git -c core.hooksPath=/dev/null fetch origin main
+            git -c core.hooksPath=/dev/null checkout main
+            git -c core.hooksPath=/dev/null reset --hard origin/main
 
             # Las imágenes instalan dependencias y compilan el frontend dentro de Docker
             # (Dockerfile.web, etapa builder), así que no se usa node_modules del servidor.
