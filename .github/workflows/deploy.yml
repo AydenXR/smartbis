@@ -18,17 +18,18 @@ jobs:
           password: ${{ secrets.SSH_PASSWORD }}
           port: ${{ secrets.PORT }}
           script: |
+            # Detener el despliegue en el primer error, para no dejar el servidor a medias
+            set -e
             cd /var/www/smartbis
             git fetch origin main
             git checkout main
             git reset --hard origin/main
-            
-            # 1. Instalar dependencias y compilar el frontend para generar la carpeta 'dist' nueva
-            npm ci
-            npm run build
-            
-            # 2. Reconstruir los contenedores tomando la carpeta 'dist' recién creada
-            docker compose down
+
+            # Las imágenes instalan dependencias y compilan el frontend dentro de Docker
+            # (Dockerfile.web, etapa builder), así que no se usa node_modules del servidor.
+            # Se construye primero: si falla, los contenedores actuales siguen funcionando.
             docker compose build --no-cache
-            docker compose up -d
+
+            # Reemplaza los contenedores por los nuevos (solo hay corte durante el reinicio)
+            docker compose up -d --remove-orphans
             docker compose ps
