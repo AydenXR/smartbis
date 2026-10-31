@@ -90,10 +90,11 @@ function ProductSearch({ products, selectedId, newItemName, onSelect, onCreate }
     const roomAbove = bounds.top - 8
     const showAbove = roomBelow < 180 && roomAbove > roomBelow
     const maxHeight = Math.max(80, Math.min(240, showAbove ? roomAbove : roomBelow))
+    const width = Math.min(Math.max(bounds.width, 360), window.innerWidth - 16)
     setMenuPosition({
-      left: bounds.left,
+      left: Math.min(Math.max(bounds.left, 8), window.innerWidth - width - 8),
       top: showAbove ? Math.max(8, bounds.top - maxHeight - 4) : bounds.bottom + 4,
-      width: bounds.width,
+      width,
       maxHeight,
     })
   }
@@ -165,9 +166,13 @@ function ProductSearch({ products, selectedId, newItemName, onSelect, onCreate }
           aria-controls={listId}
           aria-expanded={open}
           placeholder="Buscar producto..."
+          title={displayValue}
           className="w-full rounded-lg border border-[#255074] bg-[#0b2641] py-2 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-[#1090D0]"
         />
       </div>
+      {!open && selectedProduct ? (
+        <p className="mt-1 whitespace-normal break-words text-xs leading-snug text-slate-300">{selectedProduct.name}</p>
+      ) : null}
       {open && menuPosition
         ? createPortal(
             <div
@@ -191,10 +196,10 @@ function ProductSearch({ products, selectedId, newItemName, onSelect, onCreate }
                   aria-selected={selectedId === product.id}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => selectProduct(product.id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-[#1090D0]/20"
+                  className="flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-[#1090D0]/20"
                 >
-                  <span className="min-w-0 truncate">{product.name}</span>
-                  <span className="shrink-0 text-[11px] text-slate-400">{product.sku}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words">{product.name}</span>
+                  <span className="shrink-0 pt-0.5 text-[11px] text-slate-400">{product.sku}</span>
                 </button>
               ))}
               {query.trim() ? (
@@ -212,10 +217,10 @@ function ProductSearch({ products, selectedId, newItemName, onSelect, onCreate }
                       setQuery('')
                       setOpen(false)
                     }}
-                    className="flex w-full items-center gap-2 rounded-md border-t border-[#1a3a5a] px-3 py-2.5 text-left text-sm font-semibold text-[#8fd2ec] transition hover:bg-[#1090D0]/20"
+                    className="flex w-full items-start gap-2 rounded-md border-t border-[#1a3a5a] px-3 py-2.5 text-left text-sm font-semibold text-[#8fd2ec] transition hover:bg-[#1090D0]/20"
                   >
-                    <Plus className="h-4 w-4 shrink-0" />
-                    <span className="truncate">Agregar “{query.trim()}” como producto nuevo</span>
+                    <Plus className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="whitespace-normal break-words">Agregar “{query.trim()}” como producto nuevo</span>
                   </button>
                 </>
               ) : null}
