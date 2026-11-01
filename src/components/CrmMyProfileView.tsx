@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { User, Mail, Building2, Shield, Calendar, Key, Pencil, X, Check, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { requestPasswordReset } from '@/lib/api'
 
 type CrmMyProfileViewProps = {
   userEmail: string
@@ -36,8 +37,12 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
   const [name, setName] = useState(nameSource)
   const [tempName, setTempName] = useState(nameSource)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
+  const [sendingReset, setSendingReset] = useState(false)
+  const [resetNotice, setResetNotice] = useState('')
+  const [resetError, setResetError] = useState('')
+  // The account owner signs in with Supabase and can get the reset email; point
+  // of sale users have their password changed by the owner in "Cuentas"
+  const canResetByEmail = userRole === 'owner'
 
   const initials = (name || userEmail || 'U')
     .split(' ')
@@ -66,8 +71,21 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
 
   function closePasswordModal() {
     setShowPasswordModal(false)
-    setNewPassword('')
-    setConfirmPassword('')
+    setResetNotice('')
+    setResetError('')
+  }
+
+  async function sendResetEmail() {
+    setSendingReset(true)
+    setResetError('')
+    try {
+      const result = await requestPasswordReset(userEmail)
+      setResetNotice(result.message)
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : 'No se pudo enviar el correo')
+    } finally {
+      setSendingReset(false)
+    }
   }
 
   return (
@@ -164,7 +182,7 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-[13.5px] font-semibold text-slate-100">Restablecer contraseña</p>
-                <p className="text-[11.5px] text-slate-400">Generar nueva contraseña de acceso</p>
+                <p className="text-[11.5px] text-slate-400">Recibe un enlace en tu correo para cambiarla</p>
               </div>
             </button>
           </div>
@@ -179,7 +197,7 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
                 <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-[#1090D0]/15 text-[#5bbfe5]">
                   <Lock className="h-5 w-5" />
                 </div>
-                <h3 className="text-[16px] font-bold text-slate-50">Cambiar contraseña</h3>
+                <h3 className="text-[16px] font-bold text-slate-50">Restablecer contraseña</h3>
               </div>
               <button
                 type="button"
@@ -191,41 +209,25 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
             </div>
 
             <div className="space-y-4 p-5">
-              <div>
-                <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Nueva contraseña
-                </label>
-                <div className="flex items-center gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
-                  <Lock className="h-4 w-4 text-slate-400" />
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="flex-1 bg-transparent text-[13.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
-                  />
+              {canResetByEmail ? (
+                <p className="text-[13px] leading-relaxed text-slate-300">
+                  Te enviaremos un enlace a <strong className="text-slate-100">{userEmail}</strong> para que elijas una
+                  contraseña nueva. Por seguridad, el enlace funciona una sola vez y vence en 1 hora.
+                </p>
+              ) : (
+                <p className="text-[13px] leading-relaxed text-slate-300">
+                  Tu usuario lo administra el propietario de la cuenta. Pídele que cambie tu contraseña desde
+                  <strong className="text-slate-100"> Cuentas</strong>.
+                </p>
+              )}
+              {resetNotice ? (
+                <div className="rounded-[14px] border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-[12px] text-emerald-100">
+                  {resetNotice}
                 </div>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-[11.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Confirmar contraseña
-                </label>
-                <div className="flex items-center gap-2 rounded-[14px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
-                  <Lock className="h-4 w-4 text-slate-400" />
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="flex-1 bg-transparent text-[13.5px] text-slate-100 placeholder:text-slate-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {newPassword && confirmPassword && newPassword !== confirmPassword ? (
+              ) : null}
+              {resetError ? (
                 <div className="rounded-[14px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
-                  Las contraseñas no coinciden.
+                  {resetError}
                 </div>
               ) : null}
             </div>
@@ -236,21 +238,21 @@ export default function CrmMyProfileView(props: CrmMyProfileViewProps) {
                 onClick={closePasswordModal}
                 className="rounded-[14px] border border-[#1a3a5a] bg-[#11375a] px-4 py-2 text-[12.5px] font-semibold text-slate-200 transition hover:border-[#1090D0]/40 hover:text-white"
               >
-                Cancelar
+                {resetNotice || !canResetByEmail ? 'Cerrar' : 'Cancelar'}
               </button>
-              <button
-                type="button"
-                disabled={!newPassword || newPassword !== confirmPassword}
-                onClick={closePasswordModal}
-                className={cn(
-                  'rounded-[14px] px-4 py-2 text-[12.5px] font-bold text-white transition',
-                  !newPassword || newPassword !== confirmPassword
-                    ? 'bg-[#1090D0]/50 opacity-60'
-                    : 'bg-[#1090D0] hover:bg-[#0c79ae]',
-                )}
-              >
-                Guardar
-              </button>
+              {canResetByEmail && !resetNotice ? (
+                <button
+                  type="button"
+                  disabled={sendingReset}
+                  onClick={() => void sendResetEmail()}
+                  className={cn(
+                    'rounded-[14px] px-4 py-2 text-[12.5px] font-bold text-white transition',
+                    sendingReset ? 'bg-[#1090D0]/50 opacity-60' : 'bg-[#1090D0] hover:bg-[#0c79ae]',
+                  )}
+                >
+                  {sendingReset ? 'Enviando...' : 'Enviar enlace'}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

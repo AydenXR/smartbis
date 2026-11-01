@@ -77,6 +77,20 @@ export function clearStoredToken() {
   window.localStorage.removeItem(TOKEN_KEY)
 }
 
+// An API error with the server's status and code ("email_not_confirmed",
+// "email_in_use", "invalid_link"...)
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
 async function requestJson<T>(path: string, options: RequestOptions = {}) {
   const headers: Record<string, string> = {}
 
@@ -103,11 +117,17 @@ async function requestJson<T>(path: string, options: RequestOptions = {}) {
     })
 
     const text = await response.text()
-    const payload = text ? (JSON.parse(text) as T & { error?: string }) : null
+    const payload = text ? (JSON.parse(text) as T & { error?: string; code?: string }) : null
     const errorMessage = payload?.error || 'No se pudo completar la solicitud'
 
     if (!response.ok) {
       logClient(`request non-ok ${response.status} ${path} body=${text}`)
+
+      // Requests without a session (login, registration, password reset) show
+      // their own error, never "your session expired"
+      if (options.skipAuth) {
+        throw new ApiError(errorMessage, response.status, payload?.code)
+      }
 
       if (
         response.status === 401 ||
@@ -133,15 +153,45 @@ async function requestJson<T>(path: string, options: RequestOptions = {}) {
   }
 }
 
+// The account is created unconfirmed: it signs in after opening the emailed link
 export async function registerAccount(input: { email: string; password: string }) {
-  const payload = await requestJson<AuthPayload>('/api/auth/register', {
+  return requestJson<{ pendingVerification: true; email: string; emailSent: boolean }>('/api/auth/register', {
     method: 'POST',
     body: input,
     skipAuth: true,
   })
+}
 
-  saveStoredToken(payload.token)
-  return payload
+export async function resendVerificationEmail(email: string) {
+  return requestJson<{ success: boolean; message: string }>('/api/auth/resend-verification', {
+    method: 'POST',
+    body: { email },
+    skipAuth: true,
+  })
+}
+
+export async function confirmEmail(token: string) {
+  return requestJson<{ success: boolean; email: string }>('/api/auth/verify-email', {
+    method: 'POST',
+    body: { token },
+    skipAuth: true,
+  })
+}
+
+export async function requestPasswordReset(email: string) {
+  return requestJson<{ success: boolean; message: string }>('/api/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+    skipAuth: true,
+  })
+}
+
+export async function resetPassword(token: string, password: string) {
+  return requestJson<{ success: boolean }>('/api/auth/reset-password', {
+    method: 'POST',
+    body: { token, password },
+    skipAuth: true,
+  })
 }
 
 export async function loginAccount(input: { email: string; password: string }) {
