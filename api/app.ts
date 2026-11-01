@@ -11,8 +11,12 @@ import {
   ingestAllDbTenants,
   ingestDbTenantDocuments,
   loadDbWorkspace,
+  confirmDbAccountEmail,
   loginDbAccount,
   registerDbAccount,
+  resendDbVerificationEmail,
+  resetDbPassword,
+  sendDbPasswordResetEmail,
   saveDbPrompt,
   updateDbDocument,
   upsertDbDocument,
@@ -20,6 +24,7 @@ import {
 } from './lib/dbWorkspace.js'
 import { generateDbAgentAnswer } from './lib/dbChat.js'
 import { isUsableCatalogDocumentName } from './lib/catalogDocument.js'
+import { AppError, assertRateLimit, clientIp, takeRateLimit } from './lib/accountSecurity.js'
 import { getWhatsAppStatus, notifyRegistration, sendWhatsAppTest, setWhatsAppRecipient, startWhatsApp } from './lib/whatsappNotifications.js'
 import {
   adminSendMessage,
@@ -1110,8 +1115,11 @@ app.get('/api/meta/auto-evals/:id', requireAuth, csGuard(CS_ADMIN_ROLES), async 
   } catch (e) { next(e) }
 })
 
+const MINUTE = 60 * 1000
+
 app.post('/api/auth/register', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    assertRateLimit(`register:${clientIp(req)}`, 10, 60 * MINUTE)
     const email = typeof req.body?.email === 'string' ? req.body.email : ''
     const password = typeof req.body?.password === 'string' ? req.body.password : ''
     const payload = await registerDbAccount({
@@ -1120,6 +1128,60 @@ app.post('/api/auth/register', async (req: Request, res: Response, next: NextFun
     })
 
     res.status(201).json(payload)
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Same answer whether the email has an account or not, sent before the work is
+// done, so neither the text nor the response time tells which emails exist
+const GENERIC_EMAIL_REPLY = 'Si el correo tiene una cuenta, en unos minutos te llegará un mensaje con el enlace. Revisa también tu carpeta de spam.'
+
+function inBackground(label: string, work: () => Promise<unknown>) {
+  void work().catch((error) => console.error(`[auth] ${label} falló`, error?.message || error))
+}
+
+app.post('/api/auth/forgot-password', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertRateLimit(`forgot:${clientIp(req)}`, 5, 15 * MINUTE)
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    if (email && takeRateLimit(`forgot-email:${email}`, 3, 60 * MINUTE)) {
+      inBackground('envío de restablecimiento', () => sendDbPasswordResetEmail(email))
+    }
+    res.status(200).json({ success: true, message: GENERIC_EMAIL_REPLY })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/auth/resend-verification', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertRateLimit(`resend:${clientIp(req)}`, 5, 15 * MINUTE)
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+    if (email && takeRateLimit(`resend-email:${email}`, 3, 60 * MINUTE)) {
+      inBackground('reenvío de confirmación', () => resendDbVerificationEmail(email))
+    }
+    res.status(200).json({ success: true, message: GENERIC_EMAIL_REPLY })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/auth/verify-email', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertRateLimit(`verify:${clientIp(req)}`, 20, 15 * MINUTE)
+    const result = await confirmDbAccountEmail(req.body?.token)
+    res.status(200).json({ success: true, email: result.email })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/auth/reset-password', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertRateLimit(`reset:${clientIp(req)}`, 10, 15 * MINUTE)
+    await resetDbPassword({ token: req.body?.token, password: req.body?.password })
+    res.status(200).json({ success: true })
   } catch (error) {
     next(error)
   }
@@ -2112,6 +2174,11 @@ app.get('/api/pos/audit', requireAuth, async (req: Request, res: Response, next:
 
 app.use((error: Error, _req: Request, res: Response, next: NextFunction) => {
   void next
+  // Errors that already say their status and code (accounts, email links)
+  if (error instanceof AppError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code })
+    return
+  }
   const message = error.message || 'Error interno del servidor'
   const isAuthError =
     /jwt|token|sesion|session|expired|unauthorized|auth/i.test(message) &&

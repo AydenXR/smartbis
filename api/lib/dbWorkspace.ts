@@ -3,7 +3,18 @@ import {
   getSearchIndexSignature,
   type SearchIndex,
 } from './searchIndex.js'
-import { loginSubuser, verifyLocalJwt } from './posStore.js'
+import { getSubuserByEmailAllTenants, loginSubuser, verifyLocalJwt } from './posStore.js'
+import {
+  AppError,
+  assertRegistrableEmail,
+  assertValidNewPassword,
+  invalidEmailLinkError,
+  isValidEmailFormat,
+  normalizeEmail,
+  readEmailVerificationToken,
+  signEmailVerificationToken,
+} from './accountSecurity.js'
+import { isMailerConfigured, sendEmailVerificationEmail, sendPasswordResetEmail } from './mailer.js'
 
 type TenantRow = {
   id: string
@@ -264,7 +275,7 @@ async function restRequest<T>(
 async function authRequest<T>(
   path: string,
   options?: {
-    method?: 'GET' | 'POST'
+    method?: 'GET' | 'POST' | 'PUT'
     body?: unknown
     bearerToken?: string
     useServiceRole?: boolean
@@ -293,7 +304,12 @@ async function authRequest<T>(
       payload?.error ||
       'Error consultando Auth en Supabase'
 
-    throw new Error(message)
+    // The status and Supabase's error code ("email_exists", "email_not_confirmed")
+    // let callers tell cases apart without reading the message
+    throw Object.assign(new Error(message), {
+      status: response.status,
+      code: String(payload?.error_code || payload?.code || ''),
+    })
   }
 
   return payload as T
@@ -438,27 +454,70 @@ async function seedTenantWorkspace(tenantId: string, email: string) {
   })
 }
 
+type AuthAdminUser = {
+  id: string
+  email?: string
+  email_confirmed_at?: string | null
+  confirmed_at?: string | null
+}
+
+function isEmailConfirmed(user: AuthAdminUser) {
+  return Boolean(user.email_confirmed_at || user.confirmed_at)
+}
+
+// The account starts unconfirmed: it can sign in only after opening the link
+// sent to its email
 async function createAuthUser(input: { email: string; password: string }) {
-  return authRequest<{
-    id: string
-    email: string
-  }>('admin/users', {
+  return authRequest<AuthAdminUser>('admin/users', {
     method: 'POST',
     useServiceRole: true,
     body: {
       email: input.email,
       password: input.password,
-      email_confirm: true,
+      email_confirm: false,
     },
   })
 }
+
+async function getAuthAdminUser(userId: string) {
+  return authRequest<AuthAdminUser>(`admin/users/${encodeURIComponent(userId)}`, { useServiceRole: true })
+}
+
+async function updateAuthAdminUser(userId: string, body: Record<string, unknown>) {
+  return authRequest<AuthAdminUser>(`admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    useServiceRole: true,
+    body,
+  })
+}
+
+// The admin list filters by email; the exact address is checked here
+async function findAuthUserByEmail(email: string) {
+  const payload = await authRequest<{ users?: AuthAdminUser[] }>(
+    `admin/users?filter=${encodeURIComponent(email)}&page=1&per_page=50`,
+    { useServiceRole: true },
+  )
+  return (payload?.users || []).find((user) => normalizeEmail(user.email) === email) || null
+}
+
+function isEmailInUseError(error: any) {
+  return error?.status === 422 && (/email_exists|user_already_exists/.test(error?.code) || /already (?:been )?registered|already exists/i.test(error?.message || ''))
+}
+
+function isEmailNotConfirmedError(error: any) {
+  return error?.code === 'email_not_confirmed' || /email not confirmed/i.test(error?.message || '')
+}
+
+const EMAIL_IN_USE = () => new AppError(409, 'Este correo ya está en uso. Inicia sesión o usa otro correo.', 'email_in_use')
+const EMAIL_NOT_CONFIRMED = () =>
+  new AppError(403, 'Confirma tu correo para entrar: abre el enlace que te enviamos al registrarte.', 'email_not_confirmed')
 
 async function loginAuthUser(input: { email: string; password: string }) {
   return authRequest<{
     access_token: string
     refresh_token: string
     expires_in: number
-    user: { id: string; email?: string }
+    user: AuthAdminUser
   }>('token?grant_type=password', {
     method: 'POST',
     body: {
@@ -475,32 +534,134 @@ async function getAuthUser(accessToken: string) {
   })
 }
 
+async function sendVerificationLink(userId: string, email: string) {
+  await sendEmailVerificationEmail(email, signEmailVerificationToken(userId, email))
+}
+
+// Creates the account and its workspace, and emails the confirmation link. The
+// account cannot sign in until that link is opened.
 export async function registerDbAccount(input: { email: string; password: string }) {
-  const email = input.email.trim().toLowerCase()
+  const email = normalizeEmail(input.email)
   const password = input.password.trim()
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error('Ingresa un correo valido')
+  await assertRegistrableEmail(email)
+  assertValidNewPassword(password)
+
+  // Without email the account could never be confirmed
+  if (!isMailerConfigured() && process.env.NODE_ENV === 'production') {
+    throw new AppError(503, 'El registro no está disponible por el momento. Inténtalo más tarde.', 'mailer_unavailable')
   }
 
-  if (password.length < 8) {
-    throw new Error('La contrasena debe tener al menos 8 caracteres')
-  }
+  // A cashier or admin of a point of sale signs in with the same form
+  if (await getSubuserByEmailAllTenants(email)) throw EMAIL_IN_USE()
 
-  const authUser = await createAuthUser({
-    email,
-    password,
-  })
+  let authUser: AuthAdminUser
+  try {
+    authUser = await createAuthUser({ email, password })
+  } catch (error) {
+    if (isEmailInUseError(error)) throw EMAIL_IN_USE()
+    throw error
+  }
 
   await createTenantForUser({
     userId: authUser.id,
     email,
   })
 
-  return loginDbAccount({
-    email,
-    password,
-  })
+  // The account already exists; if the email fails, the link can be sent again
+  let emailSent = true
+  try {
+    await sendVerificationLink(authUser.id, email)
+  } catch (error: any) {
+    emailSent = false
+    console.error('[auth] no se pudo enviar el correo de confirmación', { userId: authUser.id, error: error?.message })
+  }
+
+  return { pendingVerification: true as const, email, emailSent }
+}
+
+// Opens the confirmation link. Opening it again is harmless.
+export async function confirmDbAccountEmail(token: unknown) {
+  const payload = readEmailVerificationToken(token)
+  let user: AuthAdminUser
+  try {
+    user = await getAuthAdminUser(payload.sub)
+  } catch {
+    throw invalidEmailLinkError()
+  }
+  // The account changed its email after the link was sent
+  if (normalizeEmail(user.email) !== payload.email) throw invalidEmailLinkError()
+  if (!isEmailConfirmed(user)) await updateAuthAdminUser(user.id, { email_confirm: true })
+  return { email: payload.email }
+}
+
+// Sends a new confirmation link to an account that has not confirmed yet. It
+// says nothing about whether the email exists.
+export async function resendDbVerificationEmail(emailInput: unknown) {
+  const email = normalizeEmail(emailInput)
+  if (!isValidEmailFormat(email)) return
+  const user = await findAuthUserByEmail(email)
+  if (!user || isEmailConfirmed(user)) return
+  await sendVerificationLink(user.id, email)
+}
+
+// Emails a one-time password reset link (Supabase recovery token). It says
+// nothing about whether the email exists.
+export async function sendDbPasswordResetEmail(emailInput: unknown) {
+  const email = normalizeEmail(emailInput)
+  if (!isValidEmailFormat(email)) return
+
+  let link: { hashed_token?: string; properties?: { hashed_token?: string } }
+  try {
+    // generate_link creates the token without Supabase sending its own email
+    link = await authRequest('admin/generate_link', {
+      method: 'POST',
+      useServiceRole: true,
+      body: { type: 'recovery', email },
+    })
+  } catch (error: any) {
+    if (error?.status === 404 || error?.code === 'user_not_found' || /not found/i.test(error?.message || '')) return
+    throw error
+  }
+  const tokenHash = link?.hashed_token || link?.properties?.hashed_token
+  if (!tokenHash) throw new Error('Supabase no devolvió el token de recuperación')
+  await sendPasswordResetEmail(email, tokenHash)
+}
+
+// Uses the recovery link once: sets the new password and closes the account's
+// other sessions
+export async function resetDbPassword(input: { token: unknown; password: unknown }) {
+  const password = typeof input.password === 'string' ? input.password.trim() : ''
+  assertValidNewPassword(password)
+
+  const invalid = () =>
+    new AppError(400, 'El enlace para cambiar tu contraseña no es válido o ya venció. Pide uno nuevo.', 'invalid_link')
+  const tokenHash = typeof input.token === 'string' ? input.token.trim() : ''
+  if (!/^[A-Za-z0-9_-]{16,256}$/.test(tokenHash)) throw invalid()
+
+  let session: { access_token?: string; user?: AuthAdminUser }
+  try {
+    // Consumes the token: the same link does not work twice
+    session = await authRequest('verify', {
+      method: 'POST',
+      body: { type: 'recovery', token_hash: tokenHash },
+    })
+  } catch {
+    throw invalid()
+  }
+  const userId = session?.user?.id
+  if (!userId) throw invalid()
+
+  await updateAuthAdminUser(userId, { password })
+
+  // Whoever had the old password loses their open sessions
+  if (session.access_token) {
+    try {
+      await authRequest('logout?scope=global', { method: 'POST', bearerToken: session.access_token })
+    } catch (error: any) {
+      console.warn('[auth] no se pudieron cerrar las otras sesiones', { userId, error: error?.message })
+    }
+  }
 }
 
 export async function loginDbAccount(input: { email: string; password: string }) {
@@ -510,7 +671,16 @@ export async function loginDbAccount(input: { email: string; password: string })
   // Ruta 1: intentar login en sistema principal (Supabase). Sólo si falla por credenciales inválidas, intentar subusuarios POS.
   let supabaseError: any = null
   try {
-    const session = await loginAuthUser({ email, password })
+    let session: Awaited<ReturnType<typeof loginAuthUser>>
+    try {
+      session = await loginAuthUser({ email, password })
+    } catch (error) {
+      // Supabase refuses unconfirmed accounts when its "Confirm email" setting is on
+      if (isEmailNotConfirmedError(error)) throw EMAIL_NOT_CONFIRMED()
+      throw error
+    }
+    // and lets them in when it is off: the confirmation is checked here either way
+    if (!isEmailConfirmed(session.user)) throw EMAIL_NOT_CONFIRMED()
     const tenant = await getTenantByUserId(session.user.id)
     if (!tenant) {
       throw new Error('No encontramos un workspace asociado a este usuario')
@@ -529,6 +699,7 @@ export async function loginDbAccount(input: { email: string; password: string })
       } satisfies DbAuthUser,
     }
   } catch (e: any) {
+    if (e instanceof AppError) throw e
     supabaseError = e
     const msg = (e?.message || '').toLowerCase()
     const isCredsError = /invalid|credentials|email|password|user|not found|unauthorized|signup|login|auth/.test(msg)

@@ -3,7 +3,9 @@ import AuthPanel from '@/components/AuthPanel'
 import Dashboard from '@/components/Dashboard'
 import LandingPage from '@/components/LandingPage'
 import DesktopPosShell from '@/components/DesktopPosShell'
+import { ResetPasswordPage, VerifyEmailPage } from '@/components/AccountLinkPages'
 import {
+  ApiError,
   clearStoredToken,
   createDocument,
   getCurrentUser,
@@ -36,6 +38,15 @@ export default function App() {
   const [authError, setAuthError] = useState('')
   const [workspaceError, setWorkspaceError] = useState('')
   const [showAuthPanel, setShowAuthPanel] = useState(false)
+  const [authErrorCode, setAuthErrorCode] = useState('')
+  // After registering: the account waits for the emailed confirmation link
+  const [registration, setRegistration] = useState<{ email: string; emailSent: boolean } | null>(null)
+  const [openForgot, setOpenForgot] = useState(false)
+  // Pages opened from the account emails
+  const accountPage = useMemo(
+    () => (typeof window === 'undefined' ? '' : window.location.pathname.replace(/\/+$/, '')),
+    [],
+  )
   const [user, setUser] = useState<AuthUser | null>(null)
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null)
   const inactivityTimerRef = useRef<number | null>(null)
@@ -83,6 +94,17 @@ export default function App() {
     if (anyWindow.smartbisDesktop) {
       anyWindow.__SMARTBIS_DESKTOP__ = true
     }
+  }, [])
+
+  // "/?login=1" (from the account pages) opens the login; "&recuperar=1" opens it
+  // on "forgot password"
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('login') !== '1') return
+    setAuthMode('login')
+    setOpenForgot(params.get('recuperar') === '1')
+    setShowAuthPanel(true)
+    window.history.replaceState(null, '', window.location.pathname)
   }, [])
 
   useEffect(() => {
@@ -200,6 +222,7 @@ export default function App() {
   async function handleLogin(input: { email: string; password: string }) {
     setIsSubmittingAuth(true)
     setAuthError('')
+    setAuthErrorCode('')
 
     try {
       const payload = await loginAccount(input)
@@ -207,24 +230,34 @@ export default function App() {
       await refreshWorkspace()
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'No se pudo iniciar sesion')
+      setAuthErrorCode(error instanceof ApiError ? error.code || '' : '')
     } finally {
       setIsSubmittingAuth(false)
     }
   }
 
+  // The account is created unconfirmed: no session until the emailed link is opened
   async function handleRegister(input: { email: string; password: string }) {
     setIsSubmittingAuth(true)
     setAuthError('')
+    setAuthErrorCode('')
 
     try {
-      const payload = await registerAccount(input)
-      setUser(payload.user)
-      await refreshWorkspace()
+      const result = await registerAccount(input)
+      setRegistration({ email: result.email, emailSent: result.emailSent })
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'No se pudo crear la cuenta')
     } finally {
       setIsSubmittingAuth(false)
     }
+  }
+
+  function changeAuthMode(mode: AuthMode) {
+    setAuthError('')
+    setAuthErrorCode('')
+    setRegistration(null)
+    setOpenForgot(false)
+    setAuthMode(mode)
   }
 
   async function handleSavePrompt(nextPrompt: string) {
@@ -389,6 +422,9 @@ export default function App() {
     }
   }
 
+  if (accountPage === '/verificar-correo') return <VerifyEmailPage />
+  if (accountPage === '/restablecer-contrasena') return <ResetPasswordPage />
+
   if (isBootstrapping) {
     return (
       <main className="flex h-screen w-screen items-center justify-center bg-[#0c2a47]">
@@ -449,10 +485,9 @@ export default function App() {
             mode={authMode}
             isSubmitting={isSubmittingAuth}
             error={authError}
-            onModeChange={(mode) => {
-              setAuthError('')
-              setAuthMode(mode)
-            }}
+            errorCode={authErrorCode}
+            registration={registration}
+            onModeChange={changeAuthMode}
             onLogin={handleLogin}
             onRegister={handleRegister}
           />
@@ -482,17 +517,21 @@ export default function App() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#051628]/80 px-4 py-8 backdrop-blur-sm">
           <div className="w-full max-w-xl">
             <AuthPanel
+              key={openForgot ? 'forgot' : 'auth'}
               mode={authMode}
               isSubmitting={isSubmittingAuth}
               error={authError}
+              errorCode={authErrorCode}
+              registration={registration}
+              initialForgot={openForgot}
               onClose={() => {
                 setShowAuthPanel(false)
                 setAuthError('')
+                setAuthErrorCode('')
+                setRegistration(null)
+                setOpenForgot(false)
               }}
-              onModeChange={(mode) => {
-                setAuthError('')
-                setAuthMode(mode)
-              }}
+              onModeChange={changeAuthMode}
               onLogin={handleLogin}
               onRegister={handleRegister}
             />

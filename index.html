@@ -21,6 +21,10 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx?v=20260814a"></script>
+    <!-- Without "?v=": Vite serves any URL with a "v" query as a versioned
+         dependency, cached by the browser for a year, so the app would keep an
+         old copy of React after a dependency change. The build already names
+         its files by content hash. -->
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
