@@ -95,13 +95,17 @@ export default function CrmAdministrationView() {
     setExporting(true)
     setError('')
     try {
-      const [workbook, XLSX] = await Promise.all([
-        createSalesProfitWorkbook(report, { from: fromDate, to: toDate }),
-        import('xlsx'),
-      ])
-      const safeFrom = fromDate.replace(/-/g, '')
-      const safeTo = toDate.replace(/-/g, '')
-      XLSX.writeFile(workbook, `reporte-venta-utilidad-${safeFrom}-${safeTo}.xlsx`)
+      const workbook = await createSalesProfitWorkbook(report, { from: fromDate, to: toDate })
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `reporte-venta-utilidad-${fromDate.replace(/-/g, '')}-${toDate.replace(/-/g, '')}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo generar el archivo de Excel.')
     } finally {

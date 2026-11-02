@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import * as XLSX from 'xlsx'
 import { buildSalesProfitReport, createSalesProfitWorkbook, getReportDateRange } from './salesProfitReport.ts'
 import type { PosCatalogItem, PosSale } from './api.ts'
 
@@ -117,8 +116,11 @@ test('Excel preserves the provided columns, category subtotals, and grand total'
     toTime: '18:00',
   })
   const workbook = await createSalesProfitWorkbook(report, { from: '2026-11-02', to: '2026-11-02' })
-  const worksheet = workbook.Sheets.Rpt_VentaUtilidad
-  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][]
+  const worksheet = workbook.getWorksheet('Rpt_VentaUtilidad')!
+  const rows = [] as unknown[][]
+  worksheet.eachRow({ includeEmpty: true }, (row, n) => {
+    rows[n - 1] = (row.values as unknown[]).slice(1).map((value) => value ?? '')
+  })
 
   assert.equal(rows[0][0], 'Venta por producto con utilidad')
   assert.equal(rows[2][0], '02/Nov/2026 al 02/Nov/2026')
@@ -130,5 +132,5 @@ test('Excel preserves the provided columns, category subtotals, and grand total'
   assert.equal(rows[9][3], 2)
   assert.equal(rows[10][0], 'TOTAL GENERAL')
   assert.equal(rows[10][10], 76)
-  assert.equal(worksheet['!merges']?.length, 4)
+  assert.equal(worksheet.getCell('A8').fill.type, 'pattern')
 })
