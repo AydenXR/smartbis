@@ -188,91 +188,69 @@ function formatReportDate(value: string) {
   return `${String(date.getDate()).padStart(2, '0')}/${month}/${date.getFullYear()}`
 }
 
-function productWorksheetRow(row: SalesProfitRow, category: string | null) {
-  return [
-    category ?? '',
-    row.sku,
-    row.name,
-    row.quantity,
-    row.grossSales,
-    row.discount > 0 ? row.discount : '-',
-    '',
-    row.netSales,
-    row.totalCost,
-    row.unitCost,
-    row.grossProfit,
-    row.margin,
-    '',
-  ]
+const REPORT_COLORS = { header: 'FF1C3D7D', subtotal: 'FFC0C0C0', text: 'FF000000' }
+const REPORT_FONT = 'Arial'
+const MONEY_FORMAT = '"$"#,##0.00;("$"#,##0.00);"-"'
+const NUMBER_FORMAT = '#,##0.00;(#,##0.00);"-"'
+const PERCENT_FORMAT = '#,##0.00 %;-#,##0.00 %;"-"'
+const sumBy = (rows: SalesProfitRow[], pick: (row: SalesProfitRow) => number) =>
+  normalizeMoney(rows.reduce((sum, row) => sum + pick(row), 0))
+
+// Columnas A-L; F y G se combinan (G es un separador mínimo) igual que en el reporte original.
+function productValues(row: SalesProfitRow, category: string | null) {
+  return [category ?? '', row.sku, row.name, row.quantity, row.grossSales, row.discount, null, row.netSales, row.totalCost, row.unitCost, row.grossProfit, row.margin]
 }
 
-function subtotalWorksheetRow(rows: SalesProfitRow[]) {
-  return [
-    '',
-    '',
-    '',
-    normalizeMoney(rows.reduce((sum, row) => sum + row.quantity, 0)),
-    normalizeMoney(rows.reduce((sum, row) => sum + row.grossSales, 0)),
-    rows.some((row) => row.discount > 0) ? normalizeMoney(rows.reduce((sum, row) => sum + row.discount, 0)) : '-',
-    '',
-    normalizeMoney(rows.reduce((sum, row) => sum + row.netSales, 0)),
-    normalizeMoney(rows.reduce((sum, row) => sum + row.totalCost, 0)),
-    normalizeMoney(rows.reduce((sum, row) => sum + row.unitCost, 0)),
-    normalizeMoney(rows.reduce((sum, row) => sum + row.grossProfit, 0)),
-    '',
-    '',
-  ]
-}
-
-const COLORS = {
-  title: 'FF0B2641',
-  header: 'FF1090D0',
-  subtotal: 'FFFFF2CC',
-  total: 'FF0B2641',
-  border: 'FFB8C7D6',
+function subtotalValues(rows: SalesProfitRow[]) {
+  return ['', '', '', sumBy(rows, (row) => row.quantity), sumBy(rows, (row) => row.grossSales), sumBy(rows, (row) => row.discount), null,
+    sumBy(rows, (row) => row.netSales), sumBy(rows, (row) => row.totalCost), sumBy(rows, (row) => row.unitCost), sumBy(rows, (row) => row.grossProfit), null]
 }
 
 export async function createSalesProfitWorkbook(report: SalesProfitReport, range: ReportDateRange) {
   const ExcelJS = (await import('exceljs')).default
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('Rpt_VentaUtilidad')
-  const lastCol = 13
-  const money = '"$"#,##0.00;[Red]-"$"#,##0.00'
-  const thin = { style: 'thin' as const, color: { argb: COLORS.border } }
+  const lastCol = 12
   const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
 
-  sheet.columns = [28, 14, 48, 12, 16, 19, 3, 16, 16, 20, 17, 14, 3].map((width) => ({ width }))
+  sheet.columns = [23.07, 20.5, 47.5, 13.07, 14.93, 17.21, 1.07, 14.79, 14.93, 18.79, 16.79, 13.07].map((width) => ({ width }))
 
-  const titleLine = (rowNumber: number, text: string, size: number, bold: boolean, color: string) => {
+  const titleLine = (rowNumber: number, text: string, size: number, bold: boolean) => {
+    sheet.mergeCells(rowNumber, 1, rowNumber, lastCol)
     const cell = sheet.getCell(rowNumber, 1)
     cell.value = text
-    cell.font = { bold, size, color: { argb: color } }
+    cell.font = { name: REPORT_FONT, bold, size, color: { argb: REPORT_COLORS.text } }
+    cell.alignment = { horizontal: 'left', vertical: 'middle' }
+    sheet.getRow(rowNumber).height = 25
+  }
+  titleLine(1, 'Venta por producto con utilidad', 16, true)
+  titleLine(3, `${formatReportDate(range.from)} al ${formatReportDate(range.to)}`, 12, false)
+  titleLine(5, 'SALUBEL INSTITUTE', 14, true)
+  ;[2, 4].forEach((row) => { sheet.getRow(row).height = 6 })
+  sheet.getRow(6).height = 6
+  sheet.getRow(7).height = 6
+
+  const header = sheet.getRow(8)
+  header.values = ['CATEGORÍA', 'CÓDIGO', 'PRODUCTO', 'CANTIDAD', 'VENTA BRUTA', 'DESCUENTO TOTAL', '', 'VENTA NETA', 'COSTO TOTAL', 'COSTO UNITARIO (i)', 'UTILIDAD BRUTA', 'PORCENTAJE']
+  header.height = 25
+  sheet.mergeCells(8, 6, 8, 7)
+  for (let col = 1; col <= lastCol; col += 1) {
+    const cell = header.getCell(col)
+    cell.fill = fill(REPORT_COLORS.header)
+    cell.font = { name: REPORT_FONT, bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
     cell.alignment = { horizontal: 'left', vertical: 'middle' }
   }
-  titleLine(1, 'Venta por producto con utilidad', 16, true, COLORS.title)
-  titleLine(3, `${formatReportDate(range.from)} al ${formatReportDate(range.to)}`, 11, false, 'FF475569')
-  titleLine(5, 'SALUBEL INSTITUTE', 12, true, COLORS.title)
 
-  const headerRow = sheet.getRow(8)
-  headerRow.values = ['CATEGORÍA', 'CÓDIGO', 'PRODUCTO', 'CANTIDAD', 'VENTA BRUTA', 'DESCUENTO TOTAL', '', 'VENTA NETA', 'COSTO TOTAL', 'COSTO UNITARIO (i)', 'UTILIDAD BRUTA', 'PORCENTAJE', '']
-  headerRow.height = 24
-  headerRow.eachCell({ includeEmpty: true }, (cell, col) => {
-    if (col > lastCol - 1) return
-    cell.fill = fill(COLORS.header)
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.alignment = { horizontal: col >= 4 ? 'right' : 'left', vertical: 'middle' }
-  })
-
-  const style = (row: ExcelJSRow, argb: string | null, bold: boolean, fontColor = 'FF1E293B') => {
-    for (let col = 1; col <= lastCol - 1; col += 1) {
+  const styleRow = (row: ExcelJSRow, subtotal: boolean) => {
+    sheet.mergeCells(row.number, 6, row.number, 7)
+    for (let col = 1; col <= lastCol; col += 1) {
       const cell = row.getCell(col)
-      if (argb) cell.fill = fill(argb)
-      cell.font = { bold, color: { argb: fontColor } }
-      cell.border = { top: thin, bottom: thin }
-      cell.alignment = { horizontal: col >= 4 ? 'right' : 'left' }
-      if ([5, 6, 8, 9, 10, 11].includes(col)) cell.numFmt = money
-      if (col === 12) cell.numFmt = '0.00%'
-      if (col === 4) cell.numFmt = '#,##0'
+      if (subtotal) cell.fill = fill(REPORT_COLORS.subtotal)
+      cell.font = { name: REPORT_FONT, bold: subtotal, size: 10, color: { argb: REPORT_COLORS.text } }
+      cell.alignment = { horizontal: 'left', vertical: 'middle' }
+      if (col === 4) cell.numFmt = NUMBER_FORMAT
+      if ([5, 6, 8, 9, 10, 11].includes(col)) cell.numFmt = MONEY_FORMAT
+      if (col === 12) cell.numFmt = PERCENT_FORMAT
     }
   }
 
@@ -284,27 +262,22 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
   }
 
   for (const [category, products] of categories) {
-    products.forEach((product, index) => {
-      const row = sheet.addRow(productWorksheetRow(product, index === 0 ? category : null))
-      style(row, null, false)
-      const profitColor = product.grossProfit < 0 ? 'FFC0392B' : 'FF15803D'
-      row.getCell(11).font = { bold: true, color: { argb: profitColor } }
-      const marginColor = product.margin >= 0.5 ? 'FF15803D' : product.margin >= 0.2 ? 'FFB45309' : 'FFC0392B'
-      row.getCell(12).font = { bold: true, color: { argb: marginColor } }
-    })
-    const subtotal = sheet.addRow(subtotalWorksheetRow(products))
-    style(subtotal, COLORS.subtotal, true)
-    subtotal.getCell(1).value = `Subtotal ${category}`
-    subtotal.getCell(1).alignment = { horizontal: 'left' }
+    const firstRow = sheet.rowCount + 1
+    products.forEach((product, index) => styleRow(sheet.addRow(productValues(product, index === 0 ? category : null)), false))
+    styleRow(sheet.addRow(subtotalValues(products)), true)
+    const lastRow = sheet.rowCount
+    sheet.mergeCells(firstRow, 1, lastRow, 1)
+    const categoryCell = sheet.getCell(firstRow, 1)
+    categoryCell.fill = fill(REPORT_COLORS.subtotal)
+    categoryCell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true }
   }
 
-  const total = sheet.addRow(subtotalWorksheetRow(report.products).map((value, index) => index === 0 ? 'TOTAL GENERAL' : value))
-  style(total, COLORS.total, true, 'FFFFFFFF')
-  total.height = 22
-  total.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' }
+  styleRow(sheet.addRow(subtotalValues(report.products)), true)
 
-  sheet.addRow([])
-  titleLine(sheet.addRow([]).number, '* El costo unitario de cada producto es el promedio del costo unitario en el periodo establecido.', 10, false, 'FF64748B')
+  const noteRow = sheet.addRow(['* El costo unitario de cada producto es el promedio del costo unitario en el periodo establecido.'])
+  sheet.mergeCells(noteRow.number, 1, noteRow.number, 6)
+  noteRow.getCell(1).font = { name: REPORT_FONT, size: 10, color: { argb: REPORT_COLORS.text } }
+  noteRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' }
   return workbook
 }
 

@@ -124,13 +124,15 @@ test('Excel preserves the provided columns, category subtotals, and grand total'
 
   assert.equal(rows[0][0], 'Venta por producto con utilidad')
   assert.equal(rows[2][0], '02/Nov/2026 al 02/Nov/2026')
-  assert.deepEqual(rows[7].slice(0, 12), [
+  assert.deepEqual([...rows[7].slice(0, 6), ...rows[7].slice(7, 12)], [
     'CATEGORÍA', 'CÓDIGO', 'PRODUCTO', 'CANTIDAD', 'VENTA BRUTA', 'DESCUENTO TOTAL',
-    '', 'VENTA NETA', 'COSTO TOTAL', 'COSTO UNITARIO (i)', 'UTILIDAD BRUTA', 'PORCENTAJE',
+    'VENTA NETA', 'COSTO TOTAL', 'COSTO UNITARIO (i)', 'UTILIDAD BRUTA', 'PORCENTAJE',
   ])
   assert.equal(rows[8][0], 'Categoría A')
+  assert.equal(rows[8][1], 'SKU-1')
   assert.equal(rows[9][3], 2)
-  assert.equal(rows[10][0], 'TOTAL GENERAL')
+  assert.equal(rows[9][10], 76)
+  assert.equal(rows[10][3], 2)
   assert.equal(rows[10][10], 76)
   assert.equal(worksheet.getCell('A8').fill.type, 'pattern')
 })
