@@ -169,6 +169,9 @@ export function buildSalesProfitReport(
     report.totalCost += row.totalCost
     report.unitCost += row.unitCost
     report.grossProfit += row.grossProfit
+    for (const key of ['quantity', 'grossSales', 'discount', 'netSales', 'totalCost', 'unitCost', 'grossProfit'] as const) {
+      report[key] = normalizeMoney(report[key])
+    }
     return report
   }, {
     products,

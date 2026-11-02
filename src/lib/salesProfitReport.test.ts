@@ -136,3 +136,29 @@ test('Excel preserves the provided columns, category subtotals, and grand total'
   assert.equal(rows[10][10], 76)
   assert.equal(worksheet.getCell('A8').fill.type, 'pattern')
 })
+
+test('report reproduces the point-of-sale reference figures, totals, and unit costs', () => {
+  const line = (itemId: string, name: string, qty: number, importe: number, costTotal: number) =>
+    ({ itemId, sku: itemId, name, qty, unitPrice: importe / qty, importe, costTotal })
+  const catalog = ['a', 'b', 'c'].map((id, index) => ({ ...item, id, sku: id, name: id, category: index < 2 ? 'Ácido' : 'Anestesias' }))
+  const report = buildSalesProfitReport([
+    sale({ id: 's1', discount: 0, lines: [line('a', 'BCN', 1, 1110, 777)] }),
+    sale({ id: 's2', discount: 49.98, lines: [line('b', 'Skinbooster', 1, 280, 130)] }),
+    sale({ id: 's3', discount: 0, lines: [line('c', 'Anestesia', 2, 1100, 620)] }),
+  ], catalog, { from: '2026-11-02', to: '2026-11-02', fromTime: '00:00', toTime: '23:59' })
+
+  const skin = report.products.find((row) => row.name === 'Skinbooster')!
+  assert.equal(skin.netSales, 230.02)
+  assert.equal(skin.grossProfit, 100.02)
+  assert.equal(skin.margin, 100.02 / 230.02)
+  const anesthesia = report.products.find((row) => row.name === 'Anestesia')!
+  assert.equal(anesthesia.unitCost, 310)
+  assert.equal(anesthesia.grossProfit, 480)
+  assert.equal(report.quantity, 4)
+  assert.equal(report.grossSales, 2490)
+  assert.equal(report.discount, 49.98)
+  assert.equal(report.netSales, 2440.02)
+  assert.equal(report.totalCost, 1527)
+  assert.equal(report.unitCost, 1217)
+  assert.equal(report.grossProfit, 913.02)
+})
