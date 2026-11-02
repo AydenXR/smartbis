@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Download, RefreshCw } from 'lucide-react'
 import { posCatalog, posSales, type PosCatalogItem, type PosSale } from '@/lib/api'
 import {
@@ -6,6 +6,7 @@ import {
   createSalesProfitWorkbook,
   getReportDateRange,
   type ReportPeriod,
+  type SalesProfitRow,
 } from '@/lib/salesProfitReport'
 
 const today = () => {
@@ -20,6 +21,10 @@ function localDateTimeToIso(date: string, time: string, endOfMinute = false) {
 
 const currency = (value: number) => value.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
 const dateLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+const percent = (value: number) => `${(value * 100).toLocaleString('es-MX', { maximumFractionDigits: 2 })}%`
+const marginClass = (margin: number) =>
+  margin >= 0.5 ? 'bg-emerald-400/20 text-emerald-300' : margin >= 0.2 ? 'bg-amber-400/20 text-amber-300' : 'bg-rose-400/20 text-rose-300'
+const tableHeadings = ['Categoría', 'Código', 'Producto', 'Cantidad', 'Venta bruta', 'Descuento', 'Venta neta', 'Costo total', 'Costo unit.', 'Utilidad bruta', 'Margen']
 const inputClass = 'rounded-xl border border-[#255074] bg-[#0b2641] px-3 py-2 text-sm text-white'
 
 const periodOptions: Array<{ value: ReportPeriod; label: string }> = [
@@ -104,14 +109,37 @@ export default function CrmAdministrationView() {
     }
   }
 
+  const groups = useMemo(() => {
+    const map = new Map<string, SalesProfitRow[]>()
+    for (const row of report.products) {
+      map.set(row.category, [...(map.get(row.category) || []), row])
+    }
+    return [...map.entries()].map(([category, rows]) => {
+      const sum = (pick: (row: SalesProfitRow) => number) => rows.reduce((total, row) => total + pick(row), 0)
+      const netSales = sum((row) => row.netSales)
+      const grossProfit = sum((row) => row.grossProfit)
+      return {
+        category,
+        rows,
+        quantity: sum((row) => row.quantity),
+        grossSales: sum((row) => row.grossSales),
+        discount: sum((row) => row.discount),
+        netSales,
+        totalCost: sum((row) => row.totalCost),
+        grossProfit,
+        margin: netSales ? grossProfit / netSales : 0,
+      }
+    })
+  }, [report.products])
+
   const summary = [
-    { label: 'Productos vendidos', value: report.products.length.toLocaleString('es-MX') },
-    { label: 'Unidades', value: report.quantity.toLocaleString('es-MX') },
-    { label: 'Venta bruta', value: currency(report.grossSales) },
-    { label: 'Descuentos', value: currency(report.discount) },
-    { label: 'Venta neta', value: currency(report.netSales) },
-    { label: 'Costo total', value: currency(report.totalCost) },
-    { label: 'Utilidad bruta', value: currency(report.grossProfit) },
+    { label: 'Productos vendidos', value: report.products.length.toLocaleString('es-MX'), accent: 'border-l-slate-400', text: 'text-white' },
+    { label: 'Unidades', value: report.quantity.toLocaleString('es-MX'), accent: 'border-l-slate-400', text: 'text-white' },
+    { label: 'Venta bruta', value: currency(report.grossSales), accent: 'border-l-sky-400', text: 'text-sky-300' },
+    { label: 'Descuentos', value: currency(report.discount), accent: 'border-l-amber-400', text: 'text-amber-300' },
+    { label: 'Venta neta', value: currency(report.netSales), accent: 'border-l-cyan-300', text: 'text-cyan-200' },
+    { label: 'Costo total', value: currency(report.totalCost), accent: 'border-l-rose-400', text: 'text-rose-300' },
+    { label: 'Utilidad bruta', value: currency(report.grossProfit), accent: 'border-l-emerald-400', text: report.grossProfit < 0 ? 'text-rose-400' : 'text-emerald-300' },
   ]
 
   return (
@@ -185,49 +213,69 @@ export default function CrmAdministrationView() {
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {summary.map((card) => (
-            <div key={card.label} className="rounded-2xl border border-[#1a3a5a] bg-[#0f3151] p-4">
-              <p className="text-xs text-slate-400">{card.label}</p>
-              <p className="mt-2 text-xl font-extrabold">{card.value}</p>
+            <div key={card.label} className={`rounded-2xl border border-l-4 border-[#1a3a5a] bg-[#0f3151] p-4 ${card.accent}`}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{card.label}</p>
+              <p className={`mt-2 text-xl font-extrabold ${card.text}`}>{card.value}</p>
             </div>
           ))}
         </section>
 
-        <section className="overflow-x-auto rounded-2xl border border-[#1a3a5a] bg-[#0f3151]">
-          <table className="w-full min-w-[1150px] text-left text-sm">
-            <thead className="bg-[#0b2641] text-xs uppercase tracking-wide text-slate-400">
+        <section className="max-h-[70vh] overflow-auto rounded-2xl border border-[#255074] bg-[#0f3151]">
+          <table className="w-full min-w-[1100px] border-collapse text-sm tabular-nums">
+            <thead className="sticky top-0 z-10 bg-[#1090D0] text-xs uppercase tracking-wide text-white">
               <tr>
-                {['Categoría', 'Código', 'Producto', 'Cantidad', 'Venta bruta', 'Descuento total', 'Venta neta', 'Costo total', 'Costo unitario', 'Utilidad bruta', 'Porcentaje'].map((heading) => (
-                  <th key={heading} className="px-3 py-3">{heading}</th>
+                {tableHeadings.map((heading, index) => (
+                  <th key={heading} className={`px-3 py-3 font-bold ${index >= 3 ? 'text-right' : 'text-left'}`}>{heading}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {report.products.map((row, index) => (
-                <tr key={`${row.category}-${row.sku}-${row.name}-${index}`} className="border-t border-[#1a3a5a]">
-                  <td className="px-3 py-3">{row.category}</td>
-                  <td className="px-3 py-3">{row.sku || '—'}</td>
-                  <td className="px-3 py-3">{row.name}</td>
-                  <td className="px-3 py-3">{row.quantity}</td>
-                  <td className="px-3 py-3">{currency(row.grossSales)}</td>
-                  <td className="px-3 py-3">{row.discount > 0 ? currency(row.discount) : '—'}</td>
-                  <td className="px-3 py-3">{currency(row.netSales)}</td>
-                  <td className="px-3 py-3">{currency(row.totalCost)}</td>
-                  <td className="px-3 py-3">{currency(row.unitCost)}</td>
-                  <td className="px-3 py-3">{currency(row.grossProfit)}</td>
-                  <td className="px-3 py-3">{(row.margin * 100).toLocaleString('es-MX', { maximumFractionDigits: 2 })}%</td>
-                </tr>
+              {groups.map((group) => (
+                <Fragment key={group.category}>
+                  <tr className="bg-[#164064]">
+                    <td colSpan={11} className="border-t-2 border-[#5bbfe5]/60 px-3 py-2 text-xs font-extrabold uppercase tracking-wider text-[#5bbfe5]">
+                      {group.category} <span className="ml-2 font-semibold normal-case text-slate-400">{group.rows.length} producto{group.rows.length === 1 ? '' : 's'}</span>
+                    </td>
+                  </tr>
+                  {group.rows.map((row, index) => (
+                    <tr key={`${row.sku}-${row.name}-${index}`} className={`border-t border-[#1a3a5a] transition hover:bg-[#1c4a73] ${index % 2 ? 'bg-[#0d2c4a]' : 'bg-[#0f3151]'}`}>
+                      <td className="px-3 py-2 text-slate-500">{row.category}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-slate-400">{row.sku || '—'}</td>
+                      <td className="px-3 py-2 font-semibold text-white">{row.name}</td>
+                      <td className="px-3 py-2 text-right font-bold text-white">{row.quantity}</td>
+                      <td className="px-3 py-2 text-right text-sky-300">{currency(row.grossSales)}</td>
+                      <td className="px-3 py-2 text-right text-amber-300">{row.discount > 0 ? currency(row.discount) : '—'}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-cyan-200">{currency(row.netSales)}</td>
+                      <td className="px-3 py-2 text-right text-rose-300">{currency(row.totalCost)}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">{currency(row.unitCost)}</td>
+                      <td className={`px-3 py-2 text-right font-bold ${row.grossProfit < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>{currency(row.grossProfit)}</td>
+                      <td className="px-3 py-2 text-right"><span className={`inline-block min-w-[64px] rounded-full px-2 py-0.5 text-xs font-bold ${marginClass(row.margin)}`}>{percent(row.margin)}</span></td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-[#255074] bg-[#12395c] font-bold">
+                    <td colSpan={3} className="px-3 py-2 text-right text-xs uppercase tracking-wide text-slate-300">Subtotal {group.category}</td>
+                    <td className="px-3 py-2 text-right">{group.quantity}</td>
+                    <td className="px-3 py-2 text-right text-sky-300">{currency(group.grossSales)}</td>
+                    <td className="px-3 py-2 text-right text-amber-300">{currency(group.discount)}</td>
+                    <td className="px-3 py-2 text-right text-cyan-200">{currency(group.netSales)}</td>
+                    <td className="px-3 py-2 text-right text-rose-300">{currency(group.totalCost)}</td>
+                    <td className="px-3 py-2" />
+                    <td className={`px-3 py-2 text-right ${group.grossProfit < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>{currency(group.grossProfit)}</td>
+                    <td className="px-3 py-2 text-right"><span className={`inline-block min-w-[64px] rounded-full px-2 py-0.5 text-xs ${marginClass(group.margin)}`}>{percent(group.margin)}</span></td>
+                  </tr>
+                </Fragment>
               ))}
               {report.products.length > 0 && (
-                <tr className="border-t-2 border-[#5bbfe5] bg-[#0b2641] font-extrabold">
-                  <td className="px-3 py-3" colSpan={3}>TOTAL GENERAL</td>
-                  <td className="px-3 py-3">{report.quantity}</td>
-                  <td className="px-3 py-3">{currency(report.grossSales)}</td>
-                  <td className="px-3 py-3">{currency(report.discount)}</td>
-                  <td className="px-3 py-3">{currency(report.netSales)}</td>
-                  <td className="px-3 py-3">{currency(report.totalCost)}</td>
-                  <td className="px-3 py-3">{currency(report.unitCost)}</td>
-                  <td className="px-3 py-3">{currency(report.grossProfit)}</td>
-                  <td className="px-3 py-3">—</td>
+                <tr className="sticky bottom-0 border-t-2 border-[#5bbfe5] bg-[#0b2641] text-base font-extrabold">
+                  <td className="px-3 py-3 text-[#5bbfe5]" colSpan={3}>TOTAL GENERAL</td>
+                  <td className="px-3 py-3 text-right">{report.quantity}</td>
+                  <td className="px-3 py-3 text-right text-sky-300">{currency(report.grossSales)}</td>
+                  <td className="px-3 py-3 text-right text-amber-300">{currency(report.discount)}</td>
+                  <td className="px-3 py-3 text-right text-cyan-200">{currency(report.netSales)}</td>
+                  <td className="px-3 py-3 text-right text-rose-300">{currency(report.totalCost)}</td>
+                  <td className="px-3 py-3" />
+                  <td className={`px-3 py-3 text-right ${report.grossProfit < 0 ? 'text-rose-400' : 'text-emerald-300'}`}>{currency(report.grossProfit)}</td>
+                  <td className="px-3 py-3 text-right"><span className={`inline-block min-w-[64px] rounded-full px-2 py-0.5 text-xs ${marginClass(report.netSales ? report.grossProfit / report.netSales : 0)}`}>{percent(report.netSales ? report.grossProfit / report.netSales : 0)}</span></td>
                 </tr>
               )}
               {report.products.length === 0 && !loading && (
