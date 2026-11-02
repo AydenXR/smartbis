@@ -227,17 +227,15 @@ function subtotalWorksheetRow(rows: SalesProfitRow[]) {
 const COLORS = {
   title: 'FF0B2641',
   header: 'FF1090D0',
-  category: 'FFDCEEF9',
   subtotal: 'FFFFF2CC',
   total: 'FF0B2641',
-  zebra: 'FFF5F9FC',
   border: 'FFB8C7D6',
 }
 
 export async function createSalesProfitWorkbook(report: SalesProfitReport, range: ReportDateRange) {
   const ExcelJS = (await import('exceljs')).default
   const workbook = new ExcelJS.Workbook()
-  const sheet = workbook.addWorksheet('Rpt_VentaUtilidad', { views: [{ state: 'frozen', ySplit: 8 }] })
+  const sheet = workbook.addWorksheet('Rpt_VentaUtilidad')
   const lastCol = 13
   const money = '"$"#,##0.00;[Red]-"$"#,##0.00'
   const thin = { style: 'thin' as const, color: { argb: COLORS.border } }
@@ -245,16 +243,15 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
 
   sheet.columns = [28, 14, 48, 12, 16, 19, 3, 16, 16, 20, 17, 14, 3].map((width) => ({ width }))
 
-  const mergedLine = (rowNumber: number, text: string, size: number, bold: boolean, color: string) => {
-    sheet.mergeCells(rowNumber, 1, rowNumber, lastCol)
+  const titleLine = (rowNumber: number, text: string, size: number, bold: boolean, color: string) => {
     const cell = sheet.getCell(rowNumber, 1)
     cell.value = text
     cell.font = { bold, size, color: { argb: color } }
-    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    cell.alignment = { horizontal: 'left', vertical: 'middle' }
   }
-  mergedLine(1, 'Venta por producto con utilidad', 16, true, COLORS.title)
-  mergedLine(3, `${formatReportDate(range.from)} al ${formatReportDate(range.to)}`, 12, false, 'FF475569')
-  mergedLine(5, 'SALUBEL INSTITUTE', 14, true, COLORS.title)
+  titleLine(1, 'Venta por producto con utilidad', 16, true, COLORS.title)
+  titleLine(3, `${formatReportDate(range.from)} al ${formatReportDate(range.to)}`, 11, false, 'FF475569')
+  titleLine(5, 'SALUBEL INSTITUTE', 12, true, COLORS.title)
 
   const headerRow = sheet.getRow(8)
   headerRow.values = ['CATEGORÍA', 'CÓDIGO', 'PRODUCTO', 'CANTIDAD', 'VENTA BRUTA', 'DESCUENTO TOTAL', '', 'VENTA NETA', 'COSTO TOTAL', 'COSTO UNITARIO (i)', 'UTILIDAD BRUTA', 'PORCENTAJE', '']
@@ -263,7 +260,7 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
     if (col > lastCol - 1) return
     cell.fill = fill(COLORS.header)
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.alignment = { horizontal: col >= 4 ? 'right' : 'left', vertical: 'middle', wrapText: true }
+    cell.alignment = { horizontal: col >= 4 ? 'right' : 'left', vertical: 'middle' }
   })
 
   const style = (row: ExcelJSRow, argb: string | null, bold: boolean, fontColor = 'FF1E293B') => {
@@ -272,10 +269,10 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
       if (argb) cell.fill = fill(argb)
       cell.font = { bold, color: { argb: fontColor } }
       cell.border = { top: thin, bottom: thin }
-      if (col >= 4) cell.alignment = { horizontal: 'right' }
+      cell.alignment = { horizontal: col >= 4 ? 'right' : 'left' }
       if ([5, 6, 8, 9, 10, 11].includes(col)) cell.numFmt = money
       if (col === 12) cell.numFmt = '0.00%'
-      if (col === 4) cell.numFmt = '#,##0.##'
+      if (col === 4) cell.numFmt = '#,##0'
     }
   }
 
@@ -289,9 +286,7 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
   for (const [category, products] of categories) {
     products.forEach((product, index) => {
       const row = sheet.addRow(productWorksheetRow(product, index === 0 ? category : null))
-      style(row, index % 2 ? COLORS.zebra : null, false)
-      row.getCell(1).font = { bold: true, color: { argb: 'FF0B5C8C' } }
-      row.getCell(1).fill = fill(COLORS.category)
+      style(row, null, false)
       const profitColor = product.grossProfit < 0 ? 'FFC0392B' : 'FF15803D'
       row.getCell(11).font = { bold: true, color: { argb: profitColor } }
       const marginColor = product.margin >= 0.5 ? 'FF15803D' : product.margin >= 0.2 ? 'FFB45309' : 'FFC0392B'
@@ -309,10 +304,7 @@ export async function createSalesProfitWorkbook(report: SalesProfitReport, range
   total.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' }
 
   sheet.addRow([])
-  const noteRowNumber = sheet.rowCount + 1
-  sheet.addRow([])
-  mergedLine(noteRowNumber, '* El costo unitario de cada producto es el promedio del costo unitario en el periodo establecido.', 10, false, 'FF64748B')
-  sheet.getCell(noteRowNumber, 1).alignment = { horizontal: 'left' }
+  titleLine(sheet.addRow([]).number, '* El costo unitario de cada producto es el promedio del costo unitario en el periodo establecido.', 10, false, 'FF64748B')
   return workbook
 }
 
