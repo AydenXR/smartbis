@@ -2,7 +2,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { requestPasswordReset, resendVerificationEmail } from '@/lib/api'
 import { emailProblem, normalizeEmail, PASSWORD_RULES, passwordProblem } from '@/lib/validation'
-import LogoSb from '../assets/logosb.png'
+import LogoSb from '../assets/logo.png'
 import { Lock, Mail, UserPlus, LogIn, MailCheck, KeyRound } from 'lucide-react'
 
 type AuthMode = 'login' | 'register'
@@ -134,7 +134,7 @@ export default function AuthPanel({
     <section className="w-full">
       <div className="overflow-hidden rounded-[26px] border border-[#1a3a5a] bg-[#0b2540] shadow-2xl shadow-[#050a18]/40">
         <div className="flex items-center gap-3 border-b border-[#1a3a5a] bg-[#0b2540]/80 px-7 py-5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0f3151] p-1.5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center p-1.5">
             <img src={LogoSb} alt="Smartbis Logo" className="h-full w-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
@@ -270,9 +270,6 @@ export default function AuthPanel({
           ) : (
           <>
           <div className="mb-6">
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#4FC3F7]">
-              Acceso privado
-            </p>
             <h2 className="mt-3 font-display text-[24px] font-extrabold leading-tight text-white">
               {mode === 'login' ? 'Entra a tu CRM Messenger' : 'Crea tu espacio de cliente'}
             </h2>
