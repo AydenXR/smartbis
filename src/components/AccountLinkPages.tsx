@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, XCircle } from 'lucide-react'
-import LogoSb from '../assets/logosb.png'
+import LogoSb from '../assets/logo.png'
 import { ApiError, confirmEmail, resendVerificationEmail, resetPassword } from '@/lib/api'
 import { emailProblem, normalizeEmail, PASSWORD_RULES, passwordProblem } from '@/lib/validation'
 
@@ -28,7 +28,7 @@ function PageShell({ children }: { children: ReactNode }) {
     <main className="flex min-h-screen w-full items-center justify-center bg-[#0c2a47] px-4 py-10 text-slate-100">
       <div className="w-full max-w-md overflow-hidden rounded-[26px] border border-[#1a3a5a] bg-[#0f3151] shadow-2xl shadow-[#050a18]/40">
         <a href="/" className="flex items-center gap-3 border-b border-[#1a3a5a] bg-[#0b2540] px-7 py-5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0f3151] p-1.5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center p-1.5">
             <img src={LogoSb} alt="Smartbis" className="h-full w-full object-contain" />
           </div>
           <div className="font-display text-[17px] font-extrabold tracking-[0.2em] text-[#1090D0]">SMARTBIS</div>

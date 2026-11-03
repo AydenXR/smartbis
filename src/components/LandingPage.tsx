@@ -1,4 +1,5 @@
-import LogoSb from '../assets/logosb.png'
+import LogoSb from '../assets/logo.png'
+import SmartbisMobile from '../assets/smartbis-mobile.png'
 import {
   Bot,
   BookOpenText,
@@ -69,14 +70,14 @@ const steps = [
 
 export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPageProps) {
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#0c2a47] text-slate-100">
+    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#133456] text-slate-100">
       <div className="pointer-events-none absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full bg-[#1090D0]/20 blur-[120px]" />
       <div className="pointer-events-none absolute top-40 -right-40 h-[520px] w-[520px] rounded-full bg-[#305070]/50 blur-[140px]" />
 
       <header className="sticky top-0 z-40 w-full border-b border-[#1a3a5a]/70 bg-[#0c2a47]/75 backdrop-blur-xl">
         <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-6 sm:px-8">
           <a href="#top" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0f3151] p-1.5">
+            <div className="flex h-[53px] w-[53px] shrink-0 items-center justify-center">
               <img src={LogoSb} alt="Smartbis Logo" className="h-full w-full object-contain" />
             </div>
             <div className="flex flex-col leading-none">
@@ -110,7 +111,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
             <button
               type="button"
               onClick={onLoginClick}
-              className="rounded-[14px] border border-[#1a3a5a] bg-[#0f3151]/60 px-4 py-2.5 text-[13px] font-bold text-white transition hover:border-[#1090D0]/50 hover:bg-[#0f3151]"
+              className="rounded-[14px] border border-[#1a3a5a] bg-[#173c60]/60 px-4 py-2.5 text-[13px] font-bold text-white transition hover:border-[#1090D0]/50 hover:bg-[#173c60]"
             >
               Iniciar sesión
             </button>
@@ -125,7 +126,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
         </div>
       </header>
 
-      <section id="top" className="relative mx-auto w-full max-w-7xl px-6 pt-16 pb-24 sm:px-8 sm:pt-24">
+      <section id="top" className="relative mx-auto w-full max-w-7xl px-6 pt-16 pb-0 min-[700px]:pb-24 sm:px-8 sm:pt-24">
         <div className="grid items-center gap-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.7fr)]">
           <div className="relative space-y-8">
             <h1 className="font-display text-[42px] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[50px] lg:text-[56px]">
@@ -163,16 +164,17 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
             </ul>
           </div>
 
-          <div className="relative justify-self-end w-[97%]">
+          {/* Desktop preview from 700px up; phones get SmartbisMobile below */}
+          <div className="relative hidden min-[700px]:block justify-self-end w-[97%]">
             <div className="absolute -inset-6 rounded-[36px] bg-gradient-to-br from-[#1090D0]/25 via-transparent to-[#305070]/30 blur-2xl" />
-            <div className="relative overflow-hidden rounded-[28px] border border-[#1a3a5a] bg-[#0b2540] shadow-2xl shadow-[#050a18]/50">
-              <div className="flex items-center justify-between border-b border-[#1a3a5a] bg-[#0b2540]/80 px-6 py-4">
+            <div className="relative overflow-hidden rounded-[28px] border border-[#1a3a5a] bg-[#12304f] shadow-2xl shadow-[#050a18]/50">
+              <div className="flex items-center justify-between border-b border-[#1a3a5a] bg-[#12304f]/80 px-6 py-4">
                 <div className="flex items-center gap-3">
                   <span className="h-3.5 w-3.5 rounded-full bg-[#ef5350]/85" />
                   <span className="h-3.5 w-3.5 rounded-full bg-[#FFB74D]/85" />
                   <span className="h-3.5 w-3.5 rounded-full bg-[#66BB6A]/85" />
                 </div>
-                <div className="flex items-center gap-2 rounded-lg border border-[#1a3a5a] bg-[#0c2a47] px-4 py-2 text-[12px] font-semibold text-slate-300">
+                <div className="flex items-center gap-2 rounded-lg border border-[#1a3a5a] bg-[#133456] px-4 py-2 text-[12px] font-semibold text-slate-300">
                   <Shield className="h-4 w-4 text-[#4FC3F7]" />
                   app.smartbis.ai · CRM Messenger
                 </div>
@@ -180,8 +182,8 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               </div>
 
               <div className="grid h-[520px] min-h-0 w-full grid-cols-[230px_1fr] text-left">
-                <div className="border-r border-[#1a3a5a] bg-[#0b2540] p-5">
-                  <div className="flex items-center gap-3 rounded-[16px] border border-[#1a3a5a] bg-[#0f3151] p-4">
+                <div className="border-r border-[#1a3a5a] bg-[#12304f] p-5">
+                  <div className="flex items-center gap-3 rounded-[16px] border border-[#1a3a5a] bg-[#173c60] p-4">
                     <div className="h-11 w-11 shrink-0 rounded-full border border-[#1090D0]/40 bg-[#1090D0]/20" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13.5px] font-bold text-white">Dra. Lydia C.</div>
@@ -190,11 +192,11 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                   </div>
 
                   <div className="mt-6 space-y-2 text-[11.5px] text-slate-300">
-                    <div className="flex justify-between rounded-[12px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
+                    <div className="flex justify-between rounded-[12px] border border-[#1a3a5a] bg-[#123150] px-3 py-2.5">
                       <span className="text-slate-400">Página:</span>
                       <span className="font-semibold text-slate-100">Conectada</span>
                     </div>
-                    <div className="flex justify-between rounded-[12px] border border-[#1a3a5a] bg-[#0b2641] px-3 py-2.5">
+                    <div className="flex justify-between rounded-[12px] border border-[#1a3a5a] bg-[#123150] px-3 py-2.5">
                       <span className="text-slate-400">Test mode:</span>
                       <span className="font-semibold text-amber-300">ON</span>
                     </div>
@@ -208,7 +210,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                           'rounded-[13px] px-3.5 py-2.5 text-[13px] font-semibold ' +
                           (i === 0
                             ? 'border border-[#1090D0]/30 bg-[#1090D0]/10 text-[#4FC3F7]'
-                            : 'text-slate-300 hover:bg-[#0f3151]')
+                            : 'text-slate-300 hover:bg-[#173c60]')
                         }
                       >
                         {l}
@@ -218,7 +220,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                 </div>
 
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2.1fr)]">
-                  <aside className="border-r border-[#1a3a5a] bg-[#0c2a47]">
+                  <aside className="border-r border-[#1a3a5a] bg-[#133456]">
                     <div className="border-b border-[#1a3a5a] px-5 py-3.5 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
                       Conversaciones
                     </div>
@@ -234,7 +236,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                             'rounded-[15px] border px-4 py-3 ' +
                             (c.u
                               ? 'border-[#1090D0]/40 bg-[#1090D0]/8'
-                              : 'border-transparent bg-[#0f3151]/40 hover:bg-[#0f3151]')
+                              : 'border-transparent bg-[#173c60]/40 hover:bg-[#173c60]')
                           }
                         >
                           <div className="flex items-center justify-between">
@@ -247,7 +249,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                     </ul>
                   </aside>
 
-                  <div className="flex min-h-0 flex-col bg-[#0c2a47]">
+                  <div className="flex min-h-0 flex-col bg-[#133456]">
                     <div className="flex items-center justify-between border-b border-[#1a3a5a] px-6 py-4">
                       <div>
                         <div className="text-[14px] font-bold text-white">Mariana Gutiérrez</div>
@@ -260,7 +262,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
 
                     <div className="min-h-0 flex-1 space-y-4 overflow-hidden px-6 py-5">
                       <div className="flex justify-start">
-                        <div className="max-w-[80%] rounded-[18px] rounded-bl-sm border border-[#1a3a5a] bg-[#0f3151] px-4 py-3 text-[13px] leading-relaxed text-slate-100">
+                        <div className="max-w-[80%] rounded-[18px] rounded-bl-sm border border-[#1a3a5a] bg-[#173c60] px-4 py-3 text-[13px] leading-relaxed text-slate-100">
                           Hola 👋 ¿Tienen citas disponibles mañana para limpieza dental?
                         </div>
                       </div>
@@ -272,7 +274,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                       </div>
 
                       <div className="flex justify-start">
-                        <div className="max-w-[80%] rounded-[18px] rounded-bl-sm border border-[#1a3a5a] bg-[#0f3151] px-4 py-3 text-[13px] leading-relaxed text-slate-100">
+                        <div className="max-w-[80%] rounded-[18px] rounded-bl-sm border border-[#1a3a5a] bg-[#173c60] px-4 py-3 text-[13px] leading-relaxed text-slate-100">
                           Perfecto, me quedo con las 10:30am 🙌 ¡Muchas gracias!
                         </div>
                       </div>
@@ -284,7 +286,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
                       </div>
 
                       <div className="flex justify-start pt-1">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-[#1a3a5a] bg-[#0b2641] px-3.5 py-2 text-[11px] font-semibold text-slate-400">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-[#1a3a5a] bg-[#123150] px-3.5 py-2 text-[11px] font-semibold text-slate-400">
                           <CheckCircle2 className="h-4 w-4 text-[#4FC3F7]" />
                           2 respuestas · El bot respondió con tu prompt
                         </div>
@@ -295,12 +297,20 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               </div>
             </div>
           </div>
+
+          <img
+            src={SmartbisMobile}
+            alt="Vista de Smartbis en el celular"
+            width={373}
+            height={668}
+            className="mx-auto block h-auto w-full max-w-[373px] min-[700px]:hidden"
+          />
         </div>
       </section>
 
       <section id="caracteristicas" className="relative mx-auto w-full max-w-7xl px-6 py-24 sm:px-8">
         <div className="mx-auto max-w-3xl text-center">
-          <div className="inline-flex rounded-full border border-[#1a3a5a] bg-[#0f3151]/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.25em] text-slate-300">
+          <div className="inline-flex rounded-full border border-[#1a3a5a] bg-[#173c60]/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.25em] text-slate-300">
             Características
           </div>
           <h2 className="mt-5 font-display text-[36px] font-extrabold leading-tight text-white sm:text-[42px]">
@@ -316,9 +326,9 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
           {features.map((f) => (
             <div
               key={f.title}
-              className="group flex flex-col gap-3 rounded-[20px] border border-[#1a3a5a] bg-[#0f3151]/70 p-6 transition hover:-translate-y-1 hover:border-[#1090D0]/40 hover:bg-[#0f3151]"
+              className="group flex flex-col gap-3 rounded-[20px] border border-[#1a3a5a] bg-[#173c60]/70 p-6 transition hover:-translate-y-1 hover:border-[#1090D0]/40 hover:bg-[#173c60]"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0b2641]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#123150]">
                 <f.icon className="h-6 w-6 text-[#4FC3F7]" />
               </div>
               <h3 className="mt-1 font-display text-[17px] font-bold text-white">{f.title}</h3>
@@ -330,7 +340,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
 
       <section id="como-funciona" className="relative mx-auto w-full max-w-7xl px-6 py-24 sm:px-8">
         <div className="mx-auto max-w-3xl text-center">
-          <div className="inline-flex rounded-full border border-[#1a3a5a] bg-[#0f3151]/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.25em] text-slate-300">
+          <div className="inline-flex rounded-full border border-[#1a3a5a] bg-[#173c60]/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.25em] text-slate-300">
             Cómo funciona
           </div>
           <h2 className="mt-5 font-display text-[36px] font-extrabold leading-tight text-white sm:text-[42px]">
@@ -342,13 +352,13 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
           {steps.map((s) => (
             <div
               key={s.n}
-              className="relative flex flex-col overflow-hidden rounded-[22px] border border-[#1a3a5a] bg-[#0f3151]/70 p-7"
+              className="relative flex flex-col overflow-hidden rounded-[22px] border border-[#1a3a5a] bg-[#173c60]/70 p-7"
             >
               <div className="flex items-center justify-between">
                 <div className="font-display text-[42px] font-black leading-none text-[#1090D0]/30">
                   {s.n}
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0b2641]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#123150]">
                   <s.icon className="h-6 w-6 text-[#4FC3F7]" />
                 </div>
               </div>
@@ -360,7 +370,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
       </section>
 
       <section id="precios" className="relative mx-auto w-full max-w-7xl px-6 py-16 sm:px-8">
-        <div className="relative overflow-hidden rounded-[32px] border border-[#1090D0]/30 bg-gradient-to-br from-[#0f3151] via-[#0c2a47] to-[#0b2540] px-8 py-16 shadow-2xl shadow-[#1090D0]/10 sm:px-14">
+        <div className="relative overflow-hidden rounded-[32px] border border-[#1090D0]/30 bg-gradient-to-br from-[#173c60] via-[#133456] to-[#12304f] px-8 py-16 shadow-2xl shadow-[#1090D0]/10 sm:px-14">
           <div className="pointer-events-none absolute -top-40 -right-40 h-[420px] w-[420px] rounded-full bg-[#1090D0]/25 blur-[120px]" />
           <div className="relative mx-auto flex max-w-5xl flex-col items-center text-center">
             <h2 className="font-display text-[34px] font-extrabold leading-tight text-white sm:text-[44px]">
@@ -382,7 +392,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               <button
                 type="button"
                 onClick={onLoginClick}
-                className="rounded-[18px] border border-[#1a3a5a] bg-[#0b2641]/60 px-7 py-4 text-[15px] font-bold text-white transition hover:border-[#1090D0]/50"
+                className="rounded-[18px] border border-[#1a3a5a] bg-[#123150]/60 px-7 py-4 text-[15px] font-bold text-white transition hover:border-[#1090D0]/50"
               >
                 Iniciar sesión
               </button>
@@ -391,12 +401,12 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
         </div>
       </section>
 
-      <footer id="faq" className="relative border-t border-[#1a3a5a]/70 bg-[#0b2540]/40">
+      <footer id="faq" className="relative border-t border-[#1a3a5a]/70 bg-[#12304f]/40">
         <div className="mx-auto w-full max-w-7xl px-6 py-14 sm:px-8">
           <div className="grid gap-10 md:grid-cols-4">
             <div className="md:col-span-2">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-[14px] border border-[#1a3a5a] bg-[#0f3151] p-1.5">
+                <div className="flex h-[53px] w-[53px] shrink-0 items-center justify-center">
                   <img src={LogoSb} alt="Smartbis Logo" className="h-full w-full object-contain" />
                 </div>
                 <div className="flex flex-col leading-none">
