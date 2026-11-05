@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSearchIndex } from './searchIndex.js'
-import { applyUpcomingCourseDateCorrection, buildAskedCourseDatesBlock, getUpcomingCourseDates } from './dbChat.js'
+import { applyUpcomingCourseDateCorrection, buildAskedCourseDatesBlock, findAskedCourseDates, getUpcomingCourseDates } from './dbChat.js'
 
 // The calendar as the business writes it: no year, "✨", leading zeros
 const calendar = `[FECHAS_CURSOS]
@@ -61,14 +61,14 @@ test('other courses do not match', () => {
 })
 
 test('the asked-dates block lists each date with its year, modality and calendar name', () => {
-  const block = buildAskedCourseDatesBlock(getUpcomingCourseDates('tienes cursos de verrugas y manchas?', blocks, now, zone))
+  const block = buildAskedCourseDatesBlock(findAskedCourseDates('tienes cursos de verrugas y manchas?', blocks, now, zone))
   assert.match(block, /^\[FECHAS DEL CURSO PREGUNTADO\]/)
   assert.match(block, /- 12 de noviembre de 2026 \(presencial\): Eliminación de verrugas y manchas con plasma Pen\n- 9 de diciembre de 2026 \(en línea\): Eliminación de verrugas y manchas con Plasma Pen$/)
-  assert.equal(buildAskedCourseDatesBlock([]), '')
+  assert.equal(buildAskedCourseDatesBlock(findAskedCourseDates('cursos de microblading', blocks, now, zone)), '')
 })
 
 test('a calendar course without a card of its own name is marked as such', () => {
-  const dates = getUpcomingCourseDates('tienes cursos de verrugas y manchas?', blocks, now, zone)
+  const dates = findAskedCourseDates('tienes cursos de verrugas y manchas?', blocks, now, zone)
   const block = buildAskedCourseDatesBlock(dates, ['Eliminación de verrugas y manchas con Fibroblast.'])
   assert.equal(block.match(/sin ficha \[CURSO\] con este nombre/g)?.length, 2)
   const withCard = buildAskedCourseDatesBlock(dates, ['Eliminación de verrugas y manchas con Plasma Pen.'])
@@ -105,4 +105,39 @@ test('an answer that denies the dates is still corrected', () => {
   assert.doesNotMatch(corrected, /no tiene fecha/)
   assert.match(corrected, /12 de noviembre de 2026 \(presencial\)/)
   assert.match(corrected, /9 de diciembre de 2026 \(en línea\)/)
+})
+
+test('the modality asked for does not hide the course and picks its dates', () => {
+  assert.deepEqual(describe('tienes cursos presenciales de verrugas y manchas?'), ['2026-11-12 presencial Eliminación de verrugas y manchas con plasma Pen'])
+  assert.deepEqual(describe('curso de verrugas en línea'), ['2026-12-9 en línea Eliminación de verrugas y manchas con Plasma Pen'])
+  assert.deepEqual(describe('cursos online de verrugas'), ['2026-12-9 en línea Eliminación de verrugas y manchas con Plasma Pen'])
+  assert.equal(describe('tienes curso para quitar verrugas?').length, 2)
+  const block = buildAskedCourseDatesBlock(findAskedCourseDates('tienes cursos presenciales de verrugas y manchas?', blocks, now, zone))
+  assert.match(block, /modalidad presencial/)
+  assert.match(block, /coinciden con la pregunta:\n- 12 de noviembre de 2026 \(presencial\)/)
+  assert.match(block, /otra modalidad:\n- 9 de diciembre de 2026 \(en línea\)/)
+})
+
+test('a course without a date in the asked modality offers the other one and that modality\'s courses', () => {
+  const asked = findAskedCourseDates('hay curso de peeling presencial?', blocks, now, zone)
+  assert.deepEqual(getUpcomingCourseDates('hay curso de peeling presencial?', blocks, now, zone), [])
+  const block = buildAskedCourseDatesBlock(asked)
+  assert.match(block, /no tienen fecha presencial vigente; sí la tienen en otra modalidad[^\n]*\n- 11 de noviembre de 2026 \(en línea\): Peeling químico/)
+  assert.match(block, /Otros cursos con fecha presencial vigente que puedes sugerirle:\n- 5 de noviembre de 2026 \(presencial\): Rejuvenecimiento/)
+  assert.doesNotMatch(block.split('Otros cursos')[1], /en línea/)
+})
+
+test('a course not in the calendar gets similar ones, and the asked modality\'s courses', () => {
+  const lunares = buildAskedCourseDatesBlock(findAskedCourseDates('curso de lunares y verrugas', blocks, now, zone))
+  assert.match(lunares, /Cursos parecidos con fecha vigente[^\n]*\n- 12 de noviembre de 2026 \(presencial\): Eliminación de verrugas[^\n]*\n- 9 de diciembre/)
+  const microblading = buildAskedCourseDatesBlock(findAskedCourseDates('tienes cursos presenciales de microblading?', blocks, now, zone))
+  assert.match(microblading, /Cursos con fecha presencial vigente en el calendario:\n- 5 de noviembre/)
+  assert.doesNotMatch(microblading, /en línea\)/)
+})
+
+test('an answer saying there are no in-person courses gets the in-person date', () => {
+  const answer = 'Por el momento no hay disponibles cursos presenciales de verrugas y manchas.'
+  const corrected = applyUpcomingCourseDateCorrection(answer, 'tienes cursos presenciales de verrugas y manchas?', blocks, now, zone)
+  assert.match(corrected, /12 de noviembre de 2026 \(presencial\)/)
+  assert.doesNotMatch(corrected, /9 de diciembre/)
 })
