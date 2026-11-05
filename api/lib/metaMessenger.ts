@@ -922,6 +922,9 @@ export function buildOAuthLoginURL(tenantId: string, redirectFrontendSuccess = '
     + `&state=${encodeURIComponent(state)}`
     + `&response_type=code`
     + `&scope=${encodeURIComponent(scope)}`
+    // Without it Facebook reuses an earlier authorization and skips its window,
+    // so a declined permission or an unticked Page could not be fixed by connecting again
+    + `&auth_type=rerequest`
 }
 
 export async function exchangeCodeForUserToken(code: string): Promise<{ access_token: string; token_type?: string; expires_in?: number } | null> {
