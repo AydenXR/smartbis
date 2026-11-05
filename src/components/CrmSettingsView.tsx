@@ -36,6 +36,13 @@ type CrmSettingsViewProps = {
  *
  * Transforma: - → +, _ → /, padding = agregado automático, decodifica UTF-8
  */
+// Facebook returned no Pages: the Page was not ticked in its window, or the
+// profile has no Facebook access to it (a personal profile cannot be connected)
+const NO_PAGES_MESSAGE =
+  '⚠️ Facebook no devolvió ninguna página. Smartbis se conecta a una página de Facebook de tu negocio, no a un perfil personal. ' +
+  'Revisa dos cosas: 1) al conectar, en la ventana de Facebook marca la página que quieres usar (en “Editar acceso” o “Elegir páginas”); ' +
+  '2) tu perfil debe tener acceso a esa página con control total (en la página: Configuración → Acceso a la página). Después vuelve a conectar Facebook.'
+
 function decodeBase64urlJson<T = any>(input: string): T {
   let b64 = String(input || '').trim()
   if (!b64) throw new Error('fbpages vacío')
@@ -131,7 +138,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
         setCanRetryPages(false)
         setLastSaved({
           ok: false,
-          text: '⚠️ Tu cuenta Facebook no devolvió páginas para esta App. Revisa que el perfil tenga acceso a la página y autoriza los permisos solicitados, incluido ads_management.',
+          text: NO_PAGES_MESSAGE,
         })
         return
       }
@@ -278,7 +285,7 @@ export default function CrmSettingsView(props: CrmSettingsViewProps) {
       const result = await onRetryPages()
       const pages = Array.isArray(result.pages) ? result.pages : []
       if (pages.length === 0) {
-        setLastSaved({ ok: false, text: 'Facebook no devolvió páginas para esta cuenta. Revisa que el perfil tenga acceso a la página.' })
+        setLastSaved({ ok: false, text: NO_PAGES_MESSAGE })
         return
       }
       setFBPagesFetched(pages)

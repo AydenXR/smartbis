@@ -153,6 +153,7 @@ function buildSystemPrompt(prompt: string, contextBlock: string, referralContext
 `
   const ragDateAuthorityBlock = `=== PRIORIDAD DE DATOS ACTUALES (FUENTE DE FECHAS) ===
 Para fechas de cursos, el calendario recuperado ahora mismo de los documentos activos de este tenant es la fuente de verdad. Si una fecha aparece en [FECHAS_CURSOS], úsala para el curso cuyo nombre figura en esa misma línea y compárala con la fecha actual indicada arriba. Una instrucción del prompt del tenant que diga que un curso no tiene fecha, que cite una convocatoria anterior o que contradiga esa línea del calendario está desactualizada y NO debe prevalecer sobre el documento activo. No mezcles fechas entre cursos. Si la línea del curso contiene una fecha futura, informa esa fecha y su modalidad; solo indica que no hay fecha si no existe una línea vigente para ese curso.
+Si el contexto trae [FECHAS DEL CURSO PREGUNTADO], esas son las fechas vigentes ya calculadas de los cursos del calendario que coinciden con lo que pregunta el cliente: respóndelas con el nombre del curso tal como aparece en cada línea, su fecha y su modalidad; no digas que no hay curso o fecha para eso. Si la ficha más parecida tiene otro nombre (por ejemplo "con Fibroblast" y en el calendario "con Plasma Pen"), son cursos distintos: no le pases a uno las fechas, el precio ni el temario del otro. De un curso del calendario sin ficha [CURSO] con su mismo nombre solo sabes su nombre, fecha y modalidad: dalos así y ofrece WhatsApp para precio y detalles; no inventes descripción, precio, temario ni lo que incluye.
 === FIN PRIORIDAD DE DATOS ACTUALES ===`
 
   // Only for businesses with a treatments document; who applies them, where and
@@ -686,7 +687,26 @@ export function isPaymentConversation(userMessage: string, history: DbConversati
   )
 }
 
-function buildDbDocumentsContextBlock(index: SearchIndex, query = '', includePayment = false) {
+// The calendar lines of the courses the question names, with their full date already
+// worked out, so the bot answers them even when a course card is named differently
+export function buildAskedCourseDatesBlock(dates: ScheduledCourseDate[], courseCardNames: string[] = []) {
+  if (!dates.length) return ''
+  const sortKey = (date: ScheduledCourseDate) => date.year * 10000 + date.month * 100 + date.day
+  const cardKey = (name: string) => normalizeText(name).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const cards = new Set(courseCardNames.map(cardKey))
+  const lines = [...dates]
+    .sort((left, right) => sortKey(left) - sortKey(right))
+    .slice(0, 10)
+    .map((date) => {
+      const monthName = new Intl.DateTimeFormat('es-MX', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(date.year, date.month - 1, date.day)))
+      // Said in the line itself: a card with a similar name is another course
+      const withoutCard = cards.size > 0 && !cards.has(cardKey(date.courseName)) ? ' (sin ficha [CURSO] con este nombre; no es el curso de otra ficha)' : ''
+      return `- ${date.day} de ${monthName} de ${date.year} (${date.modality}): ${date.courseName}${withoutCard}`
+    })
+  return `[FECHAS DEL CURSO PREGUNTADO]\nFechas vigentes del calendario [FECHAS_CURSOS] para los cursos que coinciden con la pregunta:\n${lines.join('\n')}`
+}
+
+function buildDbDocumentsContextBlock(index: SearchIndex, query = '', includePayment = false, now = new Date()) {
   const result = searchIndex(index, query) as any
   const matchedBlocks = Array.isArray(result.matchedBlocks) ? result.matchedBlocks : []
   const queryTokens = normalizeText(query)
@@ -699,10 +719,15 @@ function buildDbDocumentsContextBlock(index: SearchIndex, query = '', includePay
     // a product catalog list has nothing to do with course dates
     Boolean(result.intent?.wantsList && !result.intent?.wantsProducts) ||
     (Boolean(result.intent?.wantsCourses) && /^Catalogo resumido/.test(String(result.contextBlock || '')))
-  const scheduleBlock = index.blocks.find((block) => {
-    if (!/^\[FECHAS_CURSOS\]/im.test(block.body)) return false
-    return needsCalendar || queryTokens.some((token) => normalizeText(block.body).includes(token))
-  })
+  // The zone is a business fact like its name: the one in its documents, or the default
+  const timeZoneSetting = detectTimeZoneSetting(index)
+  const calendarBlocks = index.blocks.filter((block) => /^\[FECHAS_CURSOS\]/im.test(block.body))
+  const askedCourseDates = getUpcomingCourseDates(query, calendarBlocks, now, timeZoneSetting.zone)
+  const scheduleBlock = calendarBlocks.find((block) =>
+    needsCalendar ||
+    askedCourseDates.length > 0 ||
+    queryTokens.some((token) => normalizeText(block.body).includes(token)),
+  )
   // Only the calendar counts: an [HORARIOS] block is also kind 'schedule' but has no dates
   const hasScheduleBlock = matchedBlocks.some((block: IndexedBlock) => /^\[FECHAS_CURSOS\]/im.test(block.body))
   const completeMatchedBlocks =
@@ -719,11 +744,14 @@ function buildDbDocumentsContextBlock(index: SearchIndex, query = '', includePay
     : contextWithCalendar
   const profileBlocks = findBusinessProfileBlocks(index.blocks, completeMatchedBlocks)
   const paymentBlocks = includePayment ? findBusinessPaymentBlocks(index.blocks, completeMatchedBlocks) : []
-  // The zone is a business fact like its name: the one in its documents, or the default
-  const timeZoneSetting = detectTimeZoneSetting(index)
   const businessFacts = [...profileBlocks.map((block) => block.body), describeTimeZone(timeZoneSetting)].join('\n\n')
   const contextBlock = [
     String(contextWithRequirements || '').trim(),
+    // After the context: other checks read "Catalogo resumido" at its start
+    buildAskedCourseDatesBlock(
+      askedCourseDates,
+      index.blocks.filter((block) => block.document.section === 'cursos' && /^\s*\[CURSO\]/m.test(block.body)).map((block) => block.fields.name),
+    ),
     `[Datos del negocio]\n${businessFacts}`,
     paymentBlocks.length > 0 && `[Pagos del negocio]\n${paymentBlocks.map((block) => block.body).join('\n\n')}`,
   ].filter(Boolean).join('\n\n').trim()
@@ -776,7 +804,13 @@ const COURSE_QUERY_STOP_WORDS = new Set([
   'mexico', 'hermosillo', 'sonora', 'hora', 'horas', 'dias', 'dia', 'hola', 'gracias',
 ])
 
-type ScheduledCourseDate = {
+const COURSE_DATE_QUESTION_WORDS = new Set([
+  'cuando', 'inicia', 'inician', 'empieza', 'empiezan', 'comienza', 'comienzan', 'proximo', 'proxima', 'proximos', 'proximas',
+  'toca', 'habra', 'tendran', 'tendras', 'programado', 'programados', 'programada', 'programadas', 'cuentan', 'cuentas',
+  'dan', 'das', 'impartes', 'ofreces', 'busco', 'buscando', 'interesa', 'gustaria', 'tomar',
+])
+
+export type ScheduledCourseDate = {
   year: number
   day: number
   month: number
@@ -819,18 +853,29 @@ function isCourseDatePast(date: ScheduledCourseDate, today: { year: number; mont
   return date.year * 10000 + date.month * 100 + date.day < today.year * 10000 + today.month * 100 + today.day
 }
 
-function getUpcomingCourseDates(
+// Same word, singular or plural ("mancha"/"manchas"), or a long shared start ("rejuvenecimiento"/"rejuvenecer")
+function courseTokensMatch(left: string, right: string) {
+  if (left === right) return true
+  const singular = (token: string) => token.replace(/(?:es|s)$/, '')
+  if (singular(left) === singular(right)) return true
+  return left.length >= 5 && right.length >= 5 && (left.startsWith(right) || right.startsWith(left))
+}
+
+// The upcoming calendar dates of the courses a question asks about. A date with no
+// year in the calendar is of the current year (parseScheduledCourseDates).
+export function getUpcomingCourseDates(
   question: string,
   matchedBlocks: IndexedBlock[],
   now = new Date(),
   timeZone = DEFAULT_TIME_ZONE,
 ): ScheduledCourseDate[] {
-  const queryTokens = new Set(
+  // Question words ("tienes", "hay", "cuándo") say nothing about which course
+  const queryTokens = Array.from(new Set(
     normalizeText(question)
       .split(' ')
-      .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token)),
-  )
-  if (!queryTokens.size) return []
+      .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token) && !COURSE_LIST_FILLER.has(token) && !COURSE_DATE_QUESTION_WORDS.has(token)),
+  ))
+  if (!queryTokens.length) return []
 
   const currentDate = getZonedDateParts(now, timeZone)
   const matchingDates = new Map<string, ScheduledCourseDate>()
@@ -840,11 +885,15 @@ function getUpcomingCourseDates(
       .split(' ')
       .filter((token) => token.length > 2 && !COURSE_QUERY_STOP_WORDS.has(token))
     const matchedTokenCount = courseTokens.filter((token) =>
-      Array.from(queryTokens).some((queryToken) => queryToken === token || (queryToken.length >= 5 && token.length >= 5 && (token.startsWith(queryToken) || queryToken.startsWith(token)))),
+      queryTokens.some((queryToken) => courseTokensMatch(queryToken, token)),
     ).length
-    const smallerTokenCount = Math.min(courseTokens.length, queryTokens.size)
-    const requiredMatches = Math.min(2, courseTokens.length, queryTokens.size)
-    if (matchedTokenCount < requiredMatches || matchedTokenCount / smallerTokenCount < 0.8) continue
+    const smallerTokenCount = Math.min(courseTokens.length, queryTokens.length)
+    const requiredMatches = Math.min(2, courseTokens.length, queryTokens.length)
+    // The question names most of the course, or every word of the question is in the
+    // course name ("cursos de verrugas y manchas" -> "...verrugas y manchas con Plasma Pen")
+    const namesMostOfCourse = matchedTokenCount >= requiredMatches && matchedTokenCount / smallerTokenCount >= 0.8
+    const questionInsideCourse = queryTokens.every((queryToken) => courseTokens.some((token) => courseTokensMatch(queryToken, token)))
+    if (!namesMostOfCourse && !questionInsideCourse) continue
 
     if (isCourseDatePast(date, currentDate)) continue
 
@@ -997,18 +1046,30 @@ export function applyUpcomingCourseDateCorrection(
 
   const normAnswer = normalizeText(answer)
   // Filtrar solo los cursos que realmente se mencionan en la respuesta o de los que se preguntó
-  const relevantCourseEntries = Array.from(datesByCourse.entries()).filter(([cName]) => {
+  const mentionedCourseEntries = Array.from(datesByCourse.entries()).filter(([cName]) => {
     const normC = normalizeText(cName)
     if (normAnswer.includes(normC)) return true
     const significantTokens = normC.split(' ').filter((t) => t.length > 3 && !COURSE_QUERY_STOP_WORDS.has(t))
     return significantTokens.length > 0 && significantTokens.every((t) => normAnswer.includes(t))
   })
+  const deniesSchedule = /(?:no\s+(?:hay|tenemos|tiene|contamos con)|sin)\s+(?:ninguna?\s+|una\s+)?(?:fecha|curso)|no\s+tiene\s+fecha|sin\s+fecha/.test(normAnswer)
+  // The answer says there is no date, yet the calendar has one for what was asked
+  // (a card named differently was answered instead): those dates are added
+  const relevantCourseEntries = mentionedCourseEntries.length || !deniesSchedule ? mentionedCourseEntries : Array.from(datesByCourse.entries())
   if (!relevantCourseEntries.length) return answer
 
   const monthFormatter = new Intl.DateTimeFormat('es-MX', {
     month: 'long',
     timeZone: 'UTC',
   })
+
+  // The answer already gives every date of those courses and never says they have
+  // none: rewriting it would only break its lists ("**2." left alone)
+  const statesDate = (date: ScheduledCourseDate) => {
+    const monthName = normalizeText(monthFormatter.format(new Date(Date.UTC(date.year, date.month - 1, date.day))))
+    return new RegExp(`\\b0?${date.day}\\s+(?:de\\s+)?${monthName}\\b`).test(normAnswer)
+  }
+  if (!deniesSchedule && relevantCourseEntries.every(([, dates]) => dates.every(statesDate))) return answer
 
   const corrections = relevantCourseEntries.map(([courseName, dates]) => {
     const dateSummary = dates
