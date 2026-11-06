@@ -15,6 +15,8 @@ import {
   signEmailVerificationToken,
 } from './accountSecurity.js'
 import { isMailerConfigured, sendEmailVerificationEmail, sendPasswordResetEmail } from './mailer.js'
+import { getSupabaseConfig, restRequest } from './supabaseRest.js'
+import { getTrialPlan, startTenantTrial } from './billing.js'
 
 type TenantRow = {
   id: string
@@ -131,23 +133,6 @@ Agrega aqui preguntas frecuentes y sus respuestas.`,
   },
 ]
 
-function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL?.trim()
-  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY?.trim()
-  const anonKey =
-    process.env.SUPABASE_PUBLISHABLE_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
-
-  if (!url || !serviceRoleKey || !anonKey) {
-    throw new Error('Falta la configuracion manual de Supabase en el servidor')
-  }
-
-  return {
-    url,
-    serviceRoleKey,
-    anonKey,
-  }
-}
-
 function slugify(value: string) {
   const asciiValue = value
     .normalize('NFD')
@@ -225,51 +210,6 @@ function mapAgentDocument(row: DocumentRow): DbAgentDocument {
     isActive: Boolean(row.is_active),
     updatedAt: row.updated_at,
   }
-}
-
-async function restRequest<T>(
-  path: string,
-  options?: {
-    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
-    query?: Record<string, string>
-    body?: unknown
-    headers?: Record<string, string>
-  },
-) {
-  const { url, serviceRoleKey } = getSupabaseConfig()
-  const requestUrl = new URL(`/rest/v1/${path}`, url)
-
-  for (const [key, value] of Object.entries(options?.query || {})) {
-    requestUrl.searchParams.set(key, value)
-  }
-
-  const response = await fetch(requestUrl, {
-    method: options?.method || 'GET',
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
-    body: options?.body ? JSON.stringify(options.body) : undefined,
-    signal: AbortSignal.timeout(45000),
-  })
-
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
-
-  if (!response.ok) {
-    const message =
-      payload?.msg ||
-      payload?.message ||
-      payload?.error_description ||
-      payload?.hint ||
-      'Error consultando Supabase'
-
-    throw new Error(message)
-  }
-
-  return payload as T
 }
 
 async function authRequest<T>(
@@ -535,7 +475,23 @@ async function getAuthUser(accessToken: string) {
 }
 
 async function sendVerificationLink(userId: string, email: string) {
-  await sendEmailVerificationEmail(email, signEmailVerificationToken(userId, email))
+  // Without the plan the email still goes out, only without the trial paragraph
+  const trial = await getTrialPlan().catch((error) => {
+    console.error('[billing] el correo de confirmación sale sin la prueba gratis', error?.message || error)
+    return undefined
+  })
+  await sendEmailVerificationEmail(email, signEmailVerificationToken(userId, email), trial)
+}
+
+// The free trial starts when the account is confirmed, before the email is marked
+// as confirmed: if it fails, the same link can be opened again
+async function startTrialForUser(userId: string) {
+  const tenant = await getTenantByUserId(userId)
+  if (!tenant) {
+    console.error('[billing] cuenta confirmada sin negocio: no se inició la prueba gratis', { userId })
+    return
+  }
+  await startTenantTrial(tenant.id, userId)
 }
 
 // Creates the account and its workspace, and emails the confirmation link. The
@@ -591,7 +547,11 @@ export async function confirmDbAccountEmail(token: unknown) {
   }
   // The account changed its email after the link was sent
   if (normalizeEmail(user.email) !== payload.email) throw invalidEmailLinkError()
-  if (!isEmailConfirmed(user)) await updateAuthAdminUser(user.id, { email_confirm: true })
+  // Only on the first confirmation: an account confirmed before plans existed keeps the bot as it had it
+  if (!isEmailConfirmed(user)) {
+    await startTrialForUser(user.id)
+    await updateAuthAdminUser(user.id, { email_confirm: true })
+  }
   return { email: payload.email }
 }
 

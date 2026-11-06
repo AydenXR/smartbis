@@ -153,6 +153,31 @@ async function requestJson<T>(path: string, options: RequestOptions = {}) {
   }
 }
 
+// The business's plan: unlimited (registered before plans existed), trial or paid
+export type BillingStatus =
+  | { kind: 'unlimited' }
+  | {
+      kind: 'trial' | 'paid'
+      planId: string
+      planName: string
+      active: boolean
+      periodEnd: string
+      conversationsUsed: number
+      conversationsLimit: number
+    }
+
+export async function getBillingStatus() {
+  return requestJson<BillingStatus>('/api/billing/status')
+}
+
+// Stripe's payment page for the plan; the browser goes there to pay
+export async function startPlanCheckout(planId: string) {
+  return requestJson<{ url: string }>('/api/billing/checkout', {
+    method: 'POST',
+    body: { planId },
+  })
+}
+
 // The account is created unconfirmed: it signs in after opening the emailed link
 export async function registerAccount(input: { email: string; password: string }) {
   return requestJson<{ pendingVerification: true; email: string; emailSent: boolean }>('/api/auth/register', {

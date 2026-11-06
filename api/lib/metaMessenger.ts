@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from 'express'
 import dotenv from 'dotenv'
 import { generateDbAgentAnswer, MESSENGER_MAX_TEXT, shortenForMessenger } from './dbChat.js'
 import { type DbAuthUser, loadDbWorkspace } from './dbWorkspace.js'
+import { type BotAllowance, checkBotAllowance } from './billing.js'
 import { createAutoEval } from './posStore.js'
 import { maybeAutoConfirmRegistration } from './paymentAutoConfirm.js'
 
@@ -668,6 +669,19 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
     return
   }
 
+  // Plan del negocio: con la prueba vencida o sin cupo para un contacto nuevo el bot
+  // no contesta (antes de gastar en el LLM); el mensaje queda en el CRM sin respuesta.
+  // Si Supabase falla, el bot responde como siempre y ese contacto no se cuenta.
+  const allowance: BotAllowance = await checkBotAllowance(tenantId, psid, pageId).catch((e: unknown) => {
+    console.error('[billing] no se pudo revisar el plan; el bot responde sin contar', { tenantId, error: e instanceof Error ? e.message : e })
+    return { allowed: true, record: null }
+  })
+  if (allowance.allowed === false) {
+    pendingReplies.delete(key)
+    console.log(`[billing] bot sin responder a PSID ${psid}: ${allowance.reason}. Tenant=${tenantId}`)
+    return
+  }
+
   // Mensajes sin responder = los IN posteriores a la última salida (bot o humano)
   const chatHistory = await getMessagesByPSID(tenantId, psid)
   let lastOutIndex = -1
@@ -874,6 +888,13 @@ async function replyToPendingMessages(tenantId: string, psid: string, generation
     sendError: sent.error,
   }
   await saveMessage(cfg.tenantId, outMsg)
+
+  // Solo una respuesta que llegó al cliente cuenta como conversación del plan
+  if (!sent.error && allowance.record) {
+    await allowance.record().catch((e: unknown) => {
+      console.error('[billing] no se pudo contar la conversación', { tenantId, psid, error: e instanceof Error ? e.message : e })
+    })
+  }
 }
 
 // =========================
