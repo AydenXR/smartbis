@@ -1,5 +1,8 @@
+import type { MouseEvent } from 'react'
 import LogoSb from '../assets/logo.png'
 import SmartbisMobile from '../assets/smartbis-mobile.png'
+import PlanCard from '@/components/PlanCard'
+import { PRICING_PLANS } from '@/lib/plans'
 import {
   Bot,
   BookOpenText,
@@ -43,6 +46,17 @@ const features = [
       'Cada cuenta tiene su propio espacio, prompt, documentos y chat. Nada se mezcla entre clientes.',
   },
 ]
+
+// Desplazamiento suave a cada sección (sin animación si el usuario pidió menos movimiento)
+function scrollToSection(event: MouseEvent<HTMLAnchorElement>) {
+  const hash = event.currentTarget.getAttribute('href') || ''
+  const target = hash.startsWith('#') ? document.getElementById(hash.slice(1)) : null
+  if (!target) return
+  event.preventDefault()
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+  window.history.replaceState(null, '', hash)
+}
 
 const steps = [
   {
@@ -100,6 +114,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               <a
                 key={link.href}
                 href={link.href}
+                onClick={scrollToSection}
                 className="text-[13px] font-semibold text-slate-300 transition hover:text-white"
               >
                 {link.label}
@@ -369,7 +384,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
         </div>
       </section>
 
-      <section id="precios" className="relative mx-auto w-full max-w-7xl px-6 py-16 sm:px-8">
+      <section id="empezar" className="relative mx-auto w-full max-w-7xl px-6 py-16 sm:px-8">
         <div className="relative overflow-hidden rounded-[32px] border border-[#1090D0]/30 bg-gradient-to-br from-[#173c60] via-[#133456] to-[#12304f] px-8 py-16 shadow-2xl shadow-[#1090D0]/10 sm:px-14">
           <div className="pointer-events-none absolute -top-40 -right-40 h-[420px] w-[420px] rounded-full bg-[#1090D0]/25 blur-[120px]" />
           <div className="relative mx-auto flex max-w-5xl flex-col items-center text-center">
@@ -401,6 +416,33 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
         </div>
       </section>
 
+      {/* scroll-mt: que el título no quede debajo del encabezado fijo */}
+      <section id="precios" className="relative mx-auto w-full max-w-7xl scroll-mt-20 px-6 py-24 sm:px-8">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="inline-flex rounded-full border border-[#1a3a5a] bg-[#173c60]/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.25em] text-slate-300">
+            Precios
+          </div>
+          <h2 className="mt-5 font-display text-[36px] font-extrabold leading-tight text-white sm:text-[42px]">
+            Elige el plan para <span className="text-[#1090D0]">tu negocio</span>
+          </h2>
+          <p className="mt-4 text-[15px] leading-relaxed text-slate-300">
+            Automatiza tus mensajes y administra tu negocio desde un solo lugar. Precios en pesos mexicanos.
+          </p>
+          {/* Solo mensual por ahora; aquí irá el selector mensual / anual */}
+          <div className="mt-8 inline-flex rounded-full border border-[#1a3a5a] bg-[#123150]/80 p-1">
+            <span className="rounded-full bg-[#1090D0] px-5 py-2 text-[13px] font-bold text-white shadow-lg shadow-[#1090D0]/20">
+              Mensual
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-12 flex flex-wrap justify-center gap-6">
+          {PRICING_PLANS.map((plan) => (
+            <PlanCard key={plan.planId} plan={plan} buttonLabel="Comprar" onSelect={onLoginClick} />
+          ))}
+        </div>
+      </section>
+
       <footer id="faq" className="relative border-t border-[#1a3a5a]/70 bg-[#12304f]/40">
         <div className="mx-auto w-full max-w-7xl px-6 py-14 sm:px-8">
           <div className="grid gap-10 md:grid-cols-4">
@@ -429,7 +471,7 @@ export default function LandingPage({ onLoginClick, onRegisterClick }: LandingPa
               <ul className="mt-5 space-y-2.5 text-[13px] text-slate-400">
                 <li><a className="hover:text-white transition" href="#caracteristicas">Características</a></li>
                 <li><a className="hover:text-white transition" href="#como-funciona">Cómo funciona</a></li>
-                <li><a className="hover:text-white transition" href="#precios">Precios</a></li>
+                <li><a className="hover:text-white transition" href="#precios" onClick={scrollToSection}>Precios</a></li>
                 <li><a className="hover:text-white transition" href="#top">¿Qué es Smartbis?</a></li>
               </ul>
             </div>

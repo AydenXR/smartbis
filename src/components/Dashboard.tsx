@@ -337,6 +337,11 @@ export default function Dashboard({
     if (CS_PAGES.includes(crmPage)) setCrmPage('operations')
   }, [isAdminPv, crmPage, setCrmPage])
 
+  // Al volver de la página de pago de Stripe ("?pago=..."), Mi perfil muestra el resultado
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('pago')) setCrmPage('myprofile')
+  }, [setCrmPage])
+
   useEffect(() => {
     if (!(isAdminCs || isCsAgent)) return
     if (crmPage === 'operations') setCrmPage('docs')

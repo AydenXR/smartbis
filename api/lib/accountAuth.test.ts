@@ -5,7 +5,9 @@ process.env.SUPABASE_URL = 'https://supabase.test'
 process.env.SUPABASE_SECRET_KEY = 'service-role-key-for-tests'
 process.env.SUPABASE_PUBLISHABLE_KEY = 'anon-key-for-tests'
 process.env.EMAIL_DOMAIN_CHECK = 'off'
-delete process.env.SMTP_HOST
+// Empty, not deleted: a module that loads .env on import would set it again and
+// the tests would send real emails
+process.env.SMTP_HOST = ''
 delete process.env.EMAIL_LINK_SECRET
 
 const {
@@ -195,6 +197,43 @@ test('opening the confirmation link confirms the account, and opening it again i
     const updates = supabase.calls.filter((call) => call.method === 'PUT')
     assert.equal(updates.length, 1)
     assert.deepEqual(updates[0].body, { email_confirm: true })
+  } finally {
+    supabase.restore()
+  }
+})
+
+test('confirming the account starts its free trial first, and the email announces it', async () => {
+  let confirmed = false
+  const supabase = fakeSupabase((call) => {
+    if (call.path === '/auth/v1/admin/users' && call.method === 'POST') return { body: { id: 'user-1', email: call.body.email } }
+    if (call.path.startsWith('/rest/v1/tenants') && call.method === 'POST') return { body: [{ id: 'tenant-1', slug: 'C-1' }] }
+    if (call.path.startsWith('/rest/v1/tenants')) return { body: [{ id: 'tenant-1', slug: 'C-1', name: 'Cliente', created_by: 'user-1' }] }
+    if (call.path.startsWith('/rest/v1/plans')) return { body: [{ id: 'trial', conversations: 200, duration_days: 15 }] }
+    if (call.path === '/auth/v1/admin/users/user-1' && call.method === 'GET') {
+      return { body: { id: 'user-1', email: 'ana@empresa.com', email_confirmed_at: confirmed ? '2026-01-01T00:00:00Z' : null } }
+    }
+    if (call.path === '/auth/v1/admin/users/user-1' && call.method === 'PUT') {
+      confirmed = true
+      return { body: { id: 'user-1' } }
+    }
+    return undefined
+  })
+  try {
+    const { printed } = await quietly(() => registerDbAccount({ email: 'ana@empresa.com', password: 'Salubel2026' }))
+    assert.match(printed, /15 días de prueba gratis.*hasta 200 conversaciones/)
+    assert.match(printed, /Importante: Smartbis se conecta a la página de Facebook de tu negocio/)
+
+    const token = signEmailVerificationToken('user-1', 'ana@empresa.com')
+    await confirmDbAccountEmail(token)
+    await confirmDbAccountEmail(token)
+    const trialInserts = supabase.calls.filter((call) => call.path.startsWith('/rest/v1/subscriptions') && call.method === 'POST')
+    assert.equal(trialInserts.length, 1, 'only the first confirmation starts the trial')
+    assert.equal(trialInserts[0].body.tenant_id, 'tenant-1')
+    assert.equal(trialInserts[0].body.status, 'trialing')
+    // Started before the account is marked as confirmed: if it failed, the link would still work
+    const trialAt = supabase.calls.indexOf(trialInserts[0])
+    const confirmAt = supabase.calls.findIndex((call) => call.method === 'PUT')
+    assert.ok(trialAt < confirmAt)
   } finally {
     supabase.restore()
   }

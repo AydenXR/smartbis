@@ -23,6 +23,7 @@ import {
   type DbAuthUser,
 } from './lib/dbWorkspace.js'
 import { generateDbAgentAnswer } from './lib/dbChat.js'
+import { createPlanCheckout, getTenantBillingStatus, handleStripeWebhook } from './lib/billing.js'
 import { isUsableCatalogDocumentName } from './lib/catalogDocument.js'
 import { AppError, assertRateLimit, clientIp, takeRateLimit } from './lib/accountSecurity.js'
 import { getWhatsAppStatus, notifyRegistration, sendWhatsAppTest, setWhatsAppRecipient, startWhatsApp } from './lib/whatsappNotifications.js'
@@ -118,9 +119,10 @@ if (resolvedEnvFile) {
 const app: express.Application = express()
 
 app.use(cors())
-// Middleware: captura rawBody PARA POST /api/webhooks/facebook (validar firma HMAC Meta)
+// Middleware: captura rawBody para los webhooks que validan firma (HMAC de Meta, firma de Stripe)
+const RAW_BODY_WEBHOOKS = new Set(['/api/webhooks/facebook', '/api/webhooks/stripe'])
 app.use((req, _res, next) => {
-  if (req.path === '/api/webhooks/facebook' && req.method === 'POST') {
+  if (RAW_BODY_WEBHOOKS.has(req.path) && req.method === 'POST') {
     const chunks: Buffer[] = []
     let done = false
     req.on('data', (chunk: Buffer) => {
@@ -1212,6 +1214,40 @@ app.post('/api/auth/logout', requireAuth, async (_req: Request, res: Response) =
   res.status(200).json({
     success: true,
   })
+})
+
+// Paquete del negocio: lo ve cualquier usuario de la cuenta; solo el propietario paga
+app.get('/api/billing/status', requireAuth, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    res.status(200).json(await getTenantBillingStatus(user.tenantId))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/billing/checkout', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = res.locals.user as DbAuthUser
+    if (user.authKind !== 'tenant_owner') {
+      throw new AppError(403, 'Solo el propietario de la cuenta puede contratar paquetes.', 'owner_only')
+    }
+    assertRateLimit(`checkout:${user.tenantId}`, 10, 15 * MINUTE)
+    const planId = typeof req.body?.planId === 'string' ? req.body.planId : ''
+    res.status(200).json(await createPlanCheckout({ tenantId: user.tenantId, userId: user.id, email: user.email, planId }))
+  } catch (error) {
+    next(error)
+  }
+})
+
+// Stripe avisa aquí de cada pago; la firma prueba que el aviso viene de Stripe
+app.post('/api/webhooks/stripe', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await handleStripeWebhook((req as Request & { rawBody?: Buffer }).rawBody, String(req.headers['stripe-signature'] || ''))
+    res.status(200).json({ received: true })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.get('/api/workspace', requireAuth, async (_req: Request, res: Response, next: NextFunction) => {

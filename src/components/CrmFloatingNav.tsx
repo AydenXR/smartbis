@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import type { MetaStatusResponse } from '@/lib/api'
-import LogoSb from '../assets/logosb.png'
+import LogoSb from '../assets/logo.png'
 
 type Props = {
   active: CrmPage
@@ -701,7 +701,7 @@ export default function CrmFloatingNav(props: Props) {
           )}
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#0b2641]/70 backdrop-blur">
             {open ? (
-              <img src={LogoSb} alt="Smartbis" className="h-7 w-7 object-contain" />
+              <img src={LogoSb} alt="Smartbis" className="h-9 w-9 object-contain" />
             ) : (
               <div className="flex flex-col items-center gap-0.5">
                 <Menu className="h-6 w-6 text-[#9ed9f0]" strokeWidth={2.25} />
